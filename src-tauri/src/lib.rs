@@ -11,7 +11,7 @@ use std::{
         Arc, Mutex,
     },
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -76,6 +76,10 @@ struct DesktopState {
     /// The drop window is placed in its initial corner exactly once. Later
     /// show/resize calls preserve the position selected by dragging it.
     dropzone_positioned: AtomicBool,
+    started_at: Instant,
+    /// Last skip-taskbar value applied to the main window. Avoid repeating the
+    /// Win32 style change; it can make the window flicker or vanish on Windows.
+    last_skip_taskbar: AtomicBool,
 }
 
 impl Default for DesktopState {
@@ -95,6 +99,8 @@ impl Default for DesktopState {
             clipboard_ignore_until_ms: AtomicU64::new(0),
             shortcut_config_lock: Mutex::new(()),
             dropzone_positioned: AtomicBool::new(false),
+            started_at: Instant::now(),
+            last_skip_taskbar: AtomicBool::new(false),
         }
     }
 }
@@ -1197,6 +1203,55 @@ fn show_window(app: &AppHandle, label: &str) {
     }
 }
 
+const STARTUP_FOCUS_GRACE: Duration = Duration::from_millis(1800);
+const BLUR_HIDE_DELAY: Duration = Duration::from_millis(180);
+
+fn should_hide_main_on_unfocus(
+    tray_available: bool,
+    show_in_taskbar_dock: bool,
+    quitting: bool,
+    within_startup_grace: bool,
+    main_focused: bool,
+    other_window_in_use: bool,
+) -> bool {
+    tray_available
+        && !show_in_taskbar_dock
+        && !quitting
+        && !within_startup_grace
+        && !main_focused
+        && !other_window_in_use
+}
+
+fn other_piclite_window_in_use(app: &AppHandle) -> bool {
+    app.webview_windows().iter().any(|(label, window)| {
+        label.as_str() != "main"
+            && (window.is_focused().unwrap_or(false) || window.is_visible().unwrap_or(false))
+    })
+}
+
+/// Hide the main window only when the whole app has lost focus.
+/// Opening settings / the floating result steals focus from `main` on Windows,
+/// and creating the hidden dropzone webview at startup does the same. Those
+/// must not count as "user left PicLite".
+fn hide_main_if_app_inactive(window: &tauri::Window) {
+    if window.label() != "main" {
+        return;
+    }
+    let state = window.state::<DesktopState>();
+    let within_startup_grace = state.started_at.elapsed() < STARTUP_FOCUS_GRACE;
+    let other_in_use = other_piclite_window_in_use(window.app_handle());
+    if should_hide_main_on_unfocus(
+        state.tray_available.load(Ordering::Relaxed),
+        state.show_in_taskbar_dock.load(Ordering::Relaxed),
+        state.quitting.load(Ordering::Relaxed),
+        within_startup_grace,
+        window.is_focused().unwrap_or(false),
+        other_in_use,
+    ) {
+        let _ = window.hide();
+    }
+}
+
 /// The preferences webview used to be declared in `tauri.conf.json`, which
 /// made a complete renderer process live for the entire application lifetime
 /// even when settings had never been opened. Create it only on demand; closing
@@ -1558,10 +1613,14 @@ async fn update_desktop_preferences(
     state
         .clipboard_monitor_enabled
         .store(preferences.clipboard_watcher_enabled, Ordering::Relaxed);
-    if let Some(window) = app.get_webview_window("main") {
-        window
-            .set_skip_taskbar(!preferences.show_in_taskbar_dock)
-            .map_err(|error| error.to_string())?;
+    let skip_taskbar = !preferences.show_in_taskbar_dock;
+    let previous_skip = state.last_skip_taskbar.swap(skip_taskbar, Ordering::Relaxed);
+    if previous_skip != skip_taskbar {
+        if let Some(window) = app.get_webview_window("main") {
+            window
+                .set_skip_taskbar(skip_taskbar)
+                .map_err(|error| error.to_string())?;
+        }
     }
     #[cfg(target_os = "macos")]
     app.set_activation_policy(if preferences.show_in_taskbar_dock {
@@ -4233,11 +4292,13 @@ pub fn run() {
                     // lazily by `ensure_preferences_window` next time.
                 }
                 WindowEvent::Resized(_)
-                    if state.tray_available.load(Ordering::Relaxed)
+                    if window.label() == "main"
+                        && state.tray_available.load(Ordering::Relaxed)
                         && state.minimize_to_tray.load(Ordering::Relaxed) =>
                 {
                     if !state.show_in_taskbar_dock.load(Ordering::Relaxed)
                         && window.is_minimized().unwrap_or(false)
+                        && !other_piclite_window_in_use(window.app_handle())
                     {
                         let _ = window.hide();
                     }
@@ -4248,7 +4309,11 @@ pub fn run() {
                         && !state.show_in_taskbar_dock.load(Ordering::Relaxed)
                         && !state.quitting.load(Ordering::Relaxed) =>
                 {
-                    let _ = window.hide();
+                    let window = window.clone();
+                    thread::spawn(move || {
+                        thread::sleep(BLUR_HIDE_DELAY);
+                        hide_main_if_app_inactive(&window);
+                    });
                 }
                 _ => {}
             }
@@ -4363,6 +4428,22 @@ mod tests {
         }))
         .expect("taskbar desktop preferences");
         assert!(visible.show_in_taskbar_dock);
+    }
+
+    #[test]
+    fn main_window_stays_visible_when_a_child_window_takes_focus() {
+        assert!(!should_hide_main_on_unfocus(
+            true, false, false, false, false, true
+        ));
+        assert!(!should_hide_main_on_unfocus(
+            true, false, false, true, false, false
+        ));
+        assert!(!should_hide_main_on_unfocus(
+            true, true, false, false, false, false
+        ));
+        assert!(should_hide_main_on_unfocus(
+            true, false, false, false, false, false
+        ));
     }
 
     #[test]

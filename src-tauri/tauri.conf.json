@@ -33,6 +33,7 @@
         "minWidth": 246,
         "minHeight": 188,
         "visible": false,
+        "focus": false,
         "resizable": true,
         "decorations": false,
         "alwaysOnTop": true,
