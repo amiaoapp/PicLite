@@ -13,9 +13,11 @@ A local-first image optimiser for content creators and developers, available on 
 - Before/after preview, actual output size, continuous quality and scale controls, and text watermarks
 - Limit output to 200 KB, 100 KB, 50 KB, or a custom size using measured quality and dimension adjustments
 - Import an entire folder recursively; large batches use the same low-memory queue
+- Recursively batch-rename images using regex captures from ancestor folders at any depth, configurable zero-padding, templates, and conflict preview
 - Clipboard monitoring, global shortcuts, watched folders, and a local result library
 - Clop-inspired floating results with copy, preview, undo, further downscaling, and format switching, plus clear success or failure feedback in the lower-left status area
 - Configurable result limit, stacked/list layouts, and automatic dismissal
+- Optionally exclude floating results from system screenshots and recordings on macOS and Windows; third-party capture tools may choose not to honor OS protection
 - Replace, rename beside the source, or export to a fixed folder with scheduled cleanup
 - Upload to WebDAV, S3/R2, OSS, FTP, or SFTP image hosts
 - Load local HTML/JavaScript or URL workbench plugins; the library and folder watcher can also be toggled independently
@@ -24,6 +26,10 @@ A local-first image optimiser for content creators and developers, available on 
 ### Floating-window workflow
 
 The desktop app can open its floating window from a global shortcut, copied image, dropped file, or the local image picker, without opening the full workbench first. After the smart first pass, hover over the preview to copy, preview, reveal, undo, downscale again, switch formats, add a watermark, or upload. Floating results are draggable and resizable, support cycling stacks and expanded lists, result limits and automatic dismissal, and let you choose up to six action buttons in Settings.
+
+### Batch rename
+
+Open **Settings → File processing → Batch rename images** and choose a root folder. PicLite scans images recursively and applies the regular expression to ancestor folder names at any depth. The default rule extracts two numeric groups from names such as `【1-1】` and `【11-1】`, then pads them into `0101` and `1101`. Templates support `{code}`, `{name}`, `{ext}`, `{folder}`, `{match}`, `{1}`, `{2}`, `{index}`, and related variables. Always review the preview for duplicate or existing targets before applying the rename.
 
 ## Download
 
@@ -64,7 +70,7 @@ Create a `.env` file in the project directory to change the bind address, host p
 ```dotenv
 PICLITE_BIND=0.0.0.0
 PICLITE_PORT=3456
-PICLITE_TAG=1.5.0
+PICLITE_TAG=1.5.1
 ```
 
 To build from the current source tree instead:

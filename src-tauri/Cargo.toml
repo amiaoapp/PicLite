@@ -1,6 +1,6 @@
 [package]
 name = "piclite"
-version = "1.5.0"
+version = "1.5.1"
 description = "PicLite local-first image compressor"
 authors = ["PicLite contributors"]
 edition = "2021"
@@ -24,6 +24,7 @@ notify = "8.2"
 percent-encoding = "2.3"
 png = "0.18.1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"

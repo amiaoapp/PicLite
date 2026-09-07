@@ -132,6 +132,22 @@ type WatcherSettings = {
   preventLarger: boolean;
 };
 
+type BatchRenameRequest = {
+  rootFolder: string;
+  folderPattern: string;
+  renameTemplate: string;
+  firstPadding: number;
+  secondPadding: number;
+};
+
+type BatchRenameResult = {
+  entries: Array<{ source: string; target: string; sourceName: string; targetName: string; matchedFolder?: string; code?: string; ready: boolean; unchanged: boolean; error?: string }>;
+  matched: number;
+  renamed: number;
+  skipped: number;
+  failed: number;
+};
+
 type NativeBridge = {
   platform: string;
   windowLabel: string;
@@ -158,6 +174,8 @@ type NativeBridge = {
   compressAnimationData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   configureGlobalShortcuts: (bindings: { enabled: boolean; toggleDropzone: string; optimiseClipboard: string; showMain: string; showGallery?: string; uploadCurrent?: string }) => Promise<void>;
   cleanupOptimisedFiles: (payload: { folder: string; suffix: string; olderThanSeconds: number }) => Promise<{ deleted: number }>;
+  previewBatchRename: (request: BatchRenameRequest) => Promise<BatchRenameResult>;
+  applyBatchRename: (request: BatchRenameRequest) => Promise<BatchRenameResult>;
   revealPath: (path: string) => Promise<void>;
   openImage: (path: string) => Promise<void>;
   uploadImage: (payload: NativeUploadPayload) => Promise<{ url: string; remotePath: string }>;
@@ -182,6 +200,7 @@ type NativeBridge = {
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
+  setContentProtected: (protected_: boolean) => Promise<void>;
   hideCurrentWindow: () => Promise<void>;
   quitApplication: () => Promise<void>;
   onFileDrop: (callback: (event: { type: "over" | "drop" | "leave" | "error"; paths?: string[]; error?: string }) => void) => () => void;
@@ -276,6 +295,7 @@ type DesktopPreferences = {
   density: UiDensity;
   minimizeToTray: boolean;
   showInTaskbarDock: boolean;
+  allowFloatingCapture: boolean;
   launchAtStartup: boolean;
   shortcutsEnabled: boolean;
   shortcutShow: string;
@@ -536,6 +556,7 @@ const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
   density: "auto",
   minimizeToTray: true,
   showInTaskbarDock: true,
+  allowFloatingCapture: false,
   launchAtStartup: false,
   shortcutsEnabled: true,
   shortcutShow: "CommandOrControl+Alt+P",
@@ -3857,6 +3878,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   {([['system', t('跟随系统', 'System')], ['light', t('浅色', 'Light')], ['dark', t('深色', 'Dark')]] as const).map(([value, label]) => <button className={desktopPreferences.dockTheme === value ? "active" : ""} type="button" key={value} onClick={() => setDesktopPreferences((current) => ({ ...current, dockTheme: value }))}>{label}</button>)}
                 </div>
               </div>
+              {preferenceSection === "floating" && <label className="preference-row clickable"><div><strong>{t("允许截图 / 录屏捕获", "Allow screenshot / recording capture")}</strong><small>{desktopPreferences.allowFloatingCapture ? t("悬浮窗会出现在系统截图和录屏中", "The floating window can appear in screenshots and recordings") : t("系统截图和录屏会隐藏悬浮窗；部分第三方工具可能不遵守", "OS screenshots and recordings hide the floating window; some third-party tools may ignore this")}</small></div><button className={`switch ${desktopPreferences.allowFloatingCapture ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.allowFloatingCapture} onClick={() => setDesktopPreferences((current) => ({ ...current, allowFloatingCapture: !current.allowFloatingCapture }))}><i /></button></label>}
               <div className="preference-row column">
                 <div><strong>{t("悬浮结果布局", "Floating result layout")}</strong><small>{t("选择紧凑或完整图片卡片", "Choose compact or full image cards")}</small></div>
                 <div className="preference-segments">

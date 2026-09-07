@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   autoCopyDropResults: false,
   batchThreshold: 30,
   enableFloatingResults: true,
+  allowFloatingCapture: false,
   floatingLayout: "compact",
   floatingDisplayMode: "stack",
   floatingMaxResults: 5,
@@ -98,7 +99,7 @@ function userFacingPath(value: string) {
 export function loadSettings(): DesktopSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Partial<DesktopSettings>;
-    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
+    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
     if (!validFormat(preset.format)) preset.format = "keep";
@@ -108,6 +109,7 @@ export function loadSettings(): DesktopSettings {
       appearance: validAppearance(mainPreferences.theme) ? mainPreferences.theme : validAppearance(parsed.appearance) ? parsed.appearance : DEFAULT_SETTINGS.appearance,
       colorTheme: validColorTheme(mainPreferences.colorTheme) ? mainPreferences.colorTheme : validColorTheme(parsed.colorTheme) ? parsed.colorTheme : DEFAULT_SETTINGS.colorTheme,
       showInTaskbarDock: typeof mainPreferences.showInTaskbarDock === "boolean" ? mainPreferences.showInTaskbarDock : parsed.showInTaskbarDock ?? DEFAULT_SETTINGS.showInTaskbarDock,
+      allowFloatingCapture: typeof mainPreferences.allowFloatingCapture === "boolean" ? mainPreferences.allowFloatingCapture : parsed.allowFloatingCapture ?? DEFAULT_SETTINGS.allowFloatingCapture,
       updateCheckFrequency: validUpdateCheckFrequency(mainPreferences.updateCheckFrequency)
         ? mainPreferences.updateCheckFrequency
         : validUpdateCheckFrequency(parsed.updateCheckFrequency)
@@ -145,6 +147,7 @@ export function saveSettings(settings: DesktopSettings) {
       autoCheckUpdates: settings.updateCheckFrequency !== "never",
       updateCheckFrequency: settings.updateCheckFrequency,
       showInTaskbarDock: settings.showInTaskbarDock,
+      allowFloatingCapture: settings.allowFloatingCapture,
       shortcutsEnabled: settings.shortcutsEnabled,
       shortcutDock: settings.shortcutToggleDropzone,
       shortcutPaste: settings.shortcutOptimiseClipboard,

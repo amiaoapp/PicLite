@@ -4,7 +4,7 @@ import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { fileName, formatBytes, loadSettings, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
-import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
+import type { BatchRenameRequest, BatchRenameResult, DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
 import packageManifest from "../package.json";
 
 type ResultItem = QuickCompressResult & {
@@ -31,6 +31,7 @@ const BUILTIN_WORKSPACE_PLUGINS: WorkspacePlugin[] = [
   { id: "gallery", nameZh: "图库", nameEn: "Library", kind: "builtin", enabled: true },
 ];
 const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|png|webp|gif|avif|tiff?)$/i;
+const DEFAULT_BATCH_FOLDER_PATTERN = String.raw`[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]`;
 
 function supportedImagePaths(paths: string[]) {
   return [...new Set(paths.filter((path) => SUPPORTED_IMAGE_PATH.test(fileName(path))))];
@@ -417,6 +418,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   };
 
   useEffect(() => { void api.configureDropzoneWindow(settings.floatingWidth, settings.floatingHeight); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void api.setContentProtected(!settings.allowFloatingCapture).catch(() => undefined); }, [api, settings.allowFloatingCapture]);
   useEffect(() => { void ensureFontLoaded(api, settings.floatingWatermark.fontFamily).catch(() => undefined); }, [api, settings.floatingWatermark.fontFamily]);
   useEffect(() => api.onWindowResized((size) => {
     if (resizeTimer.current) window.clearTimeout(resizeTimer.current);
@@ -679,6 +681,10 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const [watchStatus, setWatchStatus] = useState("");
   const [recordingShortcut, setRecordingShortcut] = useState<"shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent" | null>(null);
   const [cleanupText, setCleanupText] = useState("");
+  const [batchRenameRequest, setBatchRenameRequest] = useState<BatchRenameRequest>({ rootFolder: "", folderPattern: DEFAULT_BATCH_FOLDER_PATTERN, renameTemplate: "{code}_{name}", firstPadding: 2, secondPadding: 2 });
+  const [batchRenamePreview, setBatchRenamePreview] = useState<BatchRenameResult | null>(null);
+  const [batchRenameStatus, setBatchRenameStatus] = useState("");
+  const [batchRenameBusy, setBatchRenameBusy] = useState(false);
   const [systemFonts, setSystemFonts] = useState<SystemFontInfo[]>([]);
   const [fontStatus, setFontStatus] = useState("");
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -781,6 +787,47 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const chooseOutput = async () => {
     const path = await api.selectFolder("export");
     if (path) patch("outputFolder", path);
+  };
+  const chooseBatchRenameRoot = async () => {
+    const rootFolder = await api.selectFolder("input");
+    if (!rootFolder) return;
+    setBatchRenameRequest((current) => ({ ...current, rootFolder }));
+    setBatchRenamePreview(null);
+    setBatchRenameStatus("");
+  };
+  const previewBatchRename = async () => {
+    if (!batchRenameRequest.rootFolder) {
+      setBatchRenameStatus(tr(language, "请先选择需要扫描的根目录", "Choose a root folder first"));
+      return;
+    }
+    setBatchRenameBusy(true);
+    setBatchRenameStatus(tr(language, "正在递归扫描图片…", "Scanning images recursively…"));
+    try {
+      const result = await api.previewBatchRename(batchRenameRequest);
+      setBatchRenamePreview(result);
+      setBatchRenameStatus(tr(language, `找到 ${result.entries.length} 张图片，${result.matched} 张匹配规则`, `${result.entries.length} images found; ${result.matched} match the rule`));
+    } catch (error) {
+      setBatchRenamePreview(null);
+      setBatchRenameStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBatchRenameBusy(false);
+    }
+  };
+  const applyBatchRename = async () => {
+    if (!batchRenamePreview?.entries.some((entry) => entry.ready)) return;
+    const ready = batchRenamePreview.entries.filter((entry) => entry.ready).length;
+    if (!window.confirm(tr(language, `确认重命名 ${ready} 张图片？执行前已检查重名，不会覆盖已有文件。`, `Rename ${ready} images? Existing files will not be overwritten.`))) return;
+    setBatchRenameBusy(true);
+    setBatchRenameStatus(tr(language, "正在批量重命名…", "Renaming images…"));
+    try {
+      const result = await api.applyBatchRename(batchRenameRequest);
+      setBatchRenamePreview(result);
+      setBatchRenameStatus(tr(language, `已重命名 ${result.renamed} 张，跳过 ${result.skipped} 张`, `Renamed ${result.renamed}; skipped ${result.skipped}`));
+    } catch (error) {
+      setBatchRenameStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBatchRenameBusy(false);
+    }
   };
   const captureShortcut = useCallback((event: ShortcutKeyEvent & { preventDefault: () => void; stopPropagation: () => void }, key: "shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent") => {
     event.preventDefault();
@@ -930,7 +977,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="图片文件" en="Image files" />} note={<T language={language} zh="从文件管理器复制的图片路径" en="Image paths copied from the file manager" />}><Switch label="files" checked={settings.clipboardImageFiles} onChange={(value) => patch("clipboardImageFiles", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="保留所有剪贴板结果" en="Keep all clipboard results" />} note={<T language={language} zh="每次复制生成独立结果，不替换上一次" en="Append each result instead of replacing the previous one" />}><Switch label="keep" checked={settings.keepClipboardResults} onChange={(value) => patch("keepClipboardResults", value)} /></SettingsRow>
       </SettingsCard>}
-      {section === "files" && <SettingsCard title={<T language={language} zh="图片文件处理" en="Image file handling" />}>
+      {section === "files" && <><SettingsCard title={<T language={language} zh="图片文件处理" en="Image file handling" />}>
         <SettingsRow title={<T language={language} zh="优化文件位置" en="Optimised file placement" />} note={<T language={language} zh="原图保留不变，优化结果写入所选位置" en="Keep originals and write optimised results to the selected location" />}><Select label="placement" value={settings.filePlacement} onChange={(value) => patch("filePlacement", value)}><option value="same-folder">{tr(language, "原文件夹", "Same folder as original")}</option><option value="fixed-folder">{tr(language, "指定文件夹", "Specific folder")}</option></Select></SettingsRow>
         <SettingsRow title={<T language={language} zh="文件名后缀" en="Filename suffix" />}><input value={settings.outputSuffix} onChange={(event) => patch("outputSuffix", event.target.value)} placeholder="-piclite" /></SettingsRow>
         <SettingsRow title={<T language={language} zh="重命名模板" en="Rename template" />} note={<T language={language} zh="可用：{name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" en="Variables: {name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" />}><input value={settings.renameTemplate} onChange={(event) => patch("renameTemplate", event.target.value)} placeholder="{name}{suffix}" /></SettingsRow>
@@ -938,7 +985,18 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="保留创建和修改日期" en="Preserve creation and modification dates" />}><Switch label="dates" checked={settings.preserveDates} onChange={(value) => patch("preserveDates", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="定期清理结果图" en="Clean up results automatically" />} note={settings.filePlacement === "fixed-folder" ? <T language={language} zh="只删除指定输出目录中带当前 PicLite 后缀的到期图片" en="Only expired images with the current PicLite suffix are removed from the output folder" /> : <T language={language} zh="请先选择“指定文件夹”，以免扫描和误删原图目录" en="Choose “Specific folder” first so original folders are never scanned" />}><Switch label="cleanup" checked={settings.autoCleanupEnabled} onChange={(value) => patch("autoCleanupEnabled", value)} /></SettingsRow>
         {settings.autoCleanupEnabled && <SettingsRow title={<T language={language} zh="保留时长" en="Keep results for" />} note={cleanupText}><span className="number-field"><input type="number" min="1" max="999" value={settings.autoCleanupAmount} onChange={(event) => patch("autoCleanupAmount", Math.max(1, Number(event.target.value)))} /><Select label="cleanup unit" value={settings.autoCleanupUnit} onChange={(value) => patch("autoCleanupUnit", value)}><option value="hours">{tr(language, "小时", "hours")}</option><option value="days">{tr(language, "天", "days")}</option><option value="months">{tr(language, "月", "months")}</option></Select><button className="settings-button" disabled={settings.filePlacement !== "fixed-folder" || !settings.outputFolder} onClick={() => void cleanNow()}>{tr(language, "立即清理", "Clean now")}</button></span></SettingsRow>}
-      </SettingsCard>}
+      </SettingsCard>
+        <SettingsCard title={<T language={language} zh="图片批量重命名" en="Batch image rename" />} note={batchRenameStatus || <T language={language} zh="递归扫描任意层级的子目录，先预览再重命名，不覆盖已有文件" en="Scan nested folders at any depth, preview changes, and never overwrite existing files" />}>
+          <SettingsRow title={<T language={language} zh="扫描根目录" en="Root folder" />} note={<T language={language} zh="支持空格、中文和特殊字符路径" en="Paths may contain spaces, non-Latin text, and special characters" />}><button className="path-button" onClick={() => void chooseBatchRenameRoot()}>{batchRenameRequest.rootFolder || tr(language, "选择文件夹…", "Choose folder…")}</button></SettingsRow>
+          <SettingsRow title={<T language={language} zh="文件夹匹配规则" en="Folder match pattern" />} note={<T language={language} zh="正则表达式会从图片的最近父目录向上查找；第 1、2 个捕获组组成 {code}" en="The regular expression searches parent folders upward; captures 1 and 2 form {code}" />}><input value={batchRenameRequest.folderPattern} onChange={(event) => { setBatchRenameRequest((current) => ({ ...current, folderPattern: event.target.value })); setBatchRenamePreview(null); }} /></SettingsRow>
+          <SettingsRow title={<T language={language} zh="补齐位数" en="Zero padding" />} note={<T language={language} zh="默认各补齐 2 位：【1-1】→ 0101，【11-1】→ 1101" en="Two digits per capture: 【1-1】 → 0101; 【11-1】 → 1101" />}><span className="inline-fields compact"><input aria-label={tr(language, "第一段位数", "First capture width")} type="number" min="1" max="12" value={batchRenameRequest.firstPadding} onChange={(event) => setBatchRenameRequest((current) => ({ ...current, firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) }))} /><span>+</span><input aria-label={tr(language, "第二段位数", "Second capture width")} type="number" min="1" max="12" value={batchRenameRequest.secondPadding} onChange={(event) => setBatchRenameRequest((current) => ({ ...current, secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) }))} /></span></SettingsRow>
+          <SettingsRow title={<T language={language} zh="新文件名模板" en="New filename template" />} note={<T language={language} zh="可用：{code} {name} {ext} {folder} {match} {1} {2} {index} {index:03}" en="Variables: {code} {name} {ext} {folder} {match} {1} {2} {index} {index:03}" />}><input value={batchRenameRequest.renameTemplate} onChange={(event) => { setBatchRenameRequest((current) => ({ ...current, renameTemplate: event.target.value })); setBatchRenamePreview(null); }} placeholder="{code}_{name}" /></SettingsRow>
+          <div className="batch-rename-actions"><button className="settings-button" disabled={batchRenameBusy || !batchRenameRequest.rootFolder} onClick={() => void previewBatchRename()}>{batchRenameBusy ? tr(language, "处理中…", "Working…") : tr(language, "扫描并预览", "Scan and preview")}</button><button className="settings-button primary" disabled={batchRenameBusy || !batchRenamePreview?.entries.some((entry) => entry.ready)} onClick={() => void applyBatchRename()}>{tr(language, "确认重命名", "Rename files")}</button></div>
+          {batchRenamePreview && <div className="batch-rename-preview" aria-live="polite">
+            {batchRenamePreview.entries.slice(0, 100).map((entry) => <div className={entry.error ? "error" : entry.unchanged ? "unchanged" : "ready"} key={entry.source}><span title={entry.source}>{entry.sourceName}</span><b>→</b><span title={entry.target}>{entry.targetName || entry.error}</span>{entry.code && <small>{entry.code}</small>}</div>)}
+            {batchRenamePreview.entries.length > 100 && <p>{tr(language, `仅显示前 100 项，共 ${batchRenamePreview.entries.length} 项`, `Showing the first 100 of ${batchRenamePreview.entries.length}`)}</p>}
+          </div>}
+        </SettingsCard></>}
       {section === "images" && <>
         <SettingsCard title={<T language={language} zh="图片优化规则" en="Image optimisation rules" />}>
           <SettingsRow title={<T language={language} zh="智能首次优化" en="Smart first pass" />} note={<T language={language} zh="保持原尺寸，实测高质量原格式、WebP、JPEG/PNG，自动采用最小且有实际收益的结果" en="Keep original dimensions, test high-quality source, WebP and JPEG/PNG candidates, then use the smallest meaningful result" />}><Switch label="automatic optimisation" checked={settings.preset.mode === "auto"} onChange={(value) => patchPreset({ mode: value ? "auto" : "manual", format: value ? "keep" : settings.preset.format, scale: value ? 100 : settings.preset.scale })} /></SettingsRow>
@@ -985,6 +1043,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
+        <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>
         <SettingsRow title={<T language={language} zh="布局" en="Layout" />}><div className="segmented"><button className={settings.floatingLayout === "compact" ? "active" : ""} onClick={() => patch("floatingLayout", "compact")}>{tr(language, "紧凑", "Compact")}</button><button className={settings.floatingLayout === "full" ? "active" : ""} onClick={() => patch("floatingLayout", "full")}>{tr(language, "完整", "Full")}</button></div></SettingsRow>
         <SettingsRow title={<T language={language} zh="结果展示方式" en="Result presentation" />} note={<T language={language} zh="堆叠占用更少空间，展开可连续浏览" en="Stacked uses less space; list shows every result" />}><div className="segmented"><button className={settings.floatingDisplayMode === "stack" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "stack")}>{tr(language, "堆叠", "Stacked")}</button><button className={settings.floatingDisplayMode === "list" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "list")}>{tr(language, "展开", "List")}</button></div></SettingsRow>

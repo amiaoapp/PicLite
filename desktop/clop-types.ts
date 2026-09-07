@@ -73,6 +73,7 @@ export type DesktopSettings = {
   autoCopyDropResults: boolean;
   batchThreshold: number;
   enableFloatingResults: boolean;
+  allowFloatingCapture: boolean;
   floatingLayout: ResultLayout;
   floatingDisplayMode: ResultDisplayMode;
   floatingMaxResults: number;
@@ -117,6 +118,34 @@ export type QuickCompressResult = {
   outputBytes?: number;
   keptOriginal: boolean;
   error?: string;
+};
+
+export type BatchRenameRequest = {
+  rootFolder: string;
+  folderPattern: string;
+  renameTemplate: string;
+  firstPadding: number;
+  secondPadding: number;
+};
+
+export type BatchRenameEntry = {
+  source: string;
+  target: string;
+  sourceName: string;
+  targetName: string;
+  matchedFolder?: string;
+  code?: string;
+  ready: boolean;
+  unchanged: boolean;
+  error?: string;
+};
+
+export type BatchRenameResult = {
+  entries: BatchRenameEntry[];
+  matched: number;
+  renamed: number;
+  skipped: number;
+  failed: number;
 };
 
 export type CompressedAnimationData = {
@@ -167,6 +196,8 @@ export type PicLiteBridge = {
   compressAnimationData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<CompressedAnimationData>;
   configureGlobalShortcuts: (bindings: { enabled: boolean; toggleDropzone: string; optimiseClipboard: string; showMain: string; showGallery?: string; uploadCurrent?: string }) => Promise<void>;
   cleanupOptimisedFiles: (payload: { folder: string; suffix: string; olderThanSeconds: number }) => Promise<{ deleted: number }>;
+  previewBatchRename: (request: BatchRenameRequest) => Promise<BatchRenameResult>;
+  applyBatchRename: (request: BatchRenameRequest) => Promise<BatchRenameResult>;
   revealPath: (path: string) => Promise<void>;
   openImage: (path: string) => Promise<void>;
   uploadImage: (payload: StoredUploadProfile & { fileName: string; mimeType: string; data: Uint8Array }) => Promise<{ url: string; remotePath: string }>;
@@ -188,6 +219,7 @@ export type PicLiteBridge = {
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;
+  setContentProtected: (protected_: boolean) => Promise<void>;
   hideCurrentWindow: () => Promise<void>;
   quitApplication: () => Promise<void>;
   onFileDrop: (callback: (event: { type: "over" | "drop" | "leave" | "error"; paths?: string[]; error?: string }) => void) => () => void;

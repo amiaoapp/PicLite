@@ -8,6 +8,7 @@
     "core:window:allow-set-theme",
     "core:window:allow-start-dragging",
     "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-content-protected",
     "autostart:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

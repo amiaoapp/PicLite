@@ -29,6 +29,7 @@ use image::{
 };
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use regex::Regex;
 use reqwest::{blocking::Client, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
@@ -211,6 +212,40 @@ struct CleanupRequest {
 #[derive(Debug, Serialize)]
 struct CleanupResult {
     deleted: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchRenameRequest {
+    root_folder: String,
+    folder_pattern: String,
+    rename_template: String,
+    first_padding: usize,
+    second_padding: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchRenameEntry {
+    source: String,
+    target: String,
+    source_name: String,
+    target_name: String,
+    matched_folder: Option<String>,
+    code: Option<String>,
+    ready: bool,
+    unchanged: bool,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchRenameResult {
+    entries: Vec<BatchRenameEntry>,
+    matched: usize,
+    renamed: usize,
+    skipped: usize,
+    failed: usize,
 }
 
 #[derive(Serialize)]
@@ -467,6 +502,265 @@ fn collect_image_paths(root: &Path) -> Vec<PathBuf> {
             .cmp(&right.to_string_lossy().to_lowercase())
     });
     images
+}
+
+fn padded_capture(value: &str, width: usize) -> String {
+    value
+        .parse::<u64>()
+        .map(|number| format!("{number:0width$}", width = width.clamp(1, 12)))
+        .unwrap_or_else(|_| value.to_string())
+}
+
+fn batch_rename_name(
+    template: &str,
+    base: &str,
+    extension: &str,
+    folder: &str,
+    matched: &str,
+    captures: &[String],
+    code: &str,
+    index: usize,
+) -> String {
+    let template = if template.trim().is_empty() {
+        "{code}_{name}"
+    } else {
+        template.trim()
+    };
+    let mut value = template
+        .replace("{name}", base)
+        .replace("{ext}", extension)
+        .replace("{folder}", folder)
+        .replace("{match}", matched)
+        .replace("{code}", code)
+        .replace("{index}", &index.to_string());
+    for (capture_index, capture) in captures.iter().enumerate().skip(1) {
+        value = value.replace(&format!("{{{capture_index}}}"), capture);
+    }
+    for width in 1..=8 {
+        value = value.replace(
+            &format!("{{index:0{width}}}"),
+            &format!("{index:0width$}", width = width),
+        );
+    }
+    if !template.contains("{ext}") {
+        value = format!("{value}.{extension}");
+    }
+    safe_file_name(&value)
+}
+
+fn folder_match_for_path(
+    path: &Path,
+    root: &Path,
+    pattern: &Regex,
+) -> Option<(String, String, Vec<String>)> {
+    let mut current = path.parent();
+    while let Some(folder) = current {
+        if !folder.starts_with(root) {
+            break;
+        }
+        let folder_name = folder
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if let Some(captures) = pattern.captures(folder_name) {
+            let values = (0..captures.len())
+                .map(|index| {
+                    captures
+                        .get(index)
+                        .map(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect::<Vec<_>>();
+            return Some((folder_name.to_string(), values[0].clone(), values));
+        }
+        current = folder.parent();
+    }
+    None
+}
+
+fn path_collision_key(path: &Path) -> String {
+    user_facing_path(path).replace('\\', "/").to_lowercase()
+}
+
+fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameResult, String> {
+    let root = fs::canonicalize(PathBuf::from(request.root_folder.trim()))
+        .map_err(|_| "重命名目录不存在或无法访问".to_string())?;
+    if !root.is_dir() {
+        return Err("重命名目标不是文件夹".to_string());
+    }
+    let pattern = Regex::new(request.folder_pattern.trim())
+        .map_err(|error| format!("文件夹匹配规则无效：{error}"))?;
+    if pattern.captures_len() < 3 {
+        return Err("文件夹匹配规则至少需要两个捕获组，例如 (\\d+)-(\\d+)".to_string());
+    }
+
+    let images = collect_image_paths(&root);
+    let mut entries = Vec::with_capacity(images.len());
+    for (offset, source) in images.iter().enumerate() {
+        let source_name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("image")
+            .to_string();
+        let base = source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("image");
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("png");
+        let Some((matched_folder, matched_text, captures)) =
+            folder_match_for_path(source, &root, &pattern)
+        else {
+            entries.push(BatchRenameEntry {
+                source: user_facing_path(source),
+                target: String::new(),
+                source_name,
+                target_name: String::new(),
+                matched_folder: None,
+                code: None,
+                ready: false,
+                unchanged: false,
+                error: Some("父目录中没有匹配项".to_string()),
+            });
+            continue;
+        };
+        let first = padded_capture(&captures[1], request.first_padding);
+        let second = padded_capture(&captures[2], request.second_padding);
+        let code = format!("{first}{second}");
+        let target_name = batch_rename_name(
+            &request.rename_template,
+            base,
+            extension,
+            &matched_folder,
+            &matched_text,
+            &captures,
+            &code,
+            offset + 1,
+        );
+        let target = source.parent().unwrap_or(&root).join(&target_name);
+        let unchanged = path_collision_key(source) == path_collision_key(&target);
+        entries.push(BatchRenameEntry {
+            source: user_facing_path(source),
+            target: user_facing_path(&target),
+            source_name,
+            target_name,
+            matched_folder: Some(matched_folder),
+            code: Some(code),
+            ready: !unchanged,
+            unchanged,
+            error: None,
+        });
+    }
+
+    let source_keys = images
+        .iter()
+        .map(|path| path_collision_key(path))
+        .collect::<HashSet<_>>();
+    let mut target_counts = BTreeMap::<String, usize>::new();
+    for entry in entries.iter().filter(|entry| entry.code.is_some()) {
+        *target_counts
+            .entry(path_collision_key(Path::new(&entry.target)))
+            .or_default() += 1;
+    }
+    for entry in &mut entries {
+        if entry.code.is_none() || entry.unchanged {
+            continue;
+        }
+        let target = Path::new(&entry.target);
+        let target_key = path_collision_key(target);
+        if target_counts.get(&target_key).copied().unwrap_or(0) > 1 {
+            entry.ready = false;
+            entry.error = Some("新文件名重复，请在模板中加入 {name} 或 {index}".to_string());
+        } else if target.exists() && !source_keys.contains(&target_key) {
+            entry.ready = false;
+            entry.error = Some("目标文件已存在".to_string());
+        }
+    }
+
+    let matched = entries.iter().filter(|entry| entry.code.is_some()).count();
+    let failed = entries
+        .iter()
+        .filter(|entry| entry.code.is_some() && entry.error.is_some())
+        .count();
+    let skipped = entries
+        .len()
+        .saturating_sub(entries.iter().filter(|entry| entry.ready).count());
+    Ok(BatchRenameResult {
+        entries,
+        matched,
+        renamed: 0,
+        skipped,
+        failed,
+    })
+}
+
+fn temporary_rename_path(source: &Path, index: usize) -> PathBuf {
+    let parent = source.parent().unwrap_or_else(|| Path::new("."));
+    for attempt in 0..10_000 {
+        let candidate = parent.join(format!(
+            ".piclite-rename-{}-{}-{index}-{attempt}.tmp",
+            std::process::id(),
+            now_ms()
+        ));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!(
+        ".piclite-rename-{}-{index}.tmp",
+        std::process::id()
+    ))
+}
+
+#[tauri::command]
+async fn preview_batch_rename(request: BatchRenameRequest) -> Result<BatchRenameResult, String> {
+    build_batch_rename_plan(&request)
+}
+
+#[tauri::command]
+async fn apply_batch_rename(request: BatchRenameRequest) -> Result<BatchRenameResult, String> {
+    execute_batch_rename(&request)
+}
+
+fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResult, String> {
+    let mut result = build_batch_rename_plan(&request)?;
+    let runnable = result
+        .entries
+        .iter()
+        .filter(|entry| entry.ready && !entry.unchanged)
+        .map(|entry| (PathBuf::from(&entry.source), PathBuf::from(&entry.target)))
+        .collect::<Vec<_>>();
+    let mut staged = Vec::<(PathBuf, PathBuf, PathBuf)>::new();
+    for (index, (source, target)) in runnable.iter().enumerate() {
+        let temporary = temporary_rename_path(source, index);
+        if let Err(error) = fs::rename(source, &temporary) {
+            for (original, _, staged_path) in staged.iter().rev() {
+                let _ = fs::rename(staged_path, original);
+            }
+            return Err(format!("无法暂存 {}：{error}", source.to_string_lossy()));
+        }
+        staged.push((source.clone(), target.clone(), temporary));
+    }
+
+    let mut completed = Vec::<(PathBuf, PathBuf)>::new();
+    for (index, (source, target, temporary)) in staged.iter().enumerate() {
+        if let Err(error) = fs::rename(temporary, target) {
+            for (finished_source, finished_target) in completed.iter().rev() {
+                let _ = fs::rename(finished_target, finished_source);
+            }
+            for (remaining_source, _, remaining_temporary) in staged.iter().skip(index) {
+                let _ = fs::rename(remaining_temporary, remaining_source);
+            }
+            return Err(format!("无法写入 {}：{error}", target.to_string_lossy()));
+        }
+        completed.push((source.clone(), target.clone()));
+    }
+    result.renamed = completed.len();
+    result.skipped = result.entries.len().saturating_sub(result.renamed);
+    Ok(result)
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -1322,6 +1616,7 @@ fn ensure_dropzone_window(app: &AppHandle) -> Result<bool, String> {
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
+    .content_protected(true)
     .shadow(false)
     .transparent(true)
     .visible(false)
@@ -4453,6 +4748,8 @@ pub fn run() {
             compress_animation_data,
             configure_global_shortcuts,
             cleanup_optimised_files,
+            preview_batch_rename,
+            apply_batch_rename,
             update_desktop_preferences,
             set_tray_theme,
             check_for_updates,
@@ -5128,5 +5425,56 @@ mod tests {
             clipboard_bitmap_fingerprint(&original),
             clipboard_bitmap_fingerprint(&changed)
         );
+    }
+
+    #[test]
+    fn batch_rename_extracts_codes_from_different_nested_folder_depths() {
+        let root = std::env::temp_dir().join(format!("PicLite 图片 - 原稿 {}", now_ms()));
+        let shallow = root.join("ABC").join("【1-1】");
+        let deep = root
+            .join("ABC")
+            .join("班级 A")
+            .join("材料")
+            .join("【11-1】")
+            .join("照片");
+        fs::create_dir_all(&shallow).expect("create shallow folder");
+        fs::create_dir_all(&deep).expect("create deep folder");
+        fs::write(
+            shallow.join("正面 图.png"),
+            b"not decoded during rename preview",
+        )
+        .expect("write shallow image");
+        fs::write(
+            deep.join("portrait.jpg"),
+            b"not decoded during rename preview",
+        )
+        .expect("write deep image");
+
+        let request = BatchRenameRequest {
+            root_folder: root.to_string_lossy().to_string(),
+            folder_pattern: r"[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]".to_string(),
+            rename_template: "{code}_{name}".to_string(),
+            first_padding: 2,
+            second_padding: 2,
+        };
+        let preview = build_batch_rename_plan(&request).expect("build rename preview");
+        let names = preview
+            .entries
+            .iter()
+            .map(|entry| entry.target_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(preview.matched, 2);
+        assert!(names.contains(&"0101_正面 图.png"));
+        assert!(names.contains(&"1101_portrait.jpg"));
+        assert!(preview.entries.iter().all(|entry| entry.ready));
+
+        let applied = execute_batch_rename(&request).expect("apply batch rename");
+        assert_eq!(applied.renamed, 2);
+        assert!(!shallow.join("正面 图.png").exists());
+        assert!(!deep.join("portrait.jpg").exists());
+        assert!(shallow.join("0101_正面 图.png").exists());
+        assert!(deep.join("1101_portrait.jpg").exists());
+
+        fs::remove_dir_all(root).expect("remove batch rename test folder");
     }
 }
