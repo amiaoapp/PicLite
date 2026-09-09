@@ -27,10 +27,6 @@ A local-first image optimiser for content creators and developers, available on 
 
 The desktop app can open its floating window from a global shortcut, copied image, dropped file, or the local image picker, without opening the full workbench first. After the smart first pass, hover over the preview to copy, preview, reveal, undo, downscale again, switch formats, add a watermark, or upload. Floating results are draggable and resizable, support cycling stacks and expanded lists, result limits and automatic dismissal, and let you choose up to six action buttons in Settings.
 
-### Batch rename
-
-Open **Settings → File processing → Batch rename images** and choose a root folder. PicLite scans images recursively and applies the regular expression to ancestor folder names at any depth. The default rule extracts two numeric groups from names such as `【1-1】` and `【11-1】`, then pads them into `0101` and `1101`. Templates support `{code}`, `{name}`, `{ext}`, `{folder}`, `{match}`, `{1}`, `{2}`, `{index}`, and related variables. Always review the preview for duplicate or existing targets before applying the rename.
-
 ## Download
 
 Get the latest installers from [GitHub Releases](https://github.com/amiaoapp/PicLite/releases):
@@ -117,6 +113,16 @@ npm run desktop:build
 ```
 
 ## Create a workbench plugin
+
+### Built-in plugin: Batch image rename
+
+Open **Settings → Batch rename** and choose a root folder. This built-in plugin is enabled by default and can be disabled under **Settings → Plugins**. PicLite scans images recursively, searches ancestor folder names up to the selected root, and stops at the first matching parent.
+
+- `A/A1/A11/【1-1】A111/A1111/photo.jfif` becomes `0101_photo.jfif` with the default rule.
+- Numeric captures are zero-padded (`1-1 → 0101`, `11-1 → 1101`) without truncating longer values.
+- Use `(风景|人物)` with `{1}_{name}` for Chinese words, or `([A-Za-z]+)` with `{1}_{name}` for English words.
+- `{1:initial}` keeps the first initial; `{1:initials}` turns `New York` into `NY`.
+- Templates also support `{code}`, `{name}`, `{ext}`, `{folder}`, `{match}`, `{1}`, `{2}`, `{index}`, and `{index:03}`. Review the preview before applying; unmatched files and existing targets are reported and never overwritten.
 
 PicLite plugins are no longer embedded with an `iframe`. The desktop app fetches HTML/CSS/JavaScript and mounts it in a trusted workbench runtime, avoiding `X-Frame-Options` failures and allowing a custom tab name. Install only code you trust.
 
