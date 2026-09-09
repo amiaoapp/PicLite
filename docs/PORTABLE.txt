@@ -1,0 +1,12 @@
+PicLite 1.6 Windows portable / Windows 便携版
+
+解压到可写文件夹，双击 PicLite.exe 即可运行，无需安装 PicLite。
+请保留 portable.txt；设置、图库和缓存保存在旁边的 PicLite-Data 文件夹。
+迁移到另一台电脑时可携带此文件夹；监控路径可能需要重新选择。
+需要 Microsoft Edge WebView2 Runtime（较新的 Windows 通常已具备）。
+如提示缺少运行库，请从 https://developer.microsoft.com/microsoft-edge/webview2 下载。
+系统通知取决于 Windows 通知设置；便携版也会显示悬浮处理结果。
+
+Extract into a writable folder and run PicLite.exe. No PicLite installation needed.
+Keep portable.txt. Settings, library and cache are stored in PicLite-Data beside the executable.
+Requires Microsoft Edge WebView2 Runtime. Folder paths may need updating after moving PCs.

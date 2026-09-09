@@ -1,7 +1,7 @@
 {
   "name": "piclite",
-  "version": "1.5.1",
-  "releaseDate": "2026-09-07",
+  "version": "1.6.0",
+  "releaseDate": "2026-09-09",
   "description": "本地优先、可自托管的跨平台图片与 GIF 压缩工作台",
   "author": {
     "name": "PicLite contributors",
@@ -22,7 +22,7 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run web:test && npm run desktop:test",
     "web:test": "npm run build && node --test tests/rendered-html.test.mjs tests/compression-policy.test.mjs",
-    "desktop:test": "node --experimental-strip-types --test tests/operation-feedback.test.mjs && npm run desktop:renderer && cargo test --manifest-path src-tauri/Cargo.toml",
+    "desktop:test": "node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs && npm run desktop:renderer && cargo test --manifest-path src-tauri/Cargo.toml",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern desktop-dist --ignore-pattern release --ignore-pattern src-tauri/target",
     "db:generate": "drizzle-kit generate",
     "desktop:dev": "tauri dev",

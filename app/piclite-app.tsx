@@ -31,7 +31,7 @@ type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 type UiDensity = "auto" | "comfortable" | "compact";
 type ShortcutPreferenceKey = "shortcutShow" | "shortcutPaste" | "shortcutDock" | "shortcutGallery" | "shortcutUpload";
 type DockLayout = "compact" | "full";
-type PreferenceSection = "general" | "clipboard" | "files" | "images" | "dropzone" | "floating" | "hosting" | "plugins" | "shortcuts" | "about";
+type PreferenceSection = "rename" | "general" | "clipboard" | "files" | "images" | "dropzone" | "floating" | "hosting" | "plugins" | "shortcuts" | "about";
 
 const APP_VERSION = packageManifest.version;
 const APP_RELEASE_DATE = packageManifest.releaseDate;
@@ -166,6 +166,7 @@ type NativeBridge = {
   selectFolder: (kind: "input" | "output" | "export") => Promise<string | null>;
   suggestScreenshotFolder: () => Promise<string | null>;
   exportImages: (payload: { mode: Exclude<ExportMode, "download">; suffix: string; fixedFolder?: string; items: NativeExportItem[] }) => Promise<{ ok: boolean; paths?: string[]; error?: string }>;
+  validateWatcher: (settings: import("../desktop/clop-types").WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
   startWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
   stopWatcher: () => Promise<{ ok: boolean }>;
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;
@@ -377,6 +378,7 @@ type WorkspacePlugin = {
 
 const BUILTIN_WORKSPACE_PLUGINS: WorkspacePlugin[] = [
   { id: "watcher", nameZh: "文件夹监测", nameEn: "Folder watch", kind: "builtin", enabled: true },
+  { id: "rename", nameZh: "图片批量重命名", nameEn: "Batch image rename", kind: "builtin", enabled: true },
   { id: "gallery", nameZh: "图库", nameEn: "Library", kind: "builtin", enabled: true },
 ];
 
@@ -812,7 +814,7 @@ function outputExtension(type: string, originalName: string) {
 
 function mimeFromName(name: string) {
   const extension = name.split(".").pop()?.toLowerCase();
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "jpg" || extension === "jpeg" || extension === "jfif") return "image/jpeg";
   if (extension === "png") return "image/png";
   if (extension === "webp") return "image/webp";
   if (extension === "avif") return "image/avif";
@@ -1487,7 +1489,7 @@ function fileNameFromPath(path: string) {
   return path.split(/[\\/]/).pop() || path;
 }
 
-const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|png|webp|gif|avif|tiff?)$/i;
+const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|tiff?)$/i;
 
 function supportedImagePaths(paths: string[]) {
   return [...new Set(paths.filter((path) => SUPPORTED_IMAGE_PATH.test(fileNameFromPath(path))))];
@@ -2051,7 +2053,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const hydratedWatermarkFontRef = useRef<string | null>(null);
   const importedFontsHydratedRef = useRef(false);
   useEffect(() => {
-    try { window.localStorage.setItem("piclite.workspacePlugins.v1", JSON.stringify(workspacePlugins)); }
+    try { window.localStorage.setItem("piclite.workspacePlugins.v1", JSON.stringify(workspacePlugins)); window.dispatchEvent(new Event("piclite:plugins-changed")); }
     catch (error) { console.warn("Could not persist PicLite plugins", error); }
   }, [workspacePlugins]);
   useEffect(() => {
@@ -2286,7 +2288,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [desktopPreferences.renameTemplate, exportSuffix]);
 
   const addSources = useCallback(async (sources: ImageSourceInput[], onProgress?: (current: number, total: number) => void) => {
-    const imageSources = sources.filter(({ file }) => file.type.startsWith("image/") || /\.(?:jpe?g|png|webp|avif|gif)$/i.test(file.name));
+    const imageSources = sources.filter(({ file }) => file.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif)$/i.test(file.name));
     if (!imageSources.length) {
       showToast(t("没有找到可处理的图片", "No supported images were found"));
       return;
@@ -2298,7 +2300,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     const workers = Array.from({ length: Math.min(3, imageSources.length) }, async () => {
       while (cursor < imageSources.length) {
         const index = cursor++;
-        const { file, fileHandle, sourcePath } = imageSources[index];
+        const { file: sourceFile, fileHandle, sourcePath } = imageSources[index];
+        const file = /\.jfif$/i.test(sourceFile.name) ? new File([sourceFile], sourceFile.name, { type: "image/jpeg", lastModified: sourceFile.lastModified }) : sourceFile;
         try {
           const dimensions = await getDimensions(file);
           nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(file), status: "ready", fileHandle, sourcePath };
@@ -2318,7 +2321,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [selectedId, showToast, t]);
 
   const addNativeEntries = useCallback((entries: NativeImageEntry[]) => {
-    const validEntries = entries.filter((entry) => entry.type.startsWith("image/") || /\.(?:jpe?g|png|webp|avif|gif)$/i.test(entry.name));
+    const validEntries = entries.filter((entry) => entry.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif)$/i.test(entry.name));
     if (!validEntries.length) {
       showToast(t("没有找到可处理的图片", "No supported images were found"));
       return;
@@ -3009,7 +3012,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (window.showOpenFilePicker) {
         const handles = await window.showOpenFilePicker({
           multiple: true,
-          types: [{ description: "图片", accept: { "image/*": [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"] } }],
+          types: [{ description: "图片", accept: { "image/*": [".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif"] } }],
         });
         await runImport(async (onProgress) => {
           onProgress(0, handles.length);
@@ -3340,8 +3343,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={onDrop}
     >
-      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={onFilesSelected} />
-      <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*" multiple onChange={onFolderFilesSelected} />
+      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFilesSelected} />
+      <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFolderFilesSelected} />
       <input ref={fontInputRef} className="visually-hidden" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={onFontSelected} />
       <input ref={pluginInputRef} className="visually-hidden" type="file" accept=".html,.htm,.js,.json,text/html,text/javascript,application/json" onChange={importPlugin} />
 
@@ -3357,6 +3360,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           <button className={view === "workspace" ? "active" : ""} type="button" onClick={() => setView("workspace")}>{t(nativeBridge ? "工作台" : "压缩工作台", "Workspace")}</button>
           {workspacePlugins.find((plugin) => plugin.id === "watcher")?.enabled && <button className={view === "watcher" ? "active" : ""} type="button" onClick={() => setView("watcher")}>{t("文件夹监测", "Folder watch")}{watcherActive && <span className="live-dot" aria-label={t("监测中", "Watching")} />}</button>}
           {workspacePlugins.find((plugin) => plugin.id === "gallery")?.enabled && <button className={view === "gallery" ? "active" : ""} type="button" onClick={() => setView("gallery")}>{t("图库", "Library")}</button>}
+          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button type="button" onClick={() => void nativeBridge.showPreferencesWindow("rename")}>{t("批量重命名", "Batch rename")}</button>}
           {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
         </nav>}
         <div className="topbar-actions">
@@ -3665,6 +3669,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             <button className="compress-button" type="button" disabled={!items.length || processingAll} onClick={processAll}><span>{processingAll ? "···" : "✦"}</span>{processingAll ? t("正在应用到全部", "Applying to all…") : t(`按此参数应用到全部${items.length ? ` · ${items.length} 张` : ""}`, `Apply these settings to all${items.length ? ` · ${items.length}` : ""}`)}</button>
           </aside>
         </section>
+      ) : view === "watcher" && nativeBridge ? (
+        <section className="watcher-page"><div className="watcher-intro"><h1>{t("文件夹监控任务", "Folder watch tasks")}</h1><p>{t("为 A、B、C 等不同文件夹分别保存格式、尺寸和命名规则。任务在软件运行时自动监控所有子目录。", "Save separate format, size and naming rules for each folder. Tasks watch all subfolders while PicLite is running.")}</p><button className="compress-button" type="button" onClick={() => void nativeBridge.showPreferencesWindow("images")}>{t("管理监控任务", "Manage watch tasks")}</button></div><div className="watcher-log"><strong>{watcherActive ? t("监控中", "Watching") : t("监控未运行", "Not watching")}</strong>{watcherEvents.slice(0, 30).map((event) => <p key={event.id}>{event.message || event.output || event.file || event.type}</p>)}</div></section>
       ) : view === "watcher" ? (
         <section className="watcher-page">
           <div className="watcher-intro">

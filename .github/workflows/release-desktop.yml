@@ -65,6 +65,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
+      - name: Typecheck and native regression tests
+        run: |
+          npx tsc --noEmit
+          npm run desktop:renderer
+          node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Build Tauri bundle
         uses: tauri-apps/tauri-action@v1
         with:
@@ -72,12 +78,30 @@ jobs:
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: ${{ matrix.artifact }}-[bundle]
 
+      - name: Package Windows portable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "portable/${{ matrix.artifact }}-portable"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item "src-tauri/target/${{ matrix.target }}/release/piclite.exe" "$dir/PicLite.exe"
+          Set-Content "$dir/portable.txt" "PicLite portable mode"
+          Copy-Item "docs/PORTABLE.txt" "$dir/README.txt"
+          Compress-Archive -Path "$dir/*" -DestinationPath "${{ matrix.artifact }}-portable.zip"
+      - name: Upload Windows portable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-portable
+          path: ${{ matrix.artifact }}-portable.zip
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -90,5 +114,5 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber --repo "${GITHUB_REPOSITORY}"
           else
-            gh release create "${GITHUB_REF_NAME}" "${files[@]}" --generate-notes --repo "${GITHUB_REPOSITORY}"
+            gh release create "${GITHUB_REF_NAME}" "${files[@]}" --title "PicLite 图轻 ${GITHUB_REF_NAME}" --notes-file docs/RELEASE-1.6.0.md --repo "${GITHUB_REPOSITORY}"
           fi

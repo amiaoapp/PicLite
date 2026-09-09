@@ -15,6 +15,8 @@ async function mount() {
     createRoot(root!).render(<PicLiteDesktopApp />);
     return;
   }
+  const { startSavedWatchTasks } = await import("./watcher-runtime");
+  startSavedWatchTasks(window.picLite as unknown as import("./clop-types").PicLiteBridge);
   const [{ PicLiteApp }] = await Promise.all([
     import("../app/piclite-app"),
     import("../app/globals.css"),

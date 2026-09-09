@@ -88,6 +88,7 @@ export type DesktopSettings = {
   showCopyClearButtons: boolean;
   hideTooltips: boolean;
   watchFolders: string[];
+  watchProfiles: WatchProfile[];
   pauseAutomaticOptimisations: boolean;
   shortcutsEnabled: boolean;
   shortcutToggleDropzone: string;
@@ -157,7 +158,13 @@ export type CompressedAnimationData = {
   keptOriginal: boolean;
 };
 
+export type WatchProfile = WatcherSettings & { id: string; name: string; enabled: boolean };
+
 export type WatcherSettings = {
+  profiles?: WatcherSettings[];
+  folderRename?: BatchRenameRequest;
+  onlyWhenNeeded?: boolean;
+  notifyOnComplete?: boolean;
   inputFolder: string;
   inputFolders: string[];
   outputFolder: string;
@@ -188,6 +195,7 @@ export type PicLiteBridge = {
   selectImages: () => Promise<NativeImage[]>;
   readImagesFromPaths: (paths: string[]) => Promise<NativeImage[]>;
   selectFolder: (kind: "input" | "output" | "export") => Promise<string | null>;
+  validateWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
   startWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
   stopWatcher: () => Promise<{ ok: boolean }>;
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;

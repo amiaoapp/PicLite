@@ -8,7 +8,7 @@ A local-first image optimiser for content creators and developers, available on 
 
 ## Highlights
 
-- Import, convert, optimise, and proportionally resize JPEG, PNG, WebP, and GIF files
+- Import, convert, optimise, and proportionally resize JPEG / JFIF, PNG, WebP, and GIF files
 - Automatically compare candidate formats and choose a smaller result with limited visual loss
 - Before/after preview, actual output size, continuous quality and scale controls, and text watermarks
 - Limit output to 200 KB, 100 KB, 50 KB, or a custom size using measured quality and dimension adjustments
@@ -35,7 +35,7 @@ Open **Settings → File processing → Batch rename images** and choose a root 
 
 Get the latest installers from [GitHub Releases](https://github.com/amiaoapp/PicLite/releases):
 
-- Windows x64 / ARM64: `.exe` or `.msi`
+- Windows x64 / ARM64: `.exe`, `.msi`, or portable `.zip`
 - macOS Apple Silicon / Intel: `.dmg`
 - Linux x64 / ARM64: `.AppImage` or `.deb`
 
@@ -70,7 +70,7 @@ Create a `.env` file in the project directory to change the bind address, host p
 ```dotenv
 PICLITE_BIND=0.0.0.0
 PICLITE_PORT=3456
-PICLITE_TAG=1.5.1
+PICLITE_TAG=1.6.0
 ```
 
 To build from the current source tree instead:
@@ -153,3 +153,12 @@ See the full [plugin development guide](docs/PLUGIN_DEVELOPMENT.en-US.md) for th
 Optimisation runs locally in the browser or desktop app. Files leave your device only when you explicitly upload them to a storage provider you configured.
 
 PicLite is licensed under [GPL-3.0-or-later](LICENSE). Its desktop automation workflow is inspired by and adapted from the GPL-licensed [FuzzyIdeas/Clop](https://github.com/FuzzyIdeas/Clop) project. PicLite does not use the Clop trademark. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
+### Version 1.6: watch tasks and naming
+
+Batch rename is now a built-in plugin (Settings → Batch rename). It searches ancestors up to the selected root and supports numeric padding, Chinese/English words, `{1:initial}` and `{1:initials}`. For example, `A/A1/A11/【1-1】A111/A1111/photo.jfif` becomes `0101_photo.jfif`. Preview detects existing targets and unrelated files are left alone.
+
+Settings → Images saves independent watch tasks with individual formats, sizes, output locations, naming and system notifications. Non-overlapping roots run concurrently and resume when PicLite starts. Keep PicLite running, including in the tray. Choose whether to skip images that already meet the format and size requirements; folder naming still applies when enabled. Originals are preserved and generated outputs are excluded from watching.
+
+JFIF uses the JPEG codec throughout import, compression and renaming. EPUB archives must be extracted separately. Windows x64 and ARM64 portable ZIPs store settings and cache in `PicLite-Data` beside the executable while `portable.txt` exists. WebView2 Runtime is required.

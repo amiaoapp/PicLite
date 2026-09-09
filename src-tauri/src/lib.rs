@@ -44,11 +44,14 @@ use tauri::{
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_notification::NotificationExt;
 use url::Url;
 use webp::{AnimEncoder as AnimatedWebPEncoder, AnimFrame as AnimatedWebPFrame};
 use webp::{Encoder as LossyWebPEncoder, WebPConfig};
 
-const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif", "tif", "tiff"];
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "jfif", "png", "webp", "gif", "avif", "tif", "tiff",
+];
 
 #[derive(Default)]
 struct SelectedFolders {
@@ -214,7 +217,7 @@ struct CleanupResult {
     deleted: u64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchRenameRequest {
     root_folder: String,
@@ -273,6 +276,14 @@ struct CompressedAnimationData {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WatcherSettings {
+    #[serde(default)]
+    profiles: Vec<WatcherSettings>,
+    #[serde(default)]
+    folder_rename: Option<BatchRenameRequest>,
+    #[serde(default)]
+    only_when_needed: bool,
+    #[serde(default = "default_true")]
+    notify_on_complete: bool,
     input_folder: String,
     #[serde(default)]
     input_folders: Vec<String>,
@@ -534,7 +545,20 @@ fn batch_rename_name(
         .replace("{code}", code)
         .replace("{index}", &index.to_string());
     for (capture_index, capture) in captures.iter().enumerate().skip(1) {
-        value = value.replace(&format!("{{{capture_index}}}"), capture);
+        value = value
+            .replace(&format!("{{{capture_index}}}"), capture)
+            .replace(
+                &format!("{{{capture_index}:initial}}"),
+                &capture
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default(),
+            )
+            .replace(
+                &format!("{{{capture_index}:initials}}"),
+                &word_initials(capture),
+            );
     }
     for width in 1..=8 {
         value = value.replace(
@@ -546,6 +570,104 @@ fn batch_rename_name(
         value = format!("{value}.{extension}");
     }
     safe_file_name(&value)
+}
+
+fn word_initials(value: &str) -> String {
+    value
+        .split(|c: char| !c.is_alphabetic())
+        .filter_map(|word| word.chars().next())
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+fn rename_code(captures: &[String], request: &BatchRenameRequest) -> String {
+    if captures.len() == 1 {
+        return captures[0].clone();
+    }
+    captures
+        .iter()
+        .skip(1)
+        .enumerate()
+        .map(|(i, value)| {
+            padded_capture(
+                value,
+                if i == 0 {
+                    request.first_padding
+                } else {
+                    request.second_padding
+                },
+            )
+        })
+        .collect()
+}
+
+fn watched_output_name(
+    path: &Path,
+    settings: &WatcherSettings,
+    extension: &str,
+    bytes: usize,
+    width: u32,
+    height: u32,
+) -> Result<String, String> {
+    let base = path.file_stem().and_then(|v| v.to_str()).unwrap_or("image");
+    if let Some(rule) = &settings.folder_rename {
+        let pattern = Regex::new(&rule.folder_pattern).map_err(|e| e.to_string())?;
+        let (folder, matched, captures) =
+            folder_match_for_path(path, Path::new(&settings.input_folder), &pattern)
+                .ok_or_else(|| "父目录中没有匹配项，已保留原图".to_string())?;
+        return Ok(batch_rename_name(
+            &rule.rename_template,
+            base,
+            extension,
+            &folder,
+            &matched,
+            &captures,
+            &rename_code(&captures, rule),
+            1,
+        ));
+    }
+    let suffix = if settings.output_suffix.trim().is_empty() {
+        "-piclite"
+    } else {
+        settings.output_suffix.trim()
+    };
+    Ok(render_output_name(
+        &settings.rename_template,
+        base,
+        suffix,
+        extension,
+        bytes,
+        width,
+        height,
+    ))
+}
+
+fn registered_output(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    fs::read_to_string(parent.join(".piclite-generated.txt"))
+        .unwrap_or_default()
+        .lines()
+        .any(|line| Path::new(line) == canonical)
+}
+
+fn watched_file_needs_processing(path: &Path, settings: &WatcherSettings) -> Result<bool, String> {
+    if !settings.only_when_needed || settings.folder_rename.is_some() {
+        return Ok(true);
+    }
+    let data = fs::read(path).map_err(|e| e.to_string())?;
+    let decoded = decode_static_oriented(&data)?;
+    let (width, height) = decoded.dimensions();
+    let format_matches = settings.format == "keep"
+        || image::guess_format(&data).ok()
+            == Some(match settings.format.as_str() {
+                "image/jpeg" => image::ImageFormat::Jpeg,
+                "image/webp" => image::ImageFormat::WebP,
+                _ => image::ImageFormat::Png,
+            });
+    Ok(!format_matches || target_dimensions(width, height, settings) != (width, height))
 }
 
 fn folder_match_for_path(
@@ -589,11 +711,11 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
     if !root.is_dir() {
         return Err("重命名目标不是文件夹".to_string());
     }
+    if request.folder_pattern.trim().is_empty() {
+        return Err("请填写文件夹匹配规则".into());
+    }
     let pattern = Regex::new(request.folder_pattern.trim())
         .map_err(|error| format!("文件夹匹配规则无效：{error}"))?;
-    if pattern.captures_len() < 3 {
-        return Err("文件夹匹配规则至少需要两个捕获组，例如 (\\d+)-(\\d+)".to_string());
-    }
 
     let images = collect_image_paths(&root);
     let mut entries = Vec::with_capacity(images.len());
@@ -627,9 +749,7 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
             });
             continue;
         };
-        let first = padded_capture(&captures[1], request.first_padding);
-        let second = padded_capture(&captures[2], request.second_padding);
-        let code = format!("{first}{second}");
+        let code = rename_code(&captures, request);
         let target_name = batch_rename_name(
             &request.rename_template,
             base,
@@ -771,7 +891,7 @@ fn mime_for(path: &Path) -> &'static str {
         .to_ascii_lowercase()
         .as_str()
     {
-        "jpg" | "jpeg" => "image/jpeg",
+        "jpg" | "jpeg" | "jfif" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",
         "gif" => "image/gif",
@@ -1107,7 +1227,7 @@ fn encode_static(
 ) -> Result<Vec<u8>, String> {
     let mut encoded = Vec::new();
     match output_extension {
-        "jpg" | "jpeg" => {
+        "jpg" | "jpeg" | "jfif" => {
             let rgb = image.to_rgb8();
             JpegEncoder::new_with_quality(&mut encoded, quality.max(1))
                 .encode(
@@ -1270,7 +1390,10 @@ fn optimize_image_data(
                 settings.scale.min(72.0),
             ]
         };
-        let source_supported = matches!(source_extension.as_str(), "jpg" | "jpeg" | "png" | "webp");
+        let source_supported = matches!(
+            source_extension.as_str(),
+            "jpg" | "jpeg" | "jfif" | "png" | "webp"
+        );
         let mut formats = if settings.format == "keep" {
             vec![if source_supported {
                 source_extension.clone()
@@ -1358,7 +1481,7 @@ fn optimize_image_data(
         && settings.format == "keep"
         && target_width == width
         && target_height == height
-        && matches!(source_extension.as_str(), "jpg" | "jpeg")
+        && matches!(source_extension.as_str(), "jpg" | "jpeg" | "jfif")
     {
         // JPEG cannot be re-encoded losslessly. Keeping its original bytes is
         // the only honest implementation of the lossless preset.
@@ -1731,6 +1854,10 @@ fn quick_settings(value: &QuickCompressSettings) -> WatcherSettings {
         _ => inferred_mode.to_string(),
     };
     WatcherSettings {
+        profiles: Vec::new(),
+        folder_rename: None,
+        only_when_needed: false,
+        notify_on_complete: true,
         input_folder: String::new(),
         input_folders: Vec::new(),
         output_folder: String::new(),
@@ -1915,7 +2042,7 @@ async fn compress_image_data(
         .unwrap_or("")
         .to_ascii_lowercase();
     let source_extension = match named_extension.as_str() {
-        "jpg" | "jpeg" => "jpg".to_string(),
+        "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
         "png" | "webp" | "gif" => named_extension,
         _ => match image::guess_format(&data).map_err(|error| error.to_string())? {
             image::ImageFormat::Jpeg => "jpg".to_string(),
@@ -1935,7 +2062,7 @@ async fn compress_image_data(
                 .unwrap_or((0, 0))
         });
     let mime_type = match optimized.extension.as_str() {
-        "jpg" | "jpeg" => "image/jpeg",
+        "jpg" | "jpeg" | "jfif" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",
         "gif" => "image/gif",
@@ -2126,7 +2253,12 @@ fn cleanup_marked_files(
     Ok(())
 }
 
+static GENERATED_MANIFEST_LOCK: Mutex<()> = Mutex::new(());
+
 fn record_optimised_output(directory: &Path, output: &Path) -> Result<(), String> {
+    let _guard = GENERATED_MANIFEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let canonical = fs::canonicalize(output).unwrap_or_else(|_| output.to_path_buf());
     let manifest = directory.join(".piclite-generated.txt");
@@ -2276,6 +2408,29 @@ async fn quit_application(app: AppHandle, state: State<'_, DesktopState>) -> Res
     Ok(())
 }
 
+fn write_watched_output(directory: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+    for _ in 0..10_000 {
+        let path = available_path(directory, name)?;
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                // Register the reserved path before writing so generated images never re-enter the queue.
+                let result = record_optimised_output(directory, &path)
+                    .and_then(|_| file.write_all(bytes).map_err(|e| e.to_string()));
+                if let Err(error) = result {
+                    drop(file);
+                    let _ = fs::remove_file(&path);
+                    return Err(error);
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err("无法生成不冲突的文件名".into())
+}
+
 fn process_watched_file(
     app: AppHandle,
     path: PathBuf,
@@ -2291,8 +2446,30 @@ fn process_watched_file(
             return;
         }
     }
-    thread::sleep(Duration::from_millis(750));
-    let result = (|| -> Result<(PathBuf, u64, u64), String> {
+    let result = (|| -> Result<Option<(PathBuf, u64, u64)>, String> {
+        // Wait for the producer to finish copying rather than decoding a partial image.
+        let mut stable = 0;
+        let mut previous = None;
+        for _ in 0..40 {
+            thread::sleep(Duration::from_millis(250));
+            let metadata = fs::metadata(&canonical).map_err(|e| e.to_string())?;
+            let signature = (metadata.len(), metadata.modified().ok());
+            if previous == Some(signature) && metadata.len() > 0 {
+                stable += 1;
+            } else {
+                stable = 0;
+            }
+            previous = Some(signature);
+            if stable >= 3 {
+                break;
+            }
+        }
+        if stable < 3 {
+            return Err("图片仍在写入，请完成复制后重试".to_string());
+        }
+        if registered_output(&canonical) || !watched_file_needs_processing(&canonical, &settings)? {
+            return Ok(None);
+        }
         let metadata = fs::metadata(&canonical).map_err(|error| error.to_string())?;
         let original_bytes = metadata.len();
         let output_directory = if settings.output_folder == "@same-folder" {
@@ -2307,37 +2484,56 @@ fn process_watched_file(
         };
         let optimized = optimize_image(&canonical, &settings)?;
         let extension = optimized.extension;
-        let base = canonical
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("image");
-        let suffix = if settings.output_suffix.trim().is_empty() {
-            "-piclite"
-        } else {
-            settings.output_suffix.trim()
-        };
         let (width, height) = image::load_from_memory(&optimized.bytes)
             .map(|image| image.dimensions())
             .or_else(|_| image::image_dimensions(&canonical))
             .unwrap_or((0, 0));
-        let output_name = render_output_name(
-            &settings.rename_template,
-            base,
-            suffix,
+        let output_name = watched_output_name(
+            &canonical,
+            &settings,
             &extension,
             optimized.bytes.len(),
             width,
             height,
-        );
-        let output_path = available_path(&output_directory, &output_name)?;
-        fs::write(&output_path, &optimized.bytes).map_err(|error| error.to_string())?;
-        record_optimised_output(&output_directory, &output_path)?;
-        Ok((output_path, original_bytes, optimized.bytes.len() as u64))
+        )?;
+        let output_path = write_watched_output(&output_directory, &output_name, &optimized.bytes)?;
+        Ok(Some((
+            output_path,
+            original_bytes,
+            optimized.bytes.len() as u64,
+        )))
     })();
 
     match result {
-        Ok((output_path, original_bytes, output_bytes)) => {
-            let mut event = watcher_event("success", None);
+        Ok(None) => {}
+        Ok(Some((output_path, original_bytes, output_bytes))) => {
+            if settings.notify_on_complete {
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("PicLite · 图片处理完成")
+                    .body(format!(
+                        "{} → {} · {} KB → {} KB",
+                        canonical.file_name().unwrap_or_default().to_string_lossy(),
+                        output_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy(),
+                        original_bytes / 1024,
+                        output_bytes / 1024
+                    ))
+                    .show();
+            }
+            let mut event = watcher_event(
+                "success",
+                Some(format!(
+                    "已处理 {}",
+                    output_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                )),
+            );
             event.file = Some(canonical.to_string_lossy().to_string());
             event.output = Some(output_path.to_string_lossy().to_string());
             event.original_bytes = Some(original_bytes);
@@ -2754,11 +2950,28 @@ fn copy_file_to_clipboard(path: &Path) -> Result<(), String> {
     write_clipboard_image(&data)
 }
 
+fn portable_directory() -> Option<PathBuf> {
+    if !cfg!(target_os = "windows") {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let directory = exe.parent()?;
+    directory
+        .join("portable.txt")
+        .is_file()
+        .then(|| directory.join("PicLite-Data"))
+}
+
+fn config_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    portable_directory()
+        .map(Ok)
+        .unwrap_or_else(|| app.path().app_config_dir().map_err(|e| e.to_string()))
+}
+
 fn clipboard_cache_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| error.to_string())?
+    let directory = portable_directory()
+        .map(Ok)
+        .unwrap_or_else(|| app.path().app_cache_dir().map_err(|e| e.to_string()))?
         .join("clipboard");
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let safe = safe_file_name(file_name);
@@ -3099,19 +3312,13 @@ async fn read_system_font(path: String, face_index: u32) -> Result<SystemFontDat
 }
 
 fn upload_profile_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?;
+    let directory = config_directory(app)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory.join("upload-profile.json"))
 }
 
 fn app_profile_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?;
+    let directory = config_directory(app)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory.join("app-profile.json"))
 }
@@ -3148,20 +3355,13 @@ async fn save_app_profile(app: AppHandle, profile: NativeAppProfile) -> Result<(
 }
 
 fn imported_fonts_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?
-        .join("watermark-fonts");
+    let directory = config_directory(app)?.join("watermark-fonts");
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory)
 }
 
 fn imported_fonts_manifest_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?;
+    let directory = config_directory(app)?;
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     Ok(directory.join("watermark-fonts.json"))
 }
@@ -4025,6 +4225,98 @@ async fn export_images(
     })
 }
 
+fn validated_watch_rules(
+    settings: &WatcherSettings,
+) -> Result<Vec<(PathBuf, WatcherSettings)>, String> {
+    let profiles = if settings.profiles.is_empty() {
+        vec![settings.clone()]
+    } else {
+        settings.profiles.clone()
+    };
+    let mut rules: Vec<(PathBuf, WatcherSettings)> = Vec::new();
+    for mut profile in profiles {
+        if profile.format != "keep" || profile.resize || profile.scale != 100.0 {
+            profile.mode = "manual".into();
+        }
+        if let Some(rule) = &profile.folder_rename {
+            if rule.folder_pattern.trim().is_empty() {
+                return Err("请填写文件夹匹配规则".into());
+            }
+            Regex::new(&rule.folder_pattern).map_err(|e| format!("文件夹匹配规则无效：{e}"))?;
+            if rule.rename_template.contains("{index") {
+                return Err("监控命名请使用 {name} 区分图片；序号仅用于批量预览重命名".into());
+            }
+        }
+        if profile.max_width == 0
+            || profile.max_height == 0
+            || !profile.scale.is_finite()
+            || profile.scale <= 0.0
+        {
+            return Err("图片尺寸必须大于 0".into());
+        }
+        if !profile.output_folder.is_empty() && profile.output_folder != "@same-folder" {
+            fs::create_dir_all(&profile.output_folder).map_err(|e| e.to_string())?;
+            profile.output_folder = fs::canonicalize(&profile.output_folder)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .to_string();
+        }
+        let inputs = if profile.input_folders.is_empty() {
+            vec![profile.input_folder.clone()]
+        } else {
+            profile.input_folders.clone()
+        };
+        for input in inputs {
+            let root =
+                fs::canonicalize(&input).map_err(|_| format!("监测文件夹不存在：{input}"))?;
+            if !root.is_dir() {
+                return Err("监测目标必须是文件夹".into());
+            }
+            if rules
+                .iter()
+                .any(|(other, _)| root.starts_with(other) || other.starts_with(&root))
+            {
+                return Err("监测目录重复或相互包含，请使用互不重叠的根目录".into());
+            }
+            rules.push((root, profile.clone()));
+        }
+    }
+    for (root, _) in &rules {
+        for (source, rule) in &rules {
+            if rule.output_folder != "@same-folder" {
+                let output = if rule.output_folder.is_empty() {
+                    source.join("PicLite")
+                } else {
+                    PathBuf::from(&rule.output_folder)
+                };
+                if root.starts_with(&output) || (root != source && output.starts_with(root)) {
+                    return Err("输出目录与监测目录冲突，可能造成循环处理".into());
+                }
+            }
+        }
+    }
+    if rules.is_empty() {
+        return Err("请选择来源文件夹".into());
+    }
+    Ok(rules)
+}
+
+#[tauri::command]
+async fn validate_watcher(settings: WatcherSettings) -> CommandResult {
+    match validated_watch_rules(&settings) {
+        Ok(_) => CommandResult {
+            ok: true,
+            paths: None,
+            error: None,
+        },
+        Err(error) => CommandResult {
+            ok: false,
+            paths: None,
+            error: Some(error),
+        },
+    }
+}
+
 #[tauri::command]
 async fn start_watcher(
     app: AppHandle,
@@ -4032,64 +4324,54 @@ async fn start_watcher(
     state: State<'_, DesktopState>,
 ) -> Result<CommandResult, String> {
     let result = (|| -> Result<(), String> {
-        let requested_inputs = if settings.input_folders.is_empty() {
-            (!settings.input_folder.is_empty())
-                .then(|| vec![settings.input_folder.clone()])
-                .unwrap_or_default()
-        } else {
-            settings.input_folders.clone()
-        };
-        if requested_inputs.is_empty() {
-            return Err("请选择来源文件夹".to_string());
-        }
-        let inputs = requested_inputs
-            .iter()
-            .map(|input| fs::canonicalize(input).map_err(|_| format!("监测文件夹不存在：{input}")))
-            .collect::<Result<Vec<_>, _>>()?;
-        let fixed_output = (!settings.output_folder.is_empty()
-            && settings.output_folder != "@same-folder")
-            .then(|| PathBuf::from(&settings.output_folder));
-
-        if let Some(previous) = state
-            .watcher
-            .lock()
-            .map_err(|_| "监测状态不可用".to_string())?
-            .take()
-        {
-            drop(previous);
-        }
+        let rules = validated_watch_rules(&settings)?;
         let app_handle = app.clone();
-        let watcher_settings = settings.clone();
         let processing = state.processing.clone();
-        let inputs_for_callback = inputs.clone();
-        let output_for_callback = fixed_output.clone();
+        let rules_for_callback = rules.clone();
+        let mut seen = BTreeMap::new();
         let mut watcher = notify::recommended_watcher(
             move |result: notify::Result<notify::Event>| match result {
                 Ok(event) if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) => {
-                    for path in event.paths {
-                        let source_root = inputs_for_callback
+                    let paths = event.paths.into_iter().flat_map(|path| {
+                        if path.is_dir() {
+                            collect_image_paths(&path)
+                        } else {
+                            vec![path]
+                        }
+                    });
+                    for path in paths {
+                        let Some((source_root, rule)) = rules_for_callback
                             .iter()
-                            .filter(|input| path.starts_with(input))
-                            .max_by_key(|input| input.components().count())
-                            .cloned();
-                        let Some(source_root) = source_root else {
+                            .filter(|(input, _)| path.starts_with(input))
+                            .max_by_key(|(input, _)| input.components().count())
+                        else {
                             continue;
                         };
-                        let default_output = source_root.join("PicLite");
-                        let already_optimised = path
-                            .file_stem()
-                            .and_then(|value| value.to_str())
-                            .is_some_and(|value| value.contains("-piclite"));
-                        if !is_image(&path)
-                            || already_optimised
-                            || path.starts_with(
-                                output_for_callback.as_ref().unwrap_or(&default_output),
-                            )
-                        {
+                        if !path.is_file() || !is_image(&path) || registered_output(&path) {
                             continue;
                         }
+                        let output = if rule.output_folder.is_empty() {
+                            Some(source_root.join("PicLite"))
+                        } else if rule.output_folder == "@same-folder" {
+                            None
+                        } else {
+                            Some(PathBuf::from(&rule.output_folder))
+                        };
+                        if output.is_some_and(|output| path.starts_with(output)) {
+                            continue;
+                        }
+                        if let Ok(metadata) = fs::metadata(&path) {
+                            let signature = (metadata.len(), metadata.modified().ok());
+                            if seen.get(&path) == Some(&signature) {
+                                continue;
+                            }
+                            if seen.len() > 20_000 {
+                                seen.clear();
+                            }
+                            seen.insert(path.clone(), signature);
+                        }
                         let app = app_handle.clone();
-                        let mut settings = watcher_settings.clone();
+                        let mut settings = rule.clone();
                         settings.input_folder = source_root.to_string_lossy().to_string();
                         let processing = processing.clone();
                         thread::spawn(move || {
@@ -4104,7 +4386,7 @@ async fn start_watcher(
             },
         )
         .map_err(|error| error.to_string())?;
-        for input in &inputs {
+        for (input, _) in &rules {
             watcher
                 .watch(input, RecursiveMode::Recursive)
                 .map_err(|error| format!("无法监测 {}：{error}", input.display()))?;
@@ -4121,11 +4403,14 @@ async fn start_watcher(
             &app,
             watcher_event(
                 "started",
-                Some(format!("正在监测 {} 个文件夹", inputs.len())),
+                Some(format!("正在监测 {} 个文件夹", rules.len())),
             ),
         );
         Ok(())
     })();
+    if let Err(error) = &result {
+        emit_event(&app, watcher_event("error", Some(error.clone())));
+    }
     Ok(match result {
         Ok(()) => CommandResult {
             ok: true,
@@ -4628,6 +4913,11 @@ fn start_clipboard_monitor(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if let Some(directory) = portable_directory() {
+        fs::create_dir_all(&directory).expect("Portable data folder is not writable");
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", directory.join("WebView2"));
+    }
     let app = tauri::Builder::default()
         // Register this first so a second launch never initializes another
         // tray, clipboard monitor, or webview. It simply restores the main
@@ -4640,6 +4930,7 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(DesktopState::default())
         .setup(|app| {
@@ -4766,6 +5057,7 @@ pub fn run() {
             hide_current_window,
             quit_application,
             start_watcher,
+            validate_watcher,
             stop_watcher,
             get_watcher_state,
         ])
@@ -4883,6 +5175,10 @@ mod tests {
         ));
         fs::write(&path, &original).expect("write source png");
         let settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -4999,6 +5295,10 @@ mod tests {
         let original =
             encode_static(DynamicImage::ImageRgb8(pixels), "jpg", 44).expect("encode JPEG");
         let settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5035,6 +5335,10 @@ mod tests {
         let original =
             encode_static(DynamicImage::ImageRgb8(pixels), "jpg", 95).expect("encode source JPEG");
         let balanced = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5174,6 +5478,10 @@ mod tests {
         ));
         fs::write(&path, &original).expect("write source jpeg");
         let settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5476,5 +5784,189 @@ mod tests {
         assert!(deep.join("1101_portrait.jpg").exists());
 
         fs::remove_dir_all(root).expect("remove batch rename test folder");
+    }
+
+    fn watch_test_settings(root: &Path) -> WatcherSettings {
+        serde_json::from_value(serde_json::json!({
+            "inputFolder": root.to_string_lossy(), "outputFolder": "@same-folder",
+            "mode": "manual", "quality": 85, "scale": 100, "format": "image/jpeg",
+            "resize": true, "maxWidth": 80, "maxHeight": 80, "stripMetadata": true,
+            "preventLarger": true, "onlyWhenNeeded": true
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn jfif_decode_encode_and_watch_target_constraints() {
+        let root = std::env::temp_dir().join(format!("piclite-jfif-{}", now_ms()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("photo.JFIF");
+        let original = encode_static(DynamicImage::new_rgb8(200, 100), "jfif", 95).unwrap();
+        fs::write(&path, &original).unwrap();
+        assert!(is_image(&path));
+        assert_eq!(mime_for(&path), "image/jpeg");
+        let settings = watch_test_settings(&root);
+        assert!(watched_file_needs_processing(&path, &settings).unwrap());
+        let result = optimize_image(&path, &settings).unwrap();
+        assert_eq!(result.extension, "jpg");
+        assert_eq!(
+            image::load_from_memory(&result.bytes).unwrap().dimensions(),
+            (80, 40)
+        );
+        fs::write(&path, result.bytes).unwrap();
+        assert!(!watched_file_needs_processing(&path, &settings).unwrap());
+        let mut webp = settings.clone();
+        webp.format = "image/webp".into();
+        assert!(watched_file_needs_processing(&path, &webp).unwrap());
+        assert_eq!(optimize_image(&path, &webp).unwrap().extension, "webp");
+        let mut keep = settings;
+        keep.format = "keep".into();
+        keep.only_when_needed = false;
+        let result = optimize_image(&path, &keep).unwrap();
+        assert_eq!(result.extension, "jfif");
+        assert_eq!(
+            image::guess_format(&result.bytes).unwrap(),
+            image::ImageFormat::Jpeg
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_words_initials_and_parent_boundary() {
+        let root = Path::new("A");
+        let path = root
+            .join("A1")
+            .join("New York")
+            .join("A1111")
+            .join("p.jfif");
+        let pattern = Regex::new(r"(New York)").unwrap();
+        let (folder, matched, captures) = folder_match_for_path(&path, root, &pattern).unwrap();
+        assert_eq!(
+            batch_rename_name(
+                "{1:initials}_{name}",
+                "p",
+                "jfif",
+                &folder,
+                &matched,
+                &captures,
+                "",
+                1
+            ),
+            "NY_p.jfif"
+        );
+        assert_eq!(
+            batch_rename_name(
+                "{1:initial}_{name}",
+                "p",
+                "jfif",
+                &folder,
+                &matched,
+                &captures,
+                "",
+                1
+            ),
+            "N_p.jfif"
+        );
+        assert!(folder_match_for_path(&path, &root.join("A1/New York/A1111"), &pattern).is_none());
+        let chinese = Regex::new("风景").unwrap();
+        let (_, _, captures) =
+            folder_match_for_path(&root.join("风景/a/p.png"), root, &chinese).unwrap();
+        let request = BatchRenameRequest {
+            root_folder: "A".into(),
+            folder_pattern: "风景".into(),
+            rename_template: "{code}_{name}".into(),
+            first_padding: 2,
+            second_padding: 2,
+        };
+        assert_eq!(rename_code(&captures, &request), "风景");
+    }
+
+    #[test]
+    fn independent_watch_rules_conflicts_and_generated_outputs() {
+        let root = std::env::temp_dir().join(format!("piclite-watch-rules-{}", now_ms()));
+        let a = root.join("A");
+        let b = root.join("B");
+        fs::create_dir_all(a.join("child")).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        let mut settings = watch_test_settings(&a);
+        let mut other = watch_test_settings(&b);
+        other.format = "image/webp".into();
+        other.max_width = 40;
+        settings.profiles = vec![watch_test_settings(&a), other.clone()];
+        let rules = validated_watch_rules(&settings).unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].1.format, "image/jpeg");
+        assert_eq!(rules[1].1.format, "image/webp");
+        other.input_folder = a.join("child").to_string_lossy().into();
+        settings.profiles[1] = other.clone();
+        assert!(validated_watch_rules(&settings).is_err());
+        other.input_folder = b.to_string_lossy().into();
+        other.output_folder = a.to_string_lossy().into();
+        settings.profiles[1] = other;
+        assert!(validated_watch_rules(&settings).is_err());
+        let output = a.join("0101_photo.jfif");
+        fs::write(&output, b"test").unwrap();
+        assert!(!registered_output(&output));
+        record_optimised_output(&a, &output).unwrap();
+        assert!(registered_output(&output));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn watch_and_batch_share_ancestor_naming_with_mixed_files() {
+        let root = std::env::temp_dir().join(format!("piclite-naming-{}", now_ms()));
+        let folder = root.join("A1/A11/【1-1】A111/A1111");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("photo.jfif");
+        fs::write(&path, b"image").unwrap();
+        fs::write(folder.join("notes.txt"), b"notes").unwrap();
+        let request = BatchRenameRequest {
+            root_folder: root.to_string_lossy().into(),
+            folder_pattern: r"【(\d+)-(\d+)】".into(),
+            rename_template: "{code}_{name}".into(),
+            first_padding: 2,
+            second_padding: 2,
+        };
+        let preview = build_batch_rename_plan(&request).unwrap();
+        assert_eq!(preview.entries.len(), 1);
+        assert_eq!(preview.entries[0].target_name, "0101_photo.jfif");
+        let mut settings = watch_test_settings(&root);
+        settings.folder_rename = Some(request.clone());
+        assert_eq!(
+            watched_output_name(&path, &settings, "jfif", 5, 1, 1).unwrap(),
+            preview.entries[0].target_name
+        );
+        fs::create_dir(folder.join("0101_photo.jfif")).unwrap();
+        let preview = build_batch_rename_plan(&request).unwrap();
+        assert!(
+            !preview
+                .entries
+                .iter()
+                .find(|e| e.source_name == "photo.jfif")
+                .unwrap()
+                .ready
+        );
+        assert_eq!(fs::read(folder.join("notes.txt")).unwrap(), b"notes");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn concurrent_watcher_outputs_never_overwrite_each_other() {
+        let root = std::env::temp_dir().join(format!("piclite-output-race-{}", now_ms()));
+        let handles = (0..8)
+            .map(|index| {
+                let root = root.clone();
+                thread::spawn(move || write_watched_output(&root, "photo.jpg", &[index]).unwrap())
+            })
+            .collect::<Vec<_>>();
+        let outputs = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<HashSet<_>>();
+        assert_eq!(outputs.len(), 8);
+        for output in outputs {
+            assert!(registered_output(&output));
+            assert_eq!(fs::read(output).unwrap().len(), 1);
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 }
