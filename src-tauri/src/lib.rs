@@ -775,10 +775,6 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
         });
     }
 
-    let source_keys = images
-        .iter()
-        .map(|path| path_collision_key(path))
-        .collect::<HashSet<_>>();
     let mut target_counts = BTreeMap::<String, usize>::new();
     for entry in entries.iter().filter(|entry| entry.code.is_some()) {
         *target_counts
@@ -794,7 +790,7 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
         if target_counts.get(&target_key).copied().unwrap_or(0) > 1 {
             entry.ready = false;
             entry.error = Some("新文件名重复，请在模板中加入 {name} 或 {index}".to_string());
-        } else if target.exists() && !source_keys.contains(&target_key) {
+        } else if target.exists() {
             entry.ready = false;
             entry.error = Some("目标文件已存在".to_string());
         }
@@ -845,6 +841,40 @@ async fn apply_batch_rename(request: BatchRenameRequest) -> Result<BatchRenameRe
     execute_batch_rename(&request)
 }
 
+// Publish without replacing a target, including one created after preview.
+fn move_without_overwrite(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    match fs::hard_link(source, target) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Err(error),
+        Err(_) => {
+            // FAT/exFAT do not support hard links. Reserve the destination atomically.
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(target)?;
+            let result = (|| {
+                let mut input = fs::File::open(source)?;
+                std::io::copy(&mut input, &mut output)?;
+                let metadata = input.metadata()?;
+                if let Ok(modified) = metadata.modified() {
+                    output.set_times(fs::FileTimes::new().set_modified(modified))?;
+                }
+                output.flush()
+            })();
+            if let Err(error) = result {
+                drop(output);
+                let _ = fs::remove_file(target);
+                return Err(error);
+            }
+        }
+    }
+    if let Err(error) = fs::remove_file(source) {
+        let _ = fs::remove_file(target);
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResult, String> {
     let mut result = build_batch_rename_plan(&request)?;
     let runnable = result
@@ -856,9 +886,9 @@ fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResul
     let mut staged = Vec::<(PathBuf, PathBuf, PathBuf)>::new();
     for (index, (source, target)) in runnable.iter().enumerate() {
         let temporary = temporary_rename_path(source, index);
-        if let Err(error) = fs::rename(source, &temporary) {
+        if let Err(error) = move_without_overwrite(source, &temporary) {
             for (original, _, staged_path) in staged.iter().rev() {
-                let _ = fs::rename(staged_path, original);
+                let _ = move_without_overwrite(staged_path, original);
             }
             return Err(format!("无法暂存 {}：{error}", source.to_string_lossy()));
         }
@@ -867,12 +897,12 @@ fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResul
 
     let mut completed = Vec::<(PathBuf, PathBuf)>::new();
     for (index, (source, target, temporary)) in staged.iter().enumerate() {
-        if let Err(error) = fs::rename(temporary, target) {
+        if let Err(error) = move_without_overwrite(temporary, target) {
             for (finished_source, finished_target) in completed.iter().rev() {
-                let _ = fs::rename(finished_target, finished_source);
+                let _ = move_without_overwrite(finished_target, finished_source);
             }
             for (remaining_source, _, remaining_temporary) in staged.iter().skip(index) {
-                let _ = fs::rename(remaining_temporary, remaining_source);
+                let _ = move_without_overwrite(remaining_temporary, remaining_source);
             }
             return Err(format!("无法写入 {}：{error}", target.to_string_lossy()));
         }
@@ -5967,6 +5997,37 @@ mod tests {
             assert!(registered_output(&output));
             assert_eq!(fs::read(output).unwrap().len(), 1);
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn batch_rename_blocks_occupied_chains_and_late_targets() {
+        let root = std::env::temp_dir().join(format!("piclite-rename-chain-{}", now_ms()));
+        let folder = root.join("【1-1】");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("photo.jpg"), b"original").unwrap();
+        fs::write(folder.join("0101_photo.jpg"), b"existing").unwrap();
+        fs::create_dir(folder.join("0101_0101_photo.jpg")).unwrap();
+        let request = BatchRenameRequest {
+            root_folder: root.to_string_lossy().into(),
+            folder_pattern: r"【(\d+)-(\d+)】".into(),
+            rename_template: "{code}_{name}".into(),
+            first_padding: 2,
+            second_padding: 2,
+        };
+        assert_eq!(execute_batch_rename(&request).unwrap().renamed, 0);
+        assert_eq!(fs::read(folder.join("photo.jpg")).unwrap(), b"original");
+        assert_eq!(
+            fs::read(folder.join("0101_photo.jpg")).unwrap(),
+            b"existing"
+        );
+        assert!(
+            move_without_overwrite(&folder.join("photo.jpg"), &folder.join("0101_photo.jpg"))
+                .is_err()
+        );
+        assert_eq!(
+            fs::read(folder.join("0101_photo.jpg")).unwrap(),
+            b"existing"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

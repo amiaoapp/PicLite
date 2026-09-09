@@ -12,6 +12,14 @@ export function WatchProfiles({ api, language, profiles, onChange, status }: {
   const [error, setError] = useState("");
   const t = (zh: string, en: string) => tr(language, zh, en);
   const update = (value: Partial<WatchProfile>) => setDraft((current) => current && { ...current, ...value });
+  const toggle = async (profile: WatchProfile) => {
+    const next = profiles.map((item) => item.id === profile.id ? { ...item, enabled: !item.enabled } : item);
+    const active = next.filter((item) => item.enabled);
+    try {
+      if (active.length) { const result = await api.validateWatcher({ ...active[0], profiles: active }); if (!result.ok) { setError(result.error || "Invalid rules"); return; } }
+      onChange(next); setError("");
+    } catch (failure) { setError(String(failure)); }
+  };
   const save = async () => {
     if (!draft) return;
     const next = [...profiles.filter((profile) => profile.id !== draft.id), draft];
@@ -27,7 +35,7 @@ export function WatchProfiles({ api, language, profiles, onChange, status }: {
     <header><h2>{t("文件夹监控任务", "Folder watch tasks")}</h2><p>{status || t("每个任务独立保存规则；添加新图片后自动处理，原图保留。", "Each task saves its own rules. New images are processed and originals are kept.")}</p></header>
     <div className="settings-card">
       {profiles.map((profile) => <div className="settings-row" key={profile.id}><div><strong>{profile.name}</strong><small>{profile.inputFolder}</small><small>{profile.format === "keep" ? t("自动择优", "Automatic") : profile.format.replace("image/", "").toUpperCase()} · {profile.resize ? `${profile.maxWidth} × ${profile.maxHeight}` : `${profile.scale}%`}</small></div><div className="settings-control inline-fields">
-        <button className="settings-button" onClick={() => onChange(profiles.map((item) => item.id === profile.id ? { ...item, enabled: !item.enabled } : item))}>{profile.enabled ? t("暂停", "Pause") : t("启用", "Enable")}</button>
+        <button className="settings-button" onClick={() => void toggle(profile)}>{profile.enabled ? t("暂停", "Pause") : t("启用", "Enable")}</button>
         <button className="settings-button" onClick={() => { setDraft(structuredClone(profile)); setError(""); }}>{t("编辑", "Edit")}</button>
         <button className="settings-button danger" onClick={() => { onChange(profiles.filter((item) => item.id !== profile.id)); if (draft?.id === profile.id) setDraft(null); }}>{t("移除", "Remove")}</button>
       </div></div>)}
@@ -36,6 +44,7 @@ export function WatchProfiles({ api, language, profiles, onChange, status }: {
         if (path) { setError(""); setDraft({ id: crypto.randomUUID(), name: fileName(path), enabled: true, inputFolder: path, inputFolders: [], outputFolder: "@same-folder", outputSuffix: "-piclite", renameTemplate: "{name}{suffix}", mode: "manual", quality: 86, scale: 100, format: "image/jpeg", resize: false, maxWidth: 1920, maxHeight: 1920, stripMetadata: true, preventLarger: true, onlyWhenNeeded: true, notifyOnComplete: true }); }
       }}>{t("添加监控任务", "Add watch task")}</button>
     </div>
+    {error && !draft && <p role="alert">{error}</p>}
     {draft && <div className="settings-card watch-profile-editor">
       <label>{t("任务名称", "Task name")}<input value={draft.name} onChange={(event) => update({ name: event.target.value })} /></label>
       <label>{t("来源目录（含所有子目录）", "Source folder (recursive)")}<button className="path-button" onClick={async () => { const path = await api.selectFolder("input"); if (path) update({ inputFolder: path }); }}>{draft.inputFolder}</button></label>

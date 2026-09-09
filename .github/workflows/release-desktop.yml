@@ -70,7 +70,7 @@ jobs:
           npx tsc --noEmit
           npm run desktop:renderer
           node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
+          cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Build Tauri bundle
         uses: tauri-apps/tauri-action@v1
         with:
