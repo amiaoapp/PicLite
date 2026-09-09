@@ -132,7 +132,7 @@ export function loadSettings(): DesktopSettings {
         outputSuffix: parsed.outputSuffix || "-piclite", renameTemplate: parsed.renameTemplate || "{name}{suffix}",
         mode: preset.mode === "auto" ? "balanced" : "manual", quality: preset.quality, scale: preset.scale,
         format: toNativeFormat(preset.format), resize: false, maxWidth: 1920, maxHeight: 1920,
-        stripMetadata: preset.stripMetadata, preventLarger: preset.preventLarger, onlyWhenNeeded: false, notifyOnComplete: true,
+        stripMetadata: preset.stripMetadata, preventLarger: preset.preventLarger, onlyWhenNeeded: false, notifyOnComplete: true, showFloatingResult: false,
       })),
       watchFolders: Array.isArray(parsed.watchFolders) ? parsed.watchFolders.map(userFacingPath) : DEFAULT_SETTINGS.watchFolders,
       renameTemplate: mainPreferences.renameTemplate || parsed.renameTemplate || DEFAULT_SETTINGS.renameTemplate,

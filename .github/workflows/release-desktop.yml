@@ -114,5 +114,5 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber --repo "${GITHUB_REPOSITORY}"
           else
-            gh release create "${GITHUB_REF_NAME}" "${files[@]}" --title "PicLite 图轻 ${GITHUB_REF_NAME}" --notes-file docs/RELEASE-1.6.0.md --repo "${GITHUB_REPOSITORY}"
+            gh release create "${GITHUB_REF_NAME}" "${files[@]}" --title "PicLite 图轻 ${GITHUB_REF_NAME}" --notes-file "docs/RELEASE-${GITHUB_REF_NAME#v}.md" --repo "${GITHUB_REPOSITORY}"
           fi

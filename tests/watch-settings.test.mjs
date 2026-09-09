@@ -11,6 +11,7 @@ test('legacy watch folders migrate with independent rules and explicit empty pro
   const migrated = loadSettings();
   assert.equal(migrated.watchProfiles.length, 2);
   assert.equal(migrated.watchProfiles[0].format, 'image/webp');
+  assert.equal(migrated.watchProfiles[0].showFloatingResult, false);
   migrated.watchProfiles[0].quality = 20;
   assert.equal(migrated.watchProfiles[1].quality, 72);
   saveSettings({ ...migrated, watchProfiles: [] });

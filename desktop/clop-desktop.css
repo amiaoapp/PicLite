@@ -305,9 +305,3 @@ svg { width: 18px; height: 18px; }
   .result-actions { grid-template-columns: repeat(3, 38px); gap: 7px 9px; }
   .result-actions button { width: 38px; height: 38px; }
 }
-
-.watch-profile-editor { margin-top: 16px; padding: 20px; display: grid; gap: 16px; }
-.watch-profile-editor > label { display: grid; gap: 8px; font-size: 14px; }
-.watch-profile-editor input:not([type=checkbox]), .watch-profile-editor select { min-width: 0; width: 100%; }
-.watch-profile-editor label:has(> input[type=checkbox]) { display: flex; align-items: center; }
-.watch-profile-editor small { overflow-wrap: anywhere; opacity: .7; }

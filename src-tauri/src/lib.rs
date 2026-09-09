@@ -284,6 +284,8 @@ struct WatcherSettings {
     only_when_needed: bool,
     #[serde(default = "default_true")]
     notify_on_complete: bool,
+    #[serde(default)]
+    show_floating_result: bool,
     input_folder: String,
     #[serde(default)]
     input_folders: Vec<String>,
@@ -1823,6 +1825,32 @@ fn resize_and_position_dropzone(app: &AppHandle, width: f64, height: f64) {
     }
 }
 
+fn keep_dropzone_on_screen(window: &tauri::WebviewWindow) {
+    let (Ok(position), Ok(size), Ok(Some(monitor))) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.current_monitor(),
+    ) else {
+        return;
+    };
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let margin = (18.0 * monitor.scale_factor()).round() as i32;
+    let min_x = monitor_position.x + margin;
+    let min_y = monitor_position.y + margin;
+    let max_x = (monitor_position.x + monitor_size.width.saturating_sub(size.width) as i32
+        - margin)
+        .max(min_x);
+    let max_y = (monitor_position.y + monitor_size.height.saturating_sub(size.height) as i32
+        - margin)
+        .max(min_y);
+    let x = position.x.clamp(min_x, max_x);
+    let y = position.y.clamp(min_y, max_y);
+    if x != position.x || y != position.y {
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+}
+
 fn configure_dropzone_dimensions(app: &AppHandle, state: &DesktopState, width: f64, height: f64) {
     let width = width.clamp(190.0, 520.0);
     let height = height.clamp(140.0, 420.0);
@@ -1832,6 +1860,7 @@ fn configure_dropzone_dimensions(app: &AppHandle, state: &DesktopState, width: f
         // A user-selected position is durable for the current session. Resizing
         // the window must not snap it back to the lower-right corner.
         let _ = window.set_size(LogicalSize::new(width, height));
+        keep_dropzone_on_screen(&window);
     }
 }
 
@@ -1867,6 +1896,7 @@ fn resize_dropzone_around_center(app: &AppHandle, width: f64, height: f64) {
             let y = position.y + (size.height as i32 - new_height) / 2;
             let _ = window.set_position(PhysicalPosition::new(x, y));
         }
+        keep_dropzone_on_screen(&window);
     }
 }
 
@@ -1888,6 +1918,7 @@ fn quick_settings(value: &QuickCompressSettings) -> WatcherSettings {
         folder_rename: None,
         only_when_needed: false,
         notify_on_complete: true,
+        show_floating_result: false,
         input_folder: String::new(),
         input_folders: Vec::new(),
         output_folder: String::new(),
@@ -2568,13 +2599,17 @@ fn process_watched_file(
             event.output = Some(output_path.to_string_lossy().to_string());
             event.original_bytes = Some(original_bytes);
             event.output_bytes = Some(output_bytes);
-            let state = app.state::<DesktopState>();
-            let created = show_dropzone_ready(&app, &state).unwrap_or(false);
-            if created {
-                thread::sleep(Duration::from_millis(250));
+            if settings.show_floating_result {
+                let state = app.state::<DesktopState>();
+                let created = show_dropzone_ready(&app, &state).unwrap_or(false);
+                if created {
+                    thread::sleep(Duration::from_millis(250));
+                }
+                emit_event(&app, event);
+                configure_dropzone_dimensions(&app, &state, 420.0, 320.0);
+            } else {
+                emit_event(&app, event);
             }
-            emit_event(&app, event);
-            configure_dropzone_dimensions(&app, &state, 420.0, 320.0);
         }
         Err(error) => {
             let mut event = watcher_event("error", Some(error));
@@ -5209,6 +5244,7 @@ mod tests {
             folder_rename: None,
             only_when_needed: false,
             notify_on_complete: true,
+            show_floating_result: false,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5329,6 +5365,7 @@ mod tests {
             folder_rename: None,
             only_when_needed: false,
             notify_on_complete: true,
+            show_floating_result: false,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5369,6 +5406,7 @@ mod tests {
             folder_rename: None,
             only_when_needed: false,
             notify_on_complete: true,
+            show_floating_result: false,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5512,6 +5550,7 @@ mod tests {
             folder_rename: None,
             only_when_needed: false,
             notify_on_complete: true,
+            show_floating_result: false,
             input_folder: String::new(),
             input_folders: Vec::new(),
             output_folder: String::new(),
@@ -5824,6 +5863,13 @@ mod tests {
             "preventLarger": true, "onlyWhenNeeded": true
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn watcher_floating_result_is_opt_in() {
+        let settings = watch_test_settings(Path::new("/tmp/piclite-watch"));
+        assert!(!settings.show_floating_result);
+        assert!(settings.notify_on_complete);
     }
 
     #[test]

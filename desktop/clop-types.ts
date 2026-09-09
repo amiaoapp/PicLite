@@ -165,6 +165,7 @@ export type WatcherSettings = {
   folderRename?: BatchRenameRequest;
   onlyWhenNeeded?: boolean;
   notifyOnComplete?: boolean;
+  showFloatingResult?: boolean;
   inputFolder: string;
   inputFolders: string[];
   outputFolder: string;

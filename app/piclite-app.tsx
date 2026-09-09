@@ -17,10 +17,11 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
 import packageManifest from "../package.json";
+import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 
 type CompressionMode = "lossless" | "balanced" | "small" | "manual";
 type OutputFormat = "keep" | "image/jpeg" | "image/png" | "image/webp";
-type ViewName = "workspace" | "watcher" | "gallery" | "preferences" | `plugin:${string}`;
+type ViewName = "workspace" | "watcher" | "rename" | "gallery" | "preferences" | `plugin:${string}`;
 type PreviewMode = "compare" | "original" | "result";
 type ItemStatus = "ready" | "processing" | "done" | "error";
 type ExportMode = "download" | "overwrite" | "same-folder" | "fixed-folder";
@@ -119,7 +120,13 @@ type WatcherEvent = {
 };
 
 type WatcherSettings = {
+  profiles?: WatcherSettings[];
+  folderRename?: BatchRenameRequest;
+  onlyWhenNeeded?: boolean;
+  notifyOnComplete?: boolean;
+  showFloatingResult?: boolean;
   inputFolder: string;
+  inputFolders: string[];
   outputFolder: string;
   mode: CompressionMode;
   quality: number;
@@ -131,6 +138,8 @@ type WatcherSettings = {
   stripMetadata: boolean;
   preventLarger: boolean;
 };
+
+type WatchProfile = WatcherSettings & { id: string; name: string; enabled: boolean };
 
 type BatchRenameRequest = {
   rootFolder: string;
@@ -515,6 +524,69 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
   return <div className="plugin-runtime-shell">{error && <div className="plugin-runtime-error"><strong>{language === "en" ? "Plugin could not be loaded" : "插件载入失败"}</strong><p>{error}</p></div>}<div className="plugin-runtime" ref={hostRef} /></div>;
 }
 
+function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language: "zh" | "en" }) {
+  const t = useCallback((zh: string, en: string) => language === "en" ? en : zh, [language]);
+  const [request, setRequest] = useState<BatchRenameRequest>({
+    rootFolder: "",
+    folderPattern: String.raw`[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]`,
+    renameTemplate: "{code}_{name}",
+    firstPadding: 2,
+    secondPadding: 2,
+  });
+  const [preview, setPreview] = useState<BatchRenameResult | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const patch = (value: Partial<BatchRenameRequest>) => { setRequest((current) => ({ ...current, ...value })); setPreview(null); };
+  const chooseRoot = async () => {
+    const rootFolder = await bridge?.selectFolder("input");
+    if (rootFolder) { patch({ rootFolder }); setStatus(""); }
+  };
+  const scan = async () => {
+    if (!bridge || !request.rootFolder) { setStatus(t("请先选择根目录", "Choose a root folder first")); return; }
+    setBusy(true); setStatus(t("正在递归扫描图片…", "Scanning images recursively…"));
+    try {
+      const result = await bridge.previewBatchRename(request);
+      setPreview(result);
+      setStatus(t(`找到 ${result.entries.length} 张图片，${result.matched} 张匹配规则`, `${result.entries.length} images found; ${result.matched} match`));
+    } catch (error) { setPreview(null); setStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  const apply = async () => {
+    if (!bridge || !preview?.entries.some((entry) => entry.ready)) return;
+    setBusy(true); setStatus(t("正在批量重命名…", "Renaming images…"));
+    try {
+      const result = await bridge.applyBatchRename(request);
+      setPreview(result);
+      setStatus(t(`已重命名 ${result.renamed} 张，跳过 ${result.skipped} 张`, `Renamed ${result.renamed}; skipped ${result.skipped}`));
+    } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  const applyPreset = (value: string) => {
+    const presets: Record<string, Partial<BatchRenameRequest>> = {
+      numbers: { folderPattern: String.raw`[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]`, renameTemplate: "{code}_{name}" },
+      chinese: { folderPattern: "(风景|人物)", renameTemplate: "{1}_{name}" },
+      english: { folderPattern: "([A-Za-z]+)", renameTemplate: "{1}_{name}" },
+      initials: { folderPattern: "([A-Za-z]+(?:[ _-]+[A-Za-z]+)*)", renameTemplate: "{1:initials}_{name}" },
+    };
+    if (presets[value]) patch(presets[value]);
+  };
+  return <section className="rename-page">
+    <header className="rename-hero"><span className="section-index">BUILT-IN PLUGIN / RENAME</span><h1>{t("从目录里提取，", "Extract from folders,")}<br /><span>{t("批量命名。", "rename in batches.")}</span></h1><p>{t("向上查找第一个匹配的父目录，先预览，再安全重命名。不会覆盖已有文件，也不会改动其它格式文件。", "Find the first matching parent, preview every change, then rename safely without overwriting other files.")}</p></header>
+    <div className="rename-console">
+      <div className="rename-console-head"><div><i className={preview ? "active" : ""} /><strong>{busy ? t("处理中", "WORKING") : t("规则编辑器", "RULE EDITOR")}</strong></div><small>{status || t("所有处理都在本机完成", "Everything stays on this device")}</small></div>
+      <div className="rename-root"><button type="button" onClick={() => void chooseRoot()}><span>⌑</span><small>{t("扫描根目录", "Root folder")}</small><strong>{request.rootFolder || t("选择包含多级子目录的文件夹", "Choose a folder with nested images")}</strong><b>{t("选择", "Choose")}</b></button></div>
+      <div className="rename-fields">
+        <label><span>{t("常用规则", "Rule preset")}</span><select defaultValue="" onChange={(event) => applyPreset(event.target.value)}><option value="">{t("选择示例，可继续修改", "Choose an editable example")}</option><option value="numbers">【1-1】 → 0101</option><option value="chinese">风景 / 人物</option><option value="english">English word</option><option value="initials">New York → NY</option></select></label>
+        <label className="rename-pattern"><span>{t("父目录匹配规则（正则）", "Parent-folder pattern (regex)")}</span><input value={request.folderPattern} onChange={(event) => patch({ folderPattern: event.target.value })} /></label>
+        <label className="rename-template"><span>{t("新文件名模板", "New filename template")}</span><input value={request.renameTemplate} onChange={(event) => patch({ renameTemplate: event.target.value })} /><small>{"{code} {name} {ext} {folder} {match} {1} {2} {1:initials} {index:03}"}</small></label>
+        <label><span>{t("数字补齐位数", "Numeric padding")}</span><div className="rename-padding"><input aria-label="First padding" type="number" min="1" max="12" value={request.firstPadding} onChange={(event) => patch({ firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /><b>+</b><input aria-label="Second padding" type="number" min="1" max="12" value={request.secondPadding} onChange={(event) => patch({ secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /></div></label>
+      </div>
+      <div className="rename-actions"><button type="button" disabled={busy || !request.rootFolder} onClick={() => void scan()}>{busy ? "···" : "⌕"} {t("扫描并预览", "Scan and preview")}</button><button className="primary" type="button" disabled={busy || !preview?.entries.some((entry) => entry.ready)} onClick={() => void apply()}>{t("执行重命名", "Apply rename")}</button></div>
+      {preview && <div className="rename-preview"><header><strong>{t("重命名预览", "Rename preview")}</strong><span>{t(`${preview.matched} 个匹配 · ${preview.failed} 个冲突`, `${preview.matched} matches · ${preview.failed} conflicts`)}</span></header>{preview.entries.slice(0, 200).map((entry) => <div className={entry.ready ? "ready" : "blocked"} key={entry.source}><span title={entry.source}>{entry.sourceName}</span><b>→</b><span title={entry.target}>{entry.targetName || entry.error}</span><small>{entry.error || entry.code}</small></div>)}</div>}
+    </div>
+  </section>;
+}
+
 const DEFAULT_SETTINGS: CompressionSettings = {
   mode: "lossless",
   quality: 100,
@@ -696,6 +768,7 @@ function loadStoredPresets() {
 
 const DEFAULT_WATCHER_SETTINGS: WatcherSettings = {
   inputFolder: "",
+  inputFolders: [],
   outputFolder: "",
   mode: "lossless",
   quality: 100,
@@ -706,6 +779,9 @@ const DEFAULT_WATCHER_SETTINGS: WatcherSettings = {
   maxHeight: 2560,
   stripMetadata: true,
   preventLarger: true,
+  onlyWhenNeeded: false,
+  notifyOnComplete: true,
+  showFloatingResult: false,
 };
 
 function uid() {
@@ -2012,12 +2088,16 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [watcherSettings, setWatcherSettings] = useState<WatcherSettings>(() => {
     if (typeof window === "undefined") return DEFAULT_WATCHER_SETTINGS;
     try {
+      const firstProfile = loadDesktopSettings().watchProfiles[0];
+      if (firstProfile) return { ...DEFAULT_WATCHER_SETTINGS, ...firstProfile };
       const saved = window.localStorage.getItem("piclite.watcherSettings.v1");
       return saved ? { ...DEFAULT_WATCHER_SETTINGS, ...JSON.parse(saved) } : DEFAULT_WATCHER_SETTINGS;
     } catch {
       return DEFAULT_WATCHER_SETTINGS;
     }
   });
+  const [watchProfiles, setWatchProfiles] = useState<WatchProfile[]>(() => typeof window === "undefined" ? [] : loadDesktopSettings().watchProfiles as WatchProfile[]);
+  const [selectedWatchProfileId, setSelectedWatchProfileId] = useState<string | null>(() => typeof window === "undefined" ? null : (loadDesktopSettings().watchProfiles[0]?.id || null));
   const [watcherActive, setWatcherActive] = useState(false);
   const [watcherEvents, setWatcherEvents] = useState<WatcherEvent[]>([]);
   const [galleryItems, setGalleryItems] = useState<GalleryViewItem[]>([]);
@@ -2553,7 +2633,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     if (!nativeBridge) return;
     void nativeBridge.getWatcherState().then((state) => {
       setWatcherActive(state.active);
-      if (state.settings) setWatcherSettings({ ...DEFAULT_WATCHER_SETTINGS, ...state.settings });
     });
     return nativeBridge.onWatcherEvent((event) => {
       setWatcherEvents((current) => [event, ...current].slice(0, 30));
@@ -3179,7 +3258,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [nativeBridge]);
 
   const useSuggestedScreenshotFolder = useCallback(async () => {
-    if (!nativeBridge || watcherActive) return;
+    if (!nativeBridge) return;
     try {
       const folder = await nativeBridge.suggestScreenshotFolder();
       if (!folder) {
@@ -3191,7 +3270,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     } catch (error) {
       showToast(error instanceof Error ? error.message : t("无法读取系统截图目录", "Could not read the screenshot folder"));
     }
-  }, [nativeBridge, showToast, t, watcherActive]);
+  }, [nativeBridge, showToast, t]);
 
   const applyPreset = useCallback((preset: SavedPreset) => {
     setSettings({ ...preset.settings, watermark: { ...preset.settings.watermark } });
@@ -3223,19 +3302,72 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     showToast(t(`已删除预设：${preset.name}`, `Preset deleted: ${preset.name}`));
   }, [activePresetId, presets, showToast, t]);
 
-  const toggleWatcher = useCallback(async () => {
+  const persistWatchProfiles = useCallback((profiles: WatchProfile[]) => {
+    const current = loadDesktopSettings();
+    saveDesktopSettings({ ...current, watchProfiles: profiles, watchFolders: profiles.map((profile) => profile.inputFolder) });
+    setWatchProfiles(profiles);
+  }, []);
+
+  const saveWatchProfile = useCallback(async () => {
     if (!nativeBridge) return;
-    if (watcherActive) {
-      await nativeBridge.stopWatcher();
-      return;
-    }
     if (!watcherSettings.inputFolder) {
       showToast(t("请先选择要监测的文件夹", "Choose a folder to watch first"));
       return;
     }
-    const result = await nativeBridge.startWatcher(watcherSettings);
-    if (!result.ok) showToast(result.error || t("无法启动文件夹监测", "Could not start folder watching"));
-  }, [nativeBridge, showToast, t, watcherActive, watcherSettings]);
+    const id = selectedWatchProfileId || `watch-${uid()}`;
+    const current = watchProfiles.find((profile) => profile.id === id);
+    const profile: WatchProfile = {
+      ...watcherSettings,
+      id,
+      name: current?.name || watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("监控任务", "Watch task"),
+      enabled: current?.enabled ?? true,
+      inputFolders: [],
+    };
+    const next = [...watchProfiles.filter((item) => item.id !== id), profile];
+    const active = next.filter((item) => item.enabled);
+    const validation = await nativeBridge.validateWatcher({ ...profile, profiles: active.length ? active : [profile] });
+    if (!validation.ok) { showToast(validation.error || t("监控规则无效", "Invalid watch rules")); return; }
+    persistWatchProfiles(next);
+    setSelectedWatchProfileId(id);
+    if (active.length) {
+      const result = await nativeBridge.startWatcher({ ...active[0], profiles: active });
+      if (!result.ok) { showToast(result.error || t("无法启动文件夹监测", "Could not start folder watching")); return; }
+    }
+    showToast(t("监控任务已保存并启用", "Watch task saved and enabled"));
+  }, [nativeBridge, persistWatchProfiles, selectedWatchProfileId, showToast, t, watchProfiles, watcherSettings]);
+
+  const selectWatchProfile = useCallback((profile: WatchProfile) => {
+    setSelectedWatchProfileId(profile.id);
+    setWatcherSettings({ ...DEFAULT_WATCHER_SETTINGS, ...profile });
+  }, []);
+
+  const createWatchProfile = useCallback(() => {
+    setSelectedWatchProfileId(null);
+    setWatcherSettings({ ...DEFAULT_WATCHER_SETTINGS });
+  }, []);
+
+  const toggleWatchProfile = useCallback(async (profile: WatchProfile) => {
+    if (!nativeBridge) return;
+    const next = watchProfiles.map((item) => item.id === profile.id ? { ...item, enabled: !item.enabled } : item);
+    const active = next.filter((item) => item.enabled);
+    if (active.length) {
+      const validation = await nativeBridge.validateWatcher({ ...active[0], profiles: active });
+      if (!validation.ok) { showToast(validation.error || t("监控规则无效", "Invalid watch rules")); return; }
+    }
+    persistWatchProfiles(next);
+    if (active.length) await nativeBridge.startWatcher({ ...active[0], profiles: active });
+    else await nativeBridge.stopWatcher();
+  }, [nativeBridge, persistWatchProfiles, showToast, t, watchProfiles]);
+
+  const removeWatchProfile = useCallback(async (profile: WatchProfile) => {
+    if (!nativeBridge) return;
+    const next = watchProfiles.filter((item) => item.id !== profile.id);
+    persistWatchProfiles(next);
+    const active = next.filter((item) => item.enabled);
+    if (active.length) await nativeBridge.startWatcher({ ...active[0], profiles: active });
+    else await nativeBridge.stopWatcher();
+    if (selectedWatchProfileId === profile.id) createWatchProfile();
+  }, [createWatchProfile, nativeBridge, persistWatchProfiles, selectedWatchProfileId, watchProfiles]);
 
   useEffect(() => {
     if (!pendingTrayAction) return;
@@ -3360,7 +3492,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           <button className={view === "workspace" ? "active" : ""} type="button" onClick={() => setView("workspace")}>{t(nativeBridge ? "工作台" : "压缩工作台", "Workspace")}</button>
           {workspacePlugins.find((plugin) => plugin.id === "watcher")?.enabled && <button className={view === "watcher" ? "active" : ""} type="button" onClick={() => setView("watcher")}>{t("文件夹监测", "Folder watch")}{watcherActive && <span className="live-dot" aria-label={t("监测中", "Watching")} />}</button>}
           {workspacePlugins.find((plugin) => plugin.id === "gallery")?.enabled && <button className={view === "gallery" ? "active" : ""} type="button" onClick={() => setView("gallery")}>{t("图库", "Library")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button type="button" onClick={() => void nativeBridge.showPreferencesWindow("rename")}>{t("批量重命名", "Batch rename")}</button>}
+          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button className={view === "rename" ? "active" : ""} type="button" onClick={() => setView("rename")}>{t("批量重命名", "Batch rename")}</button>}
           {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
         </nav>}
         <div className="topbar-actions">
@@ -3669,8 +3801,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             <button className="compress-button" type="button" disabled={!items.length || processingAll} onClick={processAll}><span>{processingAll ? "···" : "✦"}</span>{processingAll ? t("正在应用到全部", "Applying to all…") : t(`按此参数应用到全部${items.length ? ` · ${items.length} 张` : ""}`, `Apply these settings to all${items.length ? ` · ${items.length}` : ""}`)}</button>
           </aside>
         </section>
-      ) : view === "watcher" && nativeBridge ? (
-        <section className="watcher-page"><div className="watcher-intro"><h1>{t("文件夹监控任务", "Folder watch tasks")}</h1><p>{t("为 A、B、C 等不同文件夹分别保存格式、尺寸和命名规则。任务在软件运行时自动监控所有子目录。", "Save separate format, size and naming rules for each folder. Tasks watch all subfolders while PicLite is running.")}</p><button className="compress-button" type="button" onClick={() => void nativeBridge.showPreferencesWindow("images")}>{t("管理监控任务", "Manage watch tasks")}</button></div><div className="watcher-log"><strong>{watcherActive ? t("监控中", "Watching") : t("监控未运行", "Not watching")}</strong>{watcherEvents.slice(0, 30).map((event) => <p key={event.id}>{event.message || event.output || event.file || event.type}</p>)}</div></section>
+      ) : view === "rename" ? (
+        <BatchRenamePage bridge={nativeBridge} language={desktopPreferences.language} />
       ) : view === "watcher" ? (
         <section className="watcher-page">
           <div className="watcher-intro">
@@ -3685,36 +3817,59 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className="console-lock"><span>▣</span><strong>{t("在桌面客户端中启用", "Available in the desktop app")}</strong><p>{t("网页压缩工作台仍可完整使用；文件夹监测需要桌面版。", "The web workbench remains available; folder watching requires the desktop app.")}</p></div>
             )}
             <div className="console-header"><div><i className={watcherActive ? "active" : ""} /><span>{watcherActive ? "MONITORING" : "READY"}</span></div><small>{t("本地自动化", "Local automation")}</small></div>
-            <div className="watcher-quick-action"><button type="button" disabled={!nativeBridge || watcherActive} onClick={useSuggestedScreenshotFolder}>⌁ {t("使用系统截图文件夹", "Use screenshot folder")}</button><small>{t("截图保存后立即按当前参数自动优化", "Optimise screenshots as soon as they are saved")}</small></div>
+            <div className="watcher-taskbar">
+              <div className="watcher-task-tabs">{watchProfiles.map((profile) => <button className={selectedWatchProfileId === profile.id ? "active" : ""} type="button" key={profile.id} onClick={() => selectWatchProfile(profile)}><i className={profile.enabled ? "on" : ""} />{profile.name}</button>)}<button className={!selectedWatchProfileId ? "active add" : "add"} type="button" onClick={createWatchProfile}>＋ {t("新任务", "New task")}</button></div>
+              {selectedWatchProfileId && <div className="watcher-task-actions"><button type="button" onClick={() => { const profile = watchProfiles.find((item) => item.id === selectedWatchProfileId); if (profile) void toggleWatchProfile(profile); }}>{watchProfiles.find((item) => item.id === selectedWatchProfileId)?.enabled ? t("暂停此任务", "Pause task") : t("启用此任务", "Enable task")}</button><button className="danger" type="button" onClick={() => { const profile = watchProfiles.find((item) => item.id === selectedWatchProfileId); if (profile) void removeWatchProfile(profile); }}>{t("移除", "Remove")}</button></div>}
+            </div>
+            <div className="watcher-quick-action"><button type="button" disabled={!nativeBridge} onClick={useSuggestedScreenshotFolder}>⌁ {t("使用系统截图文件夹", "Use screenshot folder")}</button><small>{t("每个任务可以使用不同目录和处理规则", "Each task can use its own folder and processing rules")}</small></div>
             <div className="folder-route">
-              <button type="button" onClick={() => chooseFolder("input")} disabled={!nativeBridge || watcherActive}>
+              <button type="button" onClick={() => chooseFolder("input")} disabled={!nativeBridge}>
                 <span className="folder-icon">⌑</span><small>{t("监测文件夹", "Watch folder")}</small><strong>{watcherSettings.inputFolder || t("选择来源文件夹", "Choose source folder")}</strong><b>{t("选择", "Choose")}</b>
               </button>
               <div className="route-line"><i /><i /><i /><span>{t("自动优化", "Auto optimise")}</span></div>
-              <button type="button" onClick={() => chooseFolder("output")} disabled={!nativeBridge || watcherActive}>
+              <button type="button" onClick={() => chooseFolder("output")} disabled={!nativeBridge}>
                 <span className="folder-icon output">⌑</span><small>{t("输出文件夹", "Output folder")}</small><strong>{watcherSettings.outputFolder || t("默认：来源/PicLite", "Default: Source/PicLite")}</strong><b>{t("选择", "Choose")}</b>
               </button>
             </div>
 
             <div className="watcher-options">
-              <label><span>{t("压缩方案", "Optimisation mode")}</span><select value={watcherSettings.mode} disabled={watcherActive} onChange={(event) => {
+              <label><span>{t("压缩方案", "Optimisation mode")}</span><select value={watcherSettings.mode} disabled={!nativeBridge} onChange={(event) => {
                 const mode = event.target.value as CompressionMode;
                 const quality = mode === "lossless" ? 100 : mode === "balanced" ? 82 : 45;
                 setWatcherSettings((current) => ({ ...current, mode, quality }));
               }}><option value="lossless">{t("无损优先", "Lossless")}</option><option value="balanced">{t("智能平衡", "Smart balance")}</option><option value="small">{t("更小体积", "Smaller files")}</option></select></label>
-              <label><span>{t("输出格式", "Output format")}</span><select value={watcherSettings.format} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}><option value="keep">{t("保持原格式", "Keep original")}</option><option value="image/jpeg">JPG</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select></label>
-              <label className="watcher-range"><span>{t("画质", "Quality")} <b>{watcherSettings.quality}%</b></span><input type="range" min="1" max="100" step="1" value={watcherSettings.quality} disabled={watcherActive} onChange={(event) => {
+              <label><span>{t("输出格式", "Output format")}</span><select value={watcherSettings.format} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}><option value="keep">{t("保持原格式", "Keep original")}</option><option value="image/jpeg">JPG / JFIF</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select></label>
+              <label className="watcher-range"><span>{t("画质", "Quality")} <b>{watcherSettings.quality}%</b></span><input type="range" min="1" max="100" step="1" value={watcherSettings.quality} disabled={!nativeBridge} onChange={(event) => {
                 const quality = Number(event.target.value);
                 setWatcherSettings((current) => ({ ...current, quality, mode: modeFromQuality(quality) }));
               }} /></label>
-              <label className="watcher-range"><span>{t("等比例尺寸", "Scale")} <b>{formatScale(watcherSettings.scale)}</b></span><input type="range" min="0.1" max="100" step="0.1" value={watcherSettings.scale} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, scale: Number(event.target.value) }))} /></label>
-              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.stripMetadata} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, stripMetadata: event.target.checked }))} /><span>{t("移除隐私元数据", "Strip private metadata")}</span></label>
-              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.preventLarger} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, preventLarger: event.target.checked }))} /><span>{t("候选更大时保留原图", "Keep original when candidates are larger")}</span></label>
-              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.resize} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, resize: event.target.checked }))} /><span>{t("限制最大像素尺寸", "Limit maximum pixel dimensions")}</span></label>
-              {watcherSettings.resize && <div className="watcher-dimensions"><label>{t("宽", "Width")} <input type="number" min="1" value={watcherSettings.maxWidth} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, maxWidth: Number(event.target.value) }))} /></label><span>×</span><label>{t("高", "Height")} <input type="number" min="1" value={watcherSettings.maxHeight} disabled={watcherActive} onChange={(event) => setWatcherSettings((current) => ({ ...current, maxHeight: Number(event.target.value) }))} /></label><small>px</small></div>}
+              <label className="watcher-range"><span>{t("等比例尺寸", "Scale")} <b>{formatScale(watcherSettings.scale)}</b></span><input type="range" min="0.1" max="100" step="0.1" value={watcherSettings.scale} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, scale: Number(event.target.value) }))} /></label>
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.stripMetadata} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, stripMetadata: event.target.checked }))} /><span>{t("移除隐私元数据", "Strip private metadata")}</span></label>
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.preventLarger} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, preventLarger: event.target.checked }))} /><span>{t("候选更大时保留原图", "Keep original when candidates are larger")}</span></label>
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.resize} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, resize: event.target.checked }))} /><span>{t("限制最大像素尺寸", "Limit maximum pixel dimensions")}</span></label>
+              {watcherSettings.resize && <div className="watcher-dimensions"><label>{t("宽", "Width")} <input type="number" min="1" value={watcherSettings.maxWidth} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, maxWidth: Number(event.target.value) }))} /></label><span>×</span><label>{t("高", "Height")} <input type="number" min="1" value={watcherSettings.maxHeight} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, maxHeight: Number(event.target.value) }))} /></label><small>px</small></div>}
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.onlyWhenNeeded ?? false} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, onlyWhenNeeded: event.target.checked }))} /><span>{t("仅格式或尺寸不符合时处理", "Only process format or size mismatches")}</span></label>
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.notifyOnComplete ?? true} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, notifyOnComplete: event.target.checked }))} /><span>{t("处理完成后系统通知", "System notification on completion")}</span></label>
+              <label className="watcher-check"><input type="checkbox" checked={watcherSettings.showFloatingResult ?? false} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, showFloatingResult: event.target.checked }))} /><span>{t("处理完成后弹出悬浮窗", "Show floating result after processing")}</span></label>
+              <label className="watcher-check watcher-rename-toggle"><input type="checkbox" checked={Boolean(watcherSettings.folderRename)} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({
+                ...current,
+                folderRename: event.target.checked ? {
+                  rootFolder: current.inputFolder,
+                  folderPattern: String.raw`[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]`,
+                  renameTemplate: "{code}_{name}",
+                  firstPadding: 2,
+                  secondPadding: 2,
+                } : undefined,
+              }))} /><span>{t("按父文件夹内容命名输出图片", "Name outputs from parent-folder content")}</span></label>
+              {watcherSettings.folderRename && <div className="watcher-rename-options">
+                <label><span>{t("父目录匹配规则（正则）", "Parent-folder pattern (regex)")}</span><input value={watcherSettings.folderRename.folderPattern} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, folderPattern: event.target.value } }) : current)} /></label>
+                <label><span>{t("输出文件名模板", "Output filename template")}</span><input value={watcherSettings.folderRename.renameTemplate} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, renameTemplate: event.target.value } }) : current)} /><small>{"{code} {name} {folder} {match} {1} {2} {1:initials}"}</small></label>
+                <label className="watcher-padding"><span>{t("数字补齐", "Numeric padding")}</span><div><input aria-label={t("第一组补齐位数", "First capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.firstPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /><b>+</b><input aria-label={t("第二组补齐位数", "Second capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.secondPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /></div></label>
+                <small>{t("会向上递归到监控根目录，使用第一个匹配的父文件夹。", "Searches upward to the watch root and uses the first matching parent.")}</small>
+              </div>}
             </div>
 
-            <button className={`watcher-toggle ${watcherActive ? "stop" : ""}`} type="button" disabled={!nativeBridge} onClick={toggleWatcher}><span>{watcherActive ? "■" : "▶"}</span>{watcherActive ? t("停止监测", "Stop watching") : t("开始监测", "Start watching")}</button>
+            <button className="watcher-toggle" type="button" disabled={!nativeBridge || !watcherSettings.inputFolder} onClick={() => void saveWatchProfile()}><span>✓</span>{selectedWatchProfileId ? t("保存并更新监控", "Save and update task") : t("保存并启用任务", "Save and enable task")}</button>
           </div>
 
           <div className="watcher-log">
