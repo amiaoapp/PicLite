@@ -23,6 +23,15 @@ function decodeBase64(value: string) {
   return bytes;
 }
 
+function encodeBase64(value: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < value.length; offset += chunkSize) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + chunkSize));
+  }
+  return window.btoa(binary);
+}
+
 function platformName() {
   const value = navigator.userAgent.toLowerCase();
   if (value.includes("windows")) return "win32";
@@ -97,11 +106,15 @@ if ("__TAURI_INTERNALS__" in window) {
     getWatcherState: () => invoke("get_watcher_state"),
     quickCompressPaths: (paths, settings) => invoke("quick_compress_paths", { paths, settings }),
     compressImageData: async (data, fileName, settings) => {
-      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_image_data", { data: Array.from(data), fileName, settings });
+      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_image_base64", { data: encodeBase64(data), fileName, settings });
+      return { ...result, data: decodeBase64(result.data) };
+    },
+    compressImageWithWatermarkData: async (data, fileName, settings, watermark) => {
+      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_image_with_watermark_base64", { data: encodeBase64(data), fileName, settings, watermark });
       return { ...result, data: decodeBase64(result.data) };
     },
     compressAnimationData: async (data, fileName, settings) => {
-      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_animation_data", { data: Array.from(data), fileName, settings });
+      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_animation_base64", { data: encodeBase64(data), fileName, settings });
       return { ...result, data: decodeBase64(result.data) };
     },
     configureGlobalShortcuts: (bindings) => invoke("configure_global_shortcuts", { bindings }),
@@ -287,6 +300,7 @@ if ("__TAURI_INTERNALS__" in window) {
     getWatcherState: async () => ({ active: false }),
     quickCompressPaths: async () => [],
     compressImageData: async () => { throw new Error("Native image encoding requires the desktop app"); },
+    compressImageWithWatermarkData: async () => { throw new Error("Native image watermarking requires the desktop app"); },
     compressAnimationData: async () => { throw new Error("Animated WebP encoding requires the desktop app"); },
     configureGlobalShortcuts: noop,
     cleanupOptimisedFiles: async () => ({ deleted: 0 }),

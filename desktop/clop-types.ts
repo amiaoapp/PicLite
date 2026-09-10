@@ -127,6 +127,7 @@ export type BatchRenameRequest = {
   renameTemplate: string;
   firstPadding: number;
   secondPadding: number;
+  wordSeparator: string;
 };
 
 export type BatchRenameEntry = {
@@ -156,6 +157,17 @@ export type CompressedAnimationData = {
   width: number;
   height: number;
   keptOriginal: boolean;
+};
+
+export type NativeImageWatermark = {
+  data: string;
+  imageScale: number;
+  opacity: number;
+  rotation: number;
+  layout: "tile" | "single";
+  density: number;
+  positionX: number;
+  positionY: number;
 };
 
 export type WatchProfile = WatcherSettings & { id: string; name: string; enabled: boolean };
@@ -202,6 +214,7 @@ export type PicLiteBridge = {
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;
   quickCompressPaths: (paths: string[], settings: QuickCompressSettings) => Promise<QuickCompressResult[]>;
   compressImageData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<CompressedAnimationData>;
+  compressImageWithWatermarkData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings, watermark: NativeImageWatermark) => Promise<CompressedAnimationData>;
   compressAnimationData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<CompressedAnimationData>;
   configureGlobalShortcuts: (bindings: { enabled: boolean; toggleDropzone: string; optimiseClipboard: string; showMain: string; showGallery?: string; uploadCurrent?: string }) => Promise<void>;
   cleanupOptimisedFiles: (payload: { folder: string; suffix: string; olderThanSeconds: number }) => Promise<{ deleted: number }>;

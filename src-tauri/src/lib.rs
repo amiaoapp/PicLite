@@ -190,6 +190,19 @@ struct QuickCompressSettings {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct NativeImageWatermark {
+    data: String,
+    image_scale: f64,
+    opacity: u8,
+    rotation: f64,
+    layout: String,
+    density: f64,
+    position_x: f64,
+    position_y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ShortcutBindings {
     enabled: bool,
     #[serde(default)]
@@ -225,6 +238,8 @@ struct BatchRenameRequest {
     rename_template: String,
     first_padding: usize,
     second_padding: usize,
+    #[serde(default)]
+    word_separator: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -532,6 +547,7 @@ fn batch_rename_name(
     matched: &str,
     captures: &[String],
     code: &str,
+    word_separator: &str,
     index: usize,
 ) -> String {
     let template = if template.trim().is_empty() {
@@ -540,6 +556,8 @@ fn batch_rename_name(
         template.trim()
     };
     let mut value = template
+        .replace("{name:words}", &words_with_separator(base, word_separator))
+        .replace("{name:initials}", &word_initials(base, word_separator))
         .replace("{name}", base)
         .replace("{ext}", extension)
         .replace("{folder}", folder)
@@ -559,7 +577,11 @@ fn batch_rename_name(
             )
             .replace(
                 &format!("{{{capture_index}:initials}}"),
-                &word_initials(capture),
+                &word_initials(capture, word_separator),
+            )
+            .replace(
+                &format!("{{{capture_index}:words}}"),
+                &words_with_separator(capture, word_separator),
             );
     }
     for width in 1..=8 {
@@ -574,12 +596,24 @@ fn batch_rename_name(
     safe_file_name(&value)
 }
 
-fn word_initials(value: &str) -> String {
+fn word_parts(value: &str) -> Vec<&str> {
     value
-        .split(|c: char| !c.is_alphabetic())
-        .filter_map(|word| word.chars().next())
-        .flat_map(char::to_uppercase)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
         .collect()
+}
+
+fn words_with_separator(value: &str, separator: &str) -> String {
+    word_parts(value).join(separator)
+}
+
+fn word_initials(value: &str, separator: &str) -> String {
+    word_parts(value)
+        .iter()
+        .filter_map(|word| word.chars().next())
+        .map(|c| c.to_uppercase().to_string())
+        .collect::<Vec<_>>()
+        .join(separator)
 }
 
 fn rename_code(captures: &[String], request: &BatchRenameRequest) -> String {
@@ -625,6 +659,7 @@ fn watched_output_name(
             &matched,
             &captures,
             &rename_code(&captures, rule),
+            &rule.word_separator,
             1,
         ));
     }
@@ -760,6 +795,7 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
             &matched_text,
             &captures,
             &code,
+            &request.word_separator,
             offset + 1,
         );
         let target = source.parent().unwrap_or(&root).join(&target_name);
@@ -1385,6 +1421,97 @@ fn decode_static_oriented(data: &[u8]) -> Result<DynamicImage, String> {
     let mut decoded = DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
     decoded.apply_orientation(orientation);
     Ok(decoded)
+}
+
+fn rotate_watermark(source: &image::RgbaImage, degrees: f64) -> image::RgbaImage {
+    let normalized = degrees.rem_euclid(360.0);
+    if normalized.abs() < 0.01 || (normalized - 360.0).abs() < 0.01 {
+        return source.clone();
+    }
+    let radians = normalized.to_radians();
+    let (sin, cos) = radians.sin_cos();
+    let width = source.width() as f64;
+    let height = source.height() as f64;
+    let output_width = (width * cos.abs() + height * sin.abs()).ceil().max(1.0) as u32;
+    let output_height = (width * sin.abs() + height * cos.abs()).ceil().max(1.0) as u32;
+    let mut output = image::RgbaImage::new(output_width, output_height);
+    let source_center = ((width - 1.0) / 2.0, (height - 1.0) / 2.0);
+    let output_center = ((output_width as f64 - 1.0) / 2.0, (output_height as f64 - 1.0) / 2.0);
+    for y in 0..output_height {
+        for x in 0..output_width {
+            let dx = x as f64 - output_center.0;
+            let dy = y as f64 - output_center.1;
+            let source_x = cos * dx + sin * dy + source_center.0;
+            let source_y = -sin * dx + cos * dy + source_center.1;
+            if source_x >= 0.0 && source_x < width && source_y >= 0.0 && source_y < height {
+                output.put_pixel(
+                    x,
+                    y,
+                    *source.get_pixel(
+                        (source_x.round() as u32).min(source.width() - 1),
+                        (source_y.round() as u32).min(source.height() - 1),
+                    ),
+                );
+            }
+        }
+    }
+    output
+}
+
+fn apply_native_image_watermark(
+    image: DynamicImage,
+    watermark: &NativeImageWatermark,
+) -> Result<DynamicImage, String> {
+    let watermark_bytes = BASE64
+        .decode(watermark.data.as_bytes())
+        .map_err(|error| format!("图片水印无法解码：{error}"))?;
+    let source = image::load_from_memory(&watermark_bytes)
+        .map_err(|error| format!("图片水印无法读取：{error}"))?;
+    let mut base = image.to_rgba8();
+    let max_side = ((base.width().min(base.height()) as f64)
+        * (watermark.image_scale / 100.0).clamp(0.02, 0.6))
+        .round()
+        .max(1.0) as u32;
+    let ratio = max_side as f64 / source.width().max(source.height()).max(1) as f64;
+    let mark_width = ((source.width() as f64 * ratio).round() as u32).max(1);
+    let mark_height = ((source.height() as f64 * ratio).round() as u32).max(1);
+    let resized = source
+        .resize_exact(mark_width, mark_height, FilterType::Lanczos3)
+        .to_rgba8();
+    let mut mark = rotate_watermark(&resized, watermark.rotation);
+    let opacity = watermark.opacity.clamp(1, 100) as u16;
+    for pixel in mark.pixels_mut() {
+        pixel.0[3] = ((pixel.0[3] as u16 * opacity) / 100) as u8;
+    }
+
+    if watermark.layout == "tile" {
+        let density = (watermark.density / 100.0).clamp(0.0, 1.0);
+        let sparse = (1.0 - density).powi(2);
+        let step_x = (mark.width() as f64 + mark.height() as f64 * (1.05 + sparse * 18.0))
+            .round()
+            .max(1.0) as u32;
+        let step_y = (mark.height() as f64 * (1.45 + sparse * 14.0))
+            .round()
+            .max(1.0) as u32;
+        let mut row = 0_u32;
+        let mut y = 0_u32;
+        while y < base.height() {
+            let mut x = if row % 2 == 1 { step_x / 2 } else { 0 };
+            while x < base.width() {
+                image::imageops::overlay(&mut base, &mark, x as i64, y as i64);
+                x = x.saturating_add(step_x);
+            }
+            row += 1;
+            y = y.saturating_add(step_y);
+        }
+    } else {
+        let center_x = base.width() as f64 * (watermark.position_x / 100.0).clamp(0.0, 1.0);
+        let center_y = base.height() as f64 * (watermark.position_y / 100.0).clamp(0.0, 1.0);
+        let x = (center_x - mark.width() as f64 / 2.0).round() as i64;
+        let y = (center_y - mark.height() as f64 / 2.0).round() as i64;
+        image::imageops::overlay(&mut base, &mark, x, y);
+    }
+    Ok(DynamicImage::ImageRgba8(base))
 }
 
 fn optimize_image_data(
@@ -2138,6 +2265,95 @@ async fn compress_image_data(
         height,
         kept_original,
     })
+}
+
+#[tauri::command]
+async fn compress_image_base64(
+    data: String,
+    file_name: String,
+    settings: QuickCompressSettings,
+) -> Result<CompressedAnimationData, String> {
+    let decoded = BASE64
+        .decode(data.as_bytes())
+        .map_err(|error| format!("图片数据无法解码：{error}"))?;
+    compress_image_data(decoded, file_name, settings).await
+}
+
+#[tauri::command]
+async fn compress_image_with_watermark_base64(
+    data: String,
+    file_name: String,
+    settings: QuickCompressSettings,
+    watermark: NativeImageWatermark,
+) -> Result<CompressedAnimationData, String> {
+    let original = BASE64
+        .decode(data.as_bytes())
+        .map_err(|error| format!("图片数据无法解码：{error}"))?;
+    if original.is_empty() || original.len() > 256 * 1024 * 1024 {
+        return Err("图片为空或超过 256 MB".to_string());
+    }
+    let named_extension = Path::new(&file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let source_extension = match named_extension.as_str() {
+        "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
+        "png" | "webp" => named_extension,
+        _ => match image::guess_format(&original).map_err(|error| error.to_string())? {
+            image::ImageFormat::Jpeg => "jpg".to_string(),
+            image::ImageFormat::Png => "png".to_string(),
+            image::ImageFormat::WebP => "webp".to_string(),
+            _ => return Err("图片水印暂不支持该原图格式".to_string()),
+        },
+    };
+    let compression = quick_settings(&settings);
+    let decoded = decode_static_oriented(&original)?;
+    let (source_width, source_height) = decoded.dimensions();
+    let (width, height) = target_dimensions(source_width, source_height, &compression);
+    let resized = if width != source_width || height != source_height {
+        decoded.resize_exact(width, height, FilterType::Lanczos3)
+    } else {
+        decoded
+    };
+    let watermarked = apply_native_image_watermark(resized, &watermark)?;
+    let extension = if compression.format == "keep" {
+        source_extension
+    } else {
+        extension_for(Path::new("image.png"), &compression.format)
+    };
+    let quality = if compression.mode == "lossless" {
+        100
+    } else {
+        compression.quality
+    };
+    let encoded = encode_static(watermarked, &extension, quality)?;
+    let mime_type = match extension.as_str() {
+        "jpg" | "jpeg" | "jfif" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    };
+    Ok(CompressedAnimationData {
+        data: BASE64.encode(encoded),
+        mime_type: mime_type.to_string(),
+        extension,
+        width,
+        height,
+        kept_original: false,
+    })
+}
+
+#[tauri::command]
+async fn compress_animation_base64(
+    data: String,
+    file_name: String,
+    settings: QuickCompressSettings,
+) -> Result<CompressedAnimationData, String> {
+    let decoded = BASE64
+        .decode(data.as_bytes())
+        .map_err(|error| format!("动画数据无法解码：{error}"))?;
+    compress_animation_data(decoded, file_name, settings).await
 }
 
 #[tauri::command]
@@ -5101,7 +5317,10 @@ pub fn run() {
             export_images,
             quick_compress_paths,
             compress_image_data,
+            compress_image_base64,
+            compress_image_with_watermark_base64,
             compress_animation_data,
+            compress_animation_base64,
             configure_global_shortcuts,
             cleanup_optimised_files,
             preview_batch_rename,
@@ -5833,6 +6052,7 @@ mod tests {
             rename_template: "{code}_{name}".to_string(),
             first_padding: 2,
             second_padding: 2,
+            word_separator: String::new(),
         };
         let preview = build_batch_rename_plan(&request).expect("build rename preview");
         let names = preview
@@ -5926,6 +6146,7 @@ mod tests {
                 &matched,
                 &captures,
                 "",
+                "",
                 1
             ),
             "NY_p.jfif"
@@ -5938,6 +6159,7 @@ mod tests {
                 &folder,
                 &matched,
                 &captures,
+                "",
                 "",
                 1
             ),
@@ -5953,8 +6175,53 @@ mod tests {
             rename_template: "{code}_{name}".into(),
             first_padding: 2,
             second_padding: 2,
+            word_separator: String::new(),
         };
         assert_eq!(rename_code(&captures, &request), "风景");
+    }
+
+    #[test]
+    fn rename_words_support_custom_connectors_for_names_and_captures() {
+        assert_eq!(words_with_separator("New York-cover", "_"), "New_York_cover");
+        assert_eq!(word_initials("New York-cover", "-"), "N-Y-C");
+        assert_eq!(
+            batch_rename_name(
+                "{1:initials}_{name:words}",
+                "Front cover final",
+                "png",
+                "New York-cover",
+                "New York-cover",
+                &["New York-cover".into(), "New York-cover".into()],
+                "",
+                "-",
+                1,
+            ),
+            "N-Y-C_Front-cover-final.png"
+        );
+    }
+
+    #[test]
+    fn native_image_watermark_composites_before_encoding() {
+        let mut mark = image::RgbaImage::new(20, 10);
+        for pixel in mark.pixels_mut() {
+            *pixel = image::Rgba([255, 0, 0, 255]);
+        }
+        let mark_bytes = encode_static(DynamicImage::ImageRgba8(mark), "png", 100).unwrap();
+        let settings = NativeImageWatermark {
+            data: BASE64.encode(mark_bytes),
+            image_scale: 20.0,
+            opacity: 100,
+            rotation: 0.0,
+            layout: "single".into(),
+            density: 50.0,
+            position_x: 50.0,
+            position_y: 50.0,
+        };
+        let output = apply_native_image_watermark(DynamicImage::new_rgb8(200, 100), &settings)
+            .unwrap()
+            .to_rgba8();
+        let center = output.get_pixel(100, 50).0;
+        assert!(center[0] > 240 && center[1] < 10 && center[2] < 10);
     }
 
     #[test]
@@ -6002,6 +6269,7 @@ mod tests {
             rename_template: "{code}_{name}".into(),
             first_padding: 2,
             second_padding: 2,
+            word_separator: String::new(),
         };
         let preview = build_batch_rename_plan(&request).unwrap();
         assert_eq!(preview.entries.len(), 1);
@@ -6059,6 +6327,7 @@ mod tests {
             rename_template: "{code}_{name}".into(),
             first_padding: 2,
             second_padding: 2,
+            word_separator: String::new(),
         };
         assert_eq!(execute_batch_rename(&request).unwrap().renamed, 0);
         assert_eq!(fs::read(folder.join("photo.jpg")).unwrap(), b"original");

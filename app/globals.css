@@ -369,6 +369,11 @@ html[data-theme="dark"] .update-notice { border-color: #304039; background: rgba
 .dimension-preview { margin-top: 10px; padding: 8px 10px; border: 1px solid #e1e7e2; border-radius: 8px; background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .dimension-preview span { color: #98a39d; font-size: 8px; }
 .dimension-preview strong { font-size: 9px; }
+.exact-dimension-grid { margin-top: 10px; display: grid; grid-template-columns: minmax(0,1fr) 22px minmax(0,1fr); align-items: end; gap: 6px; }
+.exact-dimension-grid label { min-width: 0; display: flex; flex-direction: column; gap: 4px; color: #8d9992; font-size: 8px; }
+.exact-dimension-grid label > b { height: 34px; box-sizing: border-box; padding-right: 8px; border: 1px solid #dce3de; border-radius: 8px; background: #fff; display: flex; align-items: center; color: #8d9992; font-size: 8px; }
+.exact-dimension-grid input { width: 100%; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; padding: 0 4px 0 9px; color: var(--deep); font-size: 10px; font-weight: 800; }
+.exact-dimension-grid > i { height: 34px; display: grid; place-items: center; color: #6f8d7d; font-size: 13px; font-style: normal; }
 
 .select-wrap { position: relative; }
 .select-wrap::after { content: "⌄"; position: absolute; right: 12px; top: 9px; font-size: 12px; color: #6c7a72; pointer-events: none; }
@@ -398,6 +403,14 @@ html[data-theme="dark"] .update-notice { border-color: #304039; background: rgba
 .segmented-control { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 9px; background: #edf1ee; }
 .segmented-control button { height: 29px; border: 0; border-radius: 7px; background: transparent; color: #78877f; font-size: 9px; font-weight: 750; cursor: pointer; }
 .segmented-control button.active { background: #fff; color: var(--deep); box-shadow: 0 2px 7px rgba(30,54,43,.1); }
+.watermark-kind-control { grid-template-columns: repeat(3, 1fr); }
+.watermark-image-picker { width: 100%; min-height: 70px; padding: 9px; border: 1px dashed #b9c9bf; border-radius: 10px; background: #f6f9f7; color: #50645a; display: grid; grid-template-columns: 48px minmax(0,1fr); grid-template-rows: 1fr 1fr; align-items: center; column-gap: 10px; text-align: left; cursor: pointer; }
+.watermark-image-picker img, .watermark-image-picker > span { grid-row: 1 / 3; width: 48px; height: 48px; border-radius: 8px; object-fit: contain; background: repeating-conic-gradient(#dfe7e2 0 25%, #fff 0 50%) 50% / 12px 12px; }
+.watermark-image-picker > span { display: grid; place-items: center; color: #5d7869; font-size: 20px; }
+.watermark-image-picker b { min-width: 0; overflow: hidden; color: var(--deep); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.watermark-image-picker small { color: #8d9b93; font-size: 8px; }
+.watermark-color-row.image-only { grid-template-columns: 1fr; }
+.watermark-note { margin: 0; padding: 9px 10px; border-radius: 8px; background: #eef4f0; color: #718178; font-size: 8px; line-height: 1.55; }
 .font-picker-row { display: grid; grid-template-columns: 1fr 62px 62px; gap: 5px; }
 .font-picker-row .select-wrap select { height: 34px; }
 .font-picker-row button, .folder-picker-button { border: 1px solid #dce3de; border-radius: 8px; background: #fff; color: #53665c; font-size: 8px; font-weight: 750; cursor: pointer; }
@@ -498,6 +511,9 @@ html[data-theme="dark"] .update-notice { border-color: #304039; background: rgba
 .watcher-options label > span { color: #9aafa4; font-size: 8px; }
 .watcher-options select { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.14); color: #eaf2ed; }
 .watcher-options select option { color: #17231d; }
+.watcher-task-name { grid-column: 1 / -1; }
+.watcher-task-name input { width: 100%; height: 37px; box-sizing: border-box; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; padding: 0 11px; outline: 0; background: rgba(255,255,255,.07); color: #eaf2ed; font-size: 10px; font-weight: 720; }
+.watcher-task-name input::placeholder { color: #71867a; }
 .watcher-range { grid-column: span 1; display: flex; flex-direction: column; gap: 5px; }
 .watcher-range > span { display: flex; justify-content: space-between; align-items: center; }
 .watcher-range b { color: var(--accent); font-size: 8px; }
@@ -1193,6 +1209,7 @@ html[data-theme="dark"] .slider-section { background: #141b17; }
 html[data-theme="dark"] .slider-heading output,
 html[data-theme="dark"] .dimension-grid label span,
 html[data-theme="dark"] .dimension-grid > button,
+html[data-theme="dark"] .exact-dimension-grid label > b,
 html[data-theme="dark"] .segmented-control,
 html[data-theme="dark"] .font-picker-row button,
 html[data-theme="dark"] .folder-picker-button,
@@ -1201,6 +1218,11 @@ html[data-theme="dark"] .preview-mode-tabs,
 html[data-theme="dark"] .preview-tools button,
 html[data-theme="dark"] .watermark-color-row input[type="color"],
 html[data-theme="dark"] .shadow-row input[type="color"] { background: #171f1b; border-color: #304038; color: #cbd8d0; }
+html[data-theme="dark"] .exact-dimension-grid input { background: transparent; color: #e7f0ea; }
+html[data-theme="dark"] .watermark-image-picker { background: #171f1b; border-color: #3b4b42; color: #cbd8d0; }
+html[data-theme="dark"] .watermark-image-picker b { color: #e7f0ea; }
+html[data-theme="dark"] .watermark-image-picker small { color: #899a90; }
+html[data-theme="dark"] .watermark-note { background: #19231e; color: #95a79d; }
 html[data-theme="dark"] .segmented-control button.active,
 html[data-theme="dark"] .preview-mode-tabs button.active { background: #29352e; color: #dce8df; box-shadow: 0 2px 8px rgba(0,0,0,.22); }
 html[data-theme="dark"] .setting-label,
@@ -1467,7 +1489,11 @@ html[data-theme="light"] .watcher-range b,
 html:not([data-theme]) .folder-route button b,
 html:not([data-theme]) .watcher-range b { color: #397454; }
 html[data-theme="light"] .watcher-options select,
-html:not([data-theme]) .watcher-options select { background: rgba(255,255,255,.55); border-color: rgba(47,83,61,.18); color: #274838; }
+html[data-theme="light"] .watcher-task-name input,
+html:not([data-theme]) .watcher-options select,
+html:not([data-theme]) .watcher-task-name input { background: rgba(255,255,255,.55); border-color: rgba(47,83,61,.18); color: #274838; }
+html[data-theme="light"] .watcher-task-name input::placeholder,
+html:not([data-theme]) .watcher-task-name input::placeholder { color: #789083; }
 html[data-theme="light"] .watcher-range input,
 html[data-theme="light"] .watcher-check input,
 html:not([data-theme]) .watcher-range input,

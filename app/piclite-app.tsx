@@ -26,6 +26,7 @@ type PreviewMode = "compare" | "original" | "result";
 type ItemStatus = "ready" | "processing" | "done" | "error";
 type ExportMode = "download" | "overwrite" | "same-folder" | "fixed-folder";
 type WatermarkLayout = "tile" | "single";
+type WatermarkKind = "text" | "image" | "blind";
 type ThemeMode = "system" | "light" | "dark";
 type ColorTheme = "graphite" | "mist" | "violet" | "green";
 type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
@@ -147,6 +148,7 @@ type BatchRenameRequest = {
   renameTemplate: string;
   firstPadding: number;
   secondPadding: number;
+  wordSeparator: string;
 };
 
 type BatchRenameResult = {
@@ -181,6 +183,7 @@ type NativeBridge = {
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;
   quickCompressPaths: (paths: string[], settings: QuickCompressSettings) => Promise<QuickCompressResult[]>;
   compressImageData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
+  compressImageWithWatermarkData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings, watermark: { data: string; imageScale: number; opacity: number; rotation: number; layout: WatermarkLayout; density: number; positionX: number; positionY: number }) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   compressAnimationData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   configureGlobalShortcuts: (bindings: { enabled: boolean; toggleDropzone: string; optimiseClipboard: string; showMain: string; showGallery?: string; uploadCurrent?: string }) => Promise<void>;
   cleanupOptimisedFiles: (payload: { folder: string; suffix: string; olderThanSeconds: number }) => Promise<{ deleted: number }>;
@@ -262,7 +265,12 @@ type ImageItem = {
 
 type WatermarkSettings = {
   enabled: boolean;
+  kind: WatermarkKind;
   text: string;
+  imageDataUrl: string;
+  imageName: string;
+  imageScale: number;
+  blindStrength: number;
   layout: WatermarkLayout;
   fontFamily: string;
   fontScale: number;
@@ -546,6 +554,7 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
     renameTemplate: "{code}_{name}",
     firstPadding: 2,
     secondPadding: 2,
+    wordSeparator: "",
   });
   const [preview, setPreview] = useState<BatchRenameResult | null>(null);
   const [status, setStatus] = useState("");
@@ -580,7 +589,7 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
       numbers: { folderPattern: String.raw`[【\[]\s*(\d+)\s*-\s*(\d+)\s*[】\]]`, renameTemplate: "{code}_{name}" },
       chinese: { folderPattern: "(风景|人物)", renameTemplate: "{1}_{name}" },
       english: { folderPattern: "([A-Za-z]+)", renameTemplate: "{1}_{name}" },
-      initials: { folderPattern: "([A-Za-z]+(?:[ _-]+[A-Za-z]+)*)", renameTemplate: "{1:initials}_{name}" },
+      initials: { folderPattern: "([A-Za-z]+(?:[ _-]+[A-Za-z]+)*)", renameTemplate: "{1:initials}_{name}", wordSeparator: "" },
     };
     if (presets[value]) patch(presets[value]);
   };
@@ -592,8 +601,9 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
       <div className="rename-fields">
         <label><span>{t("常用规则", "Rule preset")}</span><select defaultValue="" onChange={(event) => applyPreset(event.target.value)}><option value="">{t("选择示例，可继续修改", "Choose an editable example")}</option><option value="numbers">【1-1】 → 0101</option><option value="chinese">风景 / 人物</option><option value="english">English word</option><option value="initials">New York → NY</option></select></label>
         <label className="rename-pattern"><span>{t("父目录匹配规则（正则）", "Parent-folder pattern (regex)")}</span><input value={request.folderPattern} onChange={(event) => patch({ folderPattern: event.target.value })} /></label>
-        <label className="rename-template"><span>{t("新文件名模板", "New filename template")}</span><input value={request.renameTemplate} onChange={(event) => patch({ renameTemplate: event.target.value })} /><small>{"{code} {name} {ext} {folder} {match} {1} {2} {1:initials} {index:03}"}</small></label>
+        <label className="rename-template"><span>{t("新文件名模板", "New filename template")}</span><input value={request.renameTemplate} onChange={(event) => patch({ renameTemplate: event.target.value })} /><small>{"{code} {name} {name:words} {name:initials} {ext} {folder} {match} {1} {2} {1:words} {1:initials} {index:03}"}</small></label>
         <label><span>{t("数字补齐位数", "Numeric padding")}</span><div className="rename-padding"><input aria-label="First padding" type="number" min="1" max="12" value={request.firstPadding} onChange={(event) => patch({ firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /><b>+</b><input aria-label="Second padding" type="number" min="1" max="12" value={request.secondPadding} onChange={(event) => patch({ secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /></div></label>
+        <label><span>{t("词语连接符", "Word separator")}</span><input value={request.wordSeparator} maxLength={12} placeholder={t("留空即直接连接，可填 -、_、空格", "Empty joins directly; try -, _, or a space")} onChange={(event) => patch({ wordSeparator: event.target.value })} /><small>{t("用于 {name:words}、{name:initials}、{1:words} 和 {1:initials}", "Used by {name:words}, {name:initials}, {1:words}, and {1:initials}")}</small></label>
       </div>
       <div className="rename-actions"><button type="button" disabled={busy || !request.rootFolder} onClick={() => void scan()}>{busy ? "···" : "⌕"} {t("扫描并预览", "Scan and preview")}</button><button className="primary" type="button" disabled={busy || !preview?.entries.some((entry) => entry.ready)} onClick={() => void apply()}>{t("执行重命名", "Apply rename")}</button></div>
       {preview && <div className="rename-preview"><header><strong>{t("重命名预览", "Rename preview")}</strong><span>{t(`${preview.matched} 个匹配 · ${preview.failed} 个冲突`, `${preview.matched} matches · ${preview.failed} conflicts`)}</span></header>{preview.entries.slice(0, 200).map((entry) => <div className={entry.ready ? "ready" : "blocked"} key={entry.source}><span title={entry.source}>{entry.sourceName}</span><b>→</b><span title={entry.target}>{entry.targetName || entry.error}</span><small>{entry.error || entry.code}</small></div>)}</div>}
@@ -615,7 +625,12 @@ const DEFAULT_SETTINGS: CompressionSettings = {
   preventLarger: true,
   watermark: {
     enabled: false,
+    kind: "text",
     text: "PicLite",
+    imageDataUrl: "",
+    imageName: "",
+    imageScale: 18,
+    blindStrength: 3,
     layout: "tile",
     fontFamily: "Microsoft YaHei",
     fontScale: 4.5,
@@ -1059,60 +1074,115 @@ function getTargetDimensions(item: Pick<ImageItem, "width" | "height">, settings
   };
 }
 
-function createWatermarkLayer(width: number, height: number, watermark: WatermarkSettings) {
-  const text = watermark.text.trim();
-  if (!watermark.enabled || !text) return null;
+function hasWatermark(watermark: WatermarkSettings) {
+  if (!watermark.enabled) return false;
+  if (watermark.kind === "image") return Boolean(watermark.imageDataUrl);
+  return Boolean(watermark.text.trim());
+}
 
-  const fontSize = Math.max(8, Math.min(width, height) * (watermark.fontScale / 100));
+async function createWatermarkLayer(width: number, height: number, watermark: WatermarkSettings) {
+  if (!hasWatermark(watermark) || watermark.kind === "blind") return null;
+
   const layer = document.createElement("canvas");
   layer.width = width;
   layer.height = height;
   const layerContext = layer.getContext("2d", { alpha: true });
   if (!layerContext) return null;
-  layerContext.fillStyle = watermark.color;
-  layerContext.font = `${fontSize}px "${watermark.fontFamily.replaceAll('"', "")}", sans-serif`;
-  layerContext.textAlign = "center";
-  layerContext.textBaseline = "middle";
-  if (watermark.shadow) {
-    layerContext.shadowColor = watermark.shadowColor;
-    layerContext.shadowBlur = watermark.shadowBlur;
-    layerContext.shadowOffsetX = Math.max(1, watermark.shadowBlur * 0.2);
-    layerContext.shadowOffsetY = Math.max(1, watermark.shadowBlur * 0.2);
+
+  let markWidth = 0;
+  let markHeight = 0;
+  let drawMark: (context: CanvasRenderingContext2D) => void;
+  if (watermark.kind === "image") {
+    const response = await fetch(watermark.imageDataUrl);
+    const bitmap = await createImageBitmap(await response.blob());
+    const maxSide = Math.max(12, Math.min(width, height) * watermark.imageScale / 100);
+    const ratio = Math.min(maxSide / bitmap.width, maxSide / bitmap.height);
+    markWidth = Math.max(1, bitmap.width * ratio);
+    markHeight = Math.max(1, bitmap.height * ratio);
+    drawMark = (context) => context.drawImage(bitmap, -markWidth / 2, -markHeight / 2, markWidth, markHeight);
+  } else {
+    const text = watermark.text.trim();
+    const fontSize = Math.max(8, Math.min(width, height) * (watermark.fontScale / 100));
+    layerContext.fillStyle = watermark.color;
+    layerContext.font = `${fontSize}px "${watermark.fontFamily.replaceAll('"', "")}", sans-serif`;
+    layerContext.textAlign = "center";
+    layerContext.textBaseline = "middle";
+    if (watermark.shadow) {
+      layerContext.shadowColor = watermark.shadowColor;
+      layerContext.shadowBlur = watermark.shadowBlur;
+      layerContext.shadowOffsetX = Math.max(1, watermark.shadowBlur * 0.2);
+      layerContext.shadowOffsetY = Math.max(1, watermark.shadowBlur * 0.2);
+    }
+    markWidth = Math.max(fontSize * 2, layerContext.measureText(text).width);
+    markHeight = fontSize;
+    drawMark = (context) => context.fillText(text, 0, 0);
   }
 
   const angle = watermark.rotation * Math.PI / 180;
   if (watermark.layout === "single") {
     layerContext.translate(width * watermark.positionX / 100, height * watermark.positionY / 100);
     layerContext.rotate(angle);
-    layerContext.fillText(text, 0, 0);
+    drawMark(layerContext);
   } else {
     const diagonal = Math.hypot(width, height);
-    const measured = Math.max(fontSize * 2, layerContext.measureText(text).width);
     const density = Math.min(1, Math.max(0, watermark.density / 100));
     // A non-linear curve gives the low end real breathing room: 0% is deliberately
     // sparse enough for one or two marks on ordinary photos, while 100% stays dense.
     const sparse = (1 - density) ** 2;
-    const stepX = measured + fontSize * (1.05 + sparse * 18);
-    const stepY = fontSize * (1.45 + sparse * 14);
+    const stepX = markWidth + markHeight * (1.05 + sparse * 18);
+    const stepY = markHeight * (1.45 + sparse * 14);
     layerContext.translate(width / 2, height / 2);
     layerContext.rotate(angle);
     let row = 0;
     for (let y = -diagonal; y <= diagonal; y += stepY) {
       const offset = row % 2 ? stepX / 2 : 0;
-      for (let x = -diagonal - offset; x <= diagonal; x += stepX) layerContext.fillText(text, x + offset, y);
+      for (let x = -diagonal - offset; x <= diagonal; x += stepX) {
+        layerContext.save();
+        layerContext.translate(x + offset, y);
+        drawMark(layerContext);
+        layerContext.restore();
+      }
       row += 1;
     }
   }
   return layer;
 }
 
-function applyWatermark(context: CanvasRenderingContext2D, width: number, height: number, watermark: WatermarkSettings, layer = createWatermarkLayer(width, height, watermark)) {
+function applyWatermark(context: CanvasRenderingContext2D, width: number, height: number, watermark: WatermarkSettings, layer: HTMLCanvasElement | null) {
   if (!layer) return;
   // Composite once so the opacity applies equally to the glyph and shadow.
   context.save();
   context.globalAlpha = Math.min(1, Math.max(0.01, watermark.opacity / 100));
   context.drawImage(layer, 0, 0);
   context.restore();
+}
+
+function applyBlindWatermark(context: CanvasRenderingContext2D, width: number, height: number, watermark: WatermarkSettings) {
+  if (!watermark.enabled || watermark.kind !== "blind" || !watermark.text.trim()) return;
+  const payload = new TextEncoder().encode(`PicLite:${watermark.text.trim()}`);
+  const bits = Array.from(payload).flatMap((byte) => Array.from({ length: 8 }, (_, bit) => (byte >> (7 - bit)) & 1));
+  if (!bits.length) return;
+  const image = context.getImageData(0, 0, width, height);
+  const strength = Math.max(1, Math.min(8, Math.round(watermark.blindStrength)));
+  const block = 8;
+  const blocksAcross = Math.ceil(width / block);
+  for (let y = 0; y < height; y += block) {
+    for (let x = 0; x < width; x += block) {
+      const bit = bits[((y / block) * blocksAcross + x / block) % bits.length] ? 1 : -1;
+      const samples = [[1, 1, 1], [2, 1, -1], [5, 5, 1], [6, 5, -1]] as const;
+      for (const [dx, dy, carrier] of samples) {
+        const px = x + dx;
+        const py = y + dy;
+        if (px >= width || py >= height) continue;
+        const offset = (py * width + px) * 4;
+        const delta = bit * carrier * strength;
+        image.data[offset] = Math.max(0, Math.min(255, image.data[offset] + delta));
+        image.data[offset + 1] = Math.max(0, Math.min(255, image.data[offset + 1] + delta));
+        image.data[offset + 2] = Math.max(0, Math.min(255, image.data[offset + 2] + delta));
+      }
+    }
+  }
+  context.putImageData(image, 0, 0);
 }
 
 type DecodedGifFrame = {
@@ -1150,7 +1220,7 @@ async function animatedGifCompress(item: ImageItem, settings: CompressionSetting
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   const colors = Math.max(2, Math.min(256, Math.round(2 + 254 * (settings.quality / 100) ** 1.45)));
-  const watermarkLayer = createWatermarkLayer(width, height, settings.watermark);
+  const watermarkLayer = await createWatermarkLayer(width, height, settings.watermark);
 
   try {
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
@@ -1158,6 +1228,7 @@ async function animatedGifCompress(item: ImageItem, settings: CompressionSetting
       context.clearRect(0, 0, width, height);
       context.drawImage(image as unknown as CanvasImageSource, 0, 0, width, height);
       applyWatermark(context, width, height, settings.watermark, watermarkLayer);
+      applyBlindWatermark(context, width, height, settings.watermark);
       const rgba = context.getImageData(0, 0, width, height).data;
       const palette = quantize(rgba, colors, { format: "rgba4444", oneBitAlpha: true });
       const indexed = stochasticDitherToPalette(rgba, palette, width, height, settings.quality);
@@ -1178,12 +1249,12 @@ async function animatedGifCompress(item: ImageItem, settings: CompressionSetting
   }
 }
 
-async function canvasCompress(item: ImageItem, settings: CompressionSettings) {
+async function canvasCompress(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge) {
   const bitmap = await createImageBitmap(item.file);
   const { width, height } = getTargetDimensions(item, settings);
 
   const sameSize = width === item.width && height === item.height;
-  if (settings.quality >= 100 && settings.format === "keep" && sameSize && !settings.watermark.enabled) {
+  if (settings.quality >= 100 && settings.format === "keep" && sameSize && !hasWatermark(settings.watermark)) {
     bitmap.close();
     const blob = settings.stripMetadata ? await optimizeLosslessly(item.file) : item.file;
     return { blob, width, height };
@@ -1205,20 +1276,37 @@ async function canvasCompress(item: ImageItem, settings: CompressionSettings) {
   }
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
-  applyWatermark(context, width, height, settings.watermark);
+  const watermarkLayer = await createWatermarkLayer(width, height, settings.watermark);
+  applyWatermark(context, width, height, settings.watermark, watermarkLayer);
+  applyBlindWatermark(context, width, height, settings.watermark);
 
   const quality = Math.min(1, Math.max(0.01, settings.quality / 100));
   // Canvas ignores the quality argument for PNG. At 100% we deliberately keep
   // true-colour lossless output; below 100% we write an indexed PNG so that the
   // shared quality control has a real, predictable effect while retaining alpha.
-  const result = outputType === "image/png" && settings.quality < 100
-    ? await encodeIndexedPng(context, width, height, settings.quality)
-    : await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, quality));
+  let result: Blob | null;
+  if (outputType === "image/webp" && nativeBridge) {
+    // WKWebView cannot encode WebP. Generate the composited PNG once and pass
+    // it to Rust as compact Base64; avoid a failed WebP encode and millions of
+    // JSON array entries on every preview.
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!png) throw new Error("当前桌面环境无法编码图片水印");
+    const converted = await nativeBridge.compressImageData(
+      new Uint8Array(await png.arrayBuffer()),
+      item.name.replace(/\.[^.]+$/, ".png"),
+      { mode: "manual", quality: settings.quality, scale: 100, format: "image/webp", stripMetadata: true, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" },
+    );
+    result = new Blob([new Uint8Array(converted.data)], { type: converted.mimeType });
+  } else {
+    result = outputType === "image/png" && settings.quality < 100
+      ? await encodeIndexedPng(context, width, height, settings.quality)
+      : await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, quality));
+  }
   if (!result) throw new Error("当前浏览器不支持所选输出格式");
   if (!isRequestedMimeType(result.type, outputType)) {
     throw new Error(`当前浏览器把 ${outputType} 回退成了 ${result.type || "未知格式"}，已阻止错误格式结果`);
   }
-  if (settings.quality >= 100 && settings.format === "keep" && sameSize && !settings.watermark.enabled && result.size >= item.originalBytes) {
+  if (settings.quality >= 100 && settings.format === "keep" && sameSize && !hasWatermark(settings.watermark) && result.size >= item.originalBytes) {
     const blob = settings.stripMetadata ? await optimizeLosslessly(item.file) : item.file;
     return { blob, width, height };
   }
@@ -1313,7 +1401,7 @@ async function encodeIndexedPng(context: CanvasRenderingContext2D, width: number
 type CompressionResult = { blob: Blob; width: number; height: number; keptOriginal?: boolean; sizeGuardQuality?: number; strategy?: string };
 
 function smartCandidates(item: ImageItem, settings: CompressionSettings) {
-  if (settings.mode === "lossless" || settings.mode === "manual" || item.type === "image/gif") return [settings];
+  if (settings.mode === "lossless" || settings.mode === "manual" || item.type === "image/gif" || hasWatermark(settings.watermark)) return [settings];
 
   // These are quality guard rails, not just named presets. We try a small set
   // of real encodes and retain the smallest result within the mode's visual
@@ -1343,7 +1431,7 @@ function strategyLabel(settings: CompressionSettings) {
 }
 
 async function compressImageBase(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge): Promise<CompressionResult> {
-  if (item.type === "image/gif" && nativeBridge && (settings.format === "keep" || settings.format === "image/webp")) {
+  if (item.type === "image/gif" && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp")) {
     const result = await nativeBridge.compressAnimationData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
@@ -1369,7 +1457,34 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
   if (item.type === "image/gif" && settings.format === "image/webp") {
     throw new Error("动态 WebP 转换需要 PicLite 桌面客户端；网页端会保留 GIF 动画");
   }
-  if (nativeBridge && item.type !== "image/gif" && !settings.watermark.enabled) {
+  if (nativeBridge && item.type !== "image/gif" && settings.watermark.enabled && settings.watermark.kind === "image" && settings.watermark.imageDataUrl) {
+    const sourceFormat = item.type === "image/jpg" ? "image/jpeg" : item.type;
+    const requestedFormat = settings.format === "keep"
+      ? (["image/jpeg", "image/png", "image/webp"].includes(sourceFormat) ? sourceFormat as OutputFormat : "image/png")
+      : settings.format;
+    const result = await nativeBridge.compressImageWithWatermarkData(
+      new Uint8Array(await item.file.arrayBuffer()),
+      item.name,
+      { mode: "manual", quality: settings.quality, scale: settings.scale, format: requestedFormat, stripMetadata: settings.stripMetadata, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" },
+      {
+        data: settings.watermark.imageDataUrl.split(",", 2)[1] || "",
+        imageScale: settings.watermark.imageScale,
+        opacity: settings.watermark.opacity,
+        rotation: settings.watermark.rotation,
+        layout: settings.watermark.layout,
+        density: settings.watermark.density,
+        positionX: settings.watermark.positionX,
+        positionY: settings.watermark.positionY,
+      },
+    );
+    return {
+      blob: new Blob([new Uint8Array(result.data)], { type: result.mimeType }),
+      width: result.width,
+      height: result.height,
+      strategy: `${result.extension.toUpperCase()} · ${Math.round(settings.quality)}% · ${formatScale(settings.scale)} · 图片水印`,
+    };
+  }
+  if (nativeBridge && item.type !== "image/gif" && !hasWatermark(settings.watermark)) {
     const sourceFormat = item.type === "image/jpg" ? "image/jpeg" : item.type;
     const requestedFormat = settings.format === "keep"
       ? (["image/jpeg", "image/png", "image/webp"].includes(sourceFormat) ? sourceFormat as OutputFormat : "image/png")
@@ -1398,7 +1513,7 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
   }
   const encodeCandidate = (candidateSettings: CompressionSettings) => item.type === "image/gif" && candidateSettings.format === "keep"
     ? animatedGifCompress(item, candidateSettings)
-    : canvasCompress(item, candidateSettings);
+    : canvasCompress(item, candidateSettings, nativeBridge);
 
   const candidates = smartCandidates(item, settings);
   if (candidates.length > 1) {
@@ -1428,9 +1543,14 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
   const hasVisualTransform = candidate.width !== item.width
     || candidate.height !== item.height
     || settings.format !== "keep"
-    || settings.watermark.enabled;
+    || hasWatermark(settings.watermark);
 
-  if ((settings.preventLarger || settings.watermark.enabled) && candidate.blob.size >= item.originalBytes) {
+  // A watermark is an explicit visual output. It is already expensive to
+  // composite and, for desktop WebP, cross the native bridge once. Do not run
+  // the size-guard quality ladder after that single requested encode.
+  if (hasWatermark(settings.watermark)) return candidate;
+
+  if ((settings.preventLarger || hasWatermark(settings.watermark)) && candidate.blob.size >= item.originalBytes) {
     const mayReduceQuality = settings.mode !== "lossless" && settings.quality < 100;
     if (hasVisualTransform && mayReduceQuality) {
       let smallest = { ...candidate, quality: settings.quality };
@@ -1470,7 +1590,12 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
     const [source] = await nativeBridge.readImagesFromPaths([item.sourcePath]);
     if (!source) throw new Error("原始图片已移动或无法读取");
     const file = new File([new Uint8Array(source.data)], source.name || item.name, { type: source.type || item.type });
-    return compressImage({ ...item, file, sourceIsThumbnail: false }, settings, nativeBridge);
+    // Keep the full source bytes after the first read. Subsequent slider and
+    // watermark changes can then re-encode immediately without reopening the
+    // same file through the native bridge every time.
+    item.file = file;
+    item.sourceIsThumbnail = false;
+    return compressImage(item, settings, nativeBridge);
   }
 
   const targetSizeKb = Math.max(0, Math.round(settings.targetSizeKb || 0));
@@ -1482,7 +1607,7 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
   const hasExplicitTransform = settings.format !== "keep"
     || settings.scale < 100
     || settings.resize
-    || settings.watermark.enabled;
+    || hasWatermark(settings.watermark);
   if (item.originalBytes <= targetBytes && !hasExplicitTransform) {
     return {
       blob: item.file,
@@ -2112,6 +2237,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   });
   const [watchProfiles, setWatchProfiles] = useState<WatchProfile[]>(() => typeof window === "undefined" ? [] : loadDesktopSettings().watchProfiles as WatchProfile[]);
   const [selectedWatchProfileId, setSelectedWatchProfileId] = useState<string | null>(() => typeof window === "undefined" ? null : (loadDesktopSettings().watchProfiles[0]?.id || null));
+  const [watchProfileName, setWatchProfileName] = useState(() => typeof window === "undefined" ? "" : (loadDesktopSettings().watchProfiles[0]?.name || ""));
   const [watcherActive, setWatcherActive] = useState(false);
   const [watcherEvents, setWatcherEvents] = useState<WatcherEvent[]>([]);
   const [galleryItems, setGalleryItems] = useState<GalleryViewItem[]>([]);
@@ -2132,6 +2258,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
+  const watermarkImageInputRef = useRef<HTMLInputElement>(null);
   const pluginInputRef = useRef<HTMLInputElement>(null);
   const exportDirectoryRef = useRef<DirectoryHandleLike | null>(null);
   const compareRef = useRef<HTMLDivElement>(null);
@@ -2140,6 +2267,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const settingsReadyRef = useRef(false);
   const desktopPreferencesReadyRef = useRef(false);
   const livePreviewGenerationRef = useRef(0);
+  const livePreviewRunningRef = useRef(false);
+  const livePreviewPendingRef = useRef<{ id: string; generation: number; settings: CompressionSettings } | null>(null);
   const galleryUrlsRef = useRef<string[]>([]);
   const savedUploadProfileRef = useRef<string | null>(null);
   const loadedSystemFontsRef = useRef<Set<string>>(new Set());
@@ -2225,6 +2354,12 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId) || items[0] || null, [items, selectedId]);
   const selectedTarget = useMemo(() => selected ? getTargetDimensions(selected, settings) : null, [selected, settings]);
+  const setExactDimension = useCallback((axis: "width" | "height", value: number) => {
+    if (!selected || !Number.isFinite(value) || value < 1) return;
+    const original = axis === "width" ? selected.width : selected.height;
+    const scale = Math.max(0.1, Math.min(100, value / original * 100));
+    setSettings((current) => ({ ...current, scale, resize: false }));
+  }, [selected]);
   const galleryPreview = useMemo(() => galleryItems.find((item) => item.id === galleryPreviewId) || null, [galleryItems, galleryPreviewId]);
   const totals = useMemo(() => {
     const original = items.reduce((sum, item) => sum + item.originalBytes, 0);
@@ -2595,38 +2730,50 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     if (!id) return;
     const generation = ++livePreviewGenerationRef.current;
     const timer = window.setTimeout(async () => {
-      const item = itemsRef.current.find((candidate) => candidate.id === id);
-      if (!item) return;
-      setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "processing", error: undefined } : candidate));
+      livePreviewPendingRef.current = { id, generation, settings };
+      if (livePreviewRunningRef.current) return;
+      livePreviewRunningRef.current = true;
       try {
-        const result = await compressImage(item, settings, nativeBridge);
-        if (generation !== livePreviewGenerationRef.current) return;
-        const outputUrl = URL.createObjectURL(result.blob);
-        setItems((current) => current.map((candidate) => {
-          if (candidate.id !== id) return candidate;
-          if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
-          return {
-            ...candidate,
-            outputBlob: result.blob,
-            outputUrl,
-            outputBytes: result.blob.size,
-            outputType: result.blob.type || candidate.type,
-            outputWidth: result.width,
-            outputHeight: result.height,
-            keptOriginal: result.keptOriginal,
-            sizeGuardQuality: result.sizeGuardQuality,
-            strategy: result.strategy,
-            status: "done",
-          };
-        }));
-      } catch (error) {
-        if (generation !== livePreviewGenerationRef.current) return;
-        setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("预览失败", "Preview failed") } : candidate));
+        while (livePreviewPendingRef.current) {
+          const job = livePreviewPendingRef.current;
+          livePreviewPendingRef.current = null;
+          const item = itemsRef.current.find((candidate) => candidate.id === job.id);
+          if (!item || job.generation !== livePreviewGenerationRef.current) continue;
+          setItems((current) => current.map((candidate) => candidate.id === job.id ? { ...candidate, status: "processing", error: undefined } : candidate));
+          try {
+            const result = await compressImage(item, job.settings, nativeBridge);
+            if (job.generation !== livePreviewGenerationRef.current) continue;
+            const outputUrl = URL.createObjectURL(result.blob);
+            setItems((current) => current.map((candidate) => {
+              if (candidate.id !== job.id) return candidate;
+              if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
+              return {
+                ...candidate,
+                outputBlob: result.blob,
+                outputUrl,
+                outputBytes: result.blob.size,
+                outputType: result.blob.type || candidate.type,
+                outputWidth: result.width,
+                outputHeight: result.height,
+                keptOriginal: result.keptOriginal,
+                sizeGuardQuality: result.sizeGuardQuality,
+                strategy: result.strategy,
+                status: "done",
+              };
+            }));
+          } catch (error) {
+            if (job.generation !== livePreviewGenerationRef.current) continue;
+            setItems((current) => current.map((candidate) => candidate.id === job.id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("预览失败", "Preview failed") } : candidate));
+          }
+        }
+      } finally {
+        livePreviewRunningRef.current = false;
       }
-    }, itemsRef.current.find((item) => item.id === id)?.type === "image/gif" ? 420 : 220);
+    }, itemsRef.current.find((item) => item.id === id)?.type === "image/gif" ? 500 : 300);
 
     return () => {
       window.clearTimeout(timer);
+      if (livePreviewPendingRef.current?.generation === generation) livePreviewPendingRef.current = null;
       if (livePreviewGenerationRef.current === generation) livePreviewGenerationRef.current += 1;
     };
   }, [nativeBridge, selectedId, settings, t]);
@@ -3200,6 +3347,31 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     }
   }, [nativeBridge, showToast, t]);
 
+  const onWatermarkImageSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const ratio = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+      canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+      const context = canvas.getContext("2d", { alpha: true });
+      if (!context) throw new Error("canvas unavailable");
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      const imageDataUrl = canvas.toDataURL("image/png");
+      setSettings((current) => ({
+        ...current,
+        watermark: { ...current.watermark, enabled: true, kind: "image", imageDataUrl, imageName: file.name },
+      }));
+      showToast(t(`已载入图片水印：${file.name}`, `Image watermark loaded: ${file.name}`));
+    } catch {
+      showToast(t("图片水印无法读取，请使用 PNG、JPG 或 WebP", "Could not read the watermark image. Use PNG, JPG, or WebP."));
+    }
+  }, [showToast, t]);
+
   useEffect(() => {
     if (!nativeBridge || !nativeProfileReady || importedFontsHydratedRef.current) return;
     importedFontsHydratedRef.current = true;
@@ -3333,7 +3505,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     const profile: WatchProfile = {
       ...watcherSettings,
       id,
-      name: current?.name || watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("监控任务", "Watch task"),
+      name: watchProfileName.trim() || current?.name || watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("监控任务", "Watch task"),
       enabled: current?.enabled ?? true,
       inputFolders: [],
     };
@@ -3343,20 +3515,23 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     if (!validation.ok) { showToast(validation.error || t("监控规则无效", "Invalid watch rules")); return; }
     persistWatchProfiles(next);
     setSelectedWatchProfileId(id);
+    setWatchProfileName(profile.name);
     if (active.length) {
       const result = await nativeBridge.startWatcher({ ...active[0], profiles: active });
       if (!result.ok) { showToast(result.error || t("无法启动文件夹监测", "Could not start folder watching")); return; }
     }
     showToast(t("监控任务已保存并启用", "Watch task saved and enabled"));
-  }, [nativeBridge, persistWatchProfiles, selectedWatchProfileId, showToast, t, watchProfiles, watcherSettings]);
+  }, [nativeBridge, persistWatchProfiles, selectedWatchProfileId, showToast, t, watchProfileName, watchProfiles, watcherSettings]);
 
   const selectWatchProfile = useCallback((profile: WatchProfile) => {
     setSelectedWatchProfileId(profile.id);
+    setWatchProfileName(profile.name);
     setWatcherSettings({ ...DEFAULT_WATCHER_SETTINGS, ...profile });
   }, []);
 
   const createWatchProfile = useCallback(() => {
     setSelectedWatchProfileId(null);
+    setWatchProfileName("");
     setWatcherSettings({ ...DEFAULT_WATCHER_SETTINGS });
   }, []);
 
@@ -3492,6 +3667,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFilesSelected} />
       <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFolderFilesSelected} />
       <input ref={fontInputRef} className="visually-hidden" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={onFontSelected} />
+      <input ref={watermarkImageInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={onWatermarkImageSelected} />
       <input ref={pluginInputRef} className="visually-hidden" type="file" accept=".html,.htm,.js,.json,text/html,text/javascript,application/json" onChange={importPlugin} />
 
       <header className="topbar">
@@ -3747,8 +3923,12 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 {[100, 50, 25, 10].map((scale) => <button className={settings.scale === scale ? "active" : ""} type="button" key={scale} onClick={() => setSettings((current) => ({ ...current, scale }))}>{scale}%</button>)}
                 <button type="button" onClick={() => setSettings((current) => ({ ...current, scale: Math.max(0.1, Math.round(current.scale * 5) / 10) }))}>{t("继续减半", "Halve again")}</button>
               </div>
-              <div className="dimension-preview"><span>{t("预计像素", "Estimated pixels")}</span><strong>{selectedTarget ? `${selectedTarget.width} × ${selectedTarget.height} px` : t("导入图片后显示", "Shown after import")}</strong></div>
-              <p className="setting-hint">{t("可反复继续减半，始终从原图生成；最小会收敛到 1 × 1 像素。", "You can keep halving from the original; the minimum converges at 1 × 1 px.")}</p>
+              <div className="exact-dimension-grid">
+                <label><span>{t("宽度", "Width")}</span><b><input aria-label={t("输出宽度", "Output width")} type="number" min="1" max={selected?.width || undefined} disabled={!selected} value={selectedTarget?.width || ""} placeholder="—" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExactDimension("width", Number(event.target.value))} /> px</b></label>
+                <i aria-hidden="true">⌁</i>
+                <label><span>{t("高度", "Height")}</span><b><input aria-label={t("输出高度", "Output height")} type="number" min="1" max={selected?.height || undefined} disabled={!selected} value={selectedTarget?.height || ""} placeholder="—" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExactDimension("height", Number(event.target.value))} /> px</b></label>
+              </div>
+              <p className="setting-hint">{t("默认读取原图尺寸。拖动滑杆或输入任一边的像素，另一边会按原图比例自动适配。", "Starts from the source dimensions. Drag the slider or enter either side; the other side follows the source aspect ratio.")}</p>
             </div>
 
             <div className="setting-section">
@@ -3764,7 +3944,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="setting-section">
-              <div className="label-row"><label className="setting-label" htmlFor="resize-toggle">{t("最大像素边界（可选）", "Maximum pixels (optional)")}</label><button id="resize-toggle" className={`switch ${settings.resize ? "on" : ""}`} type="button" role="switch" aria-checked={settings.resize} onClick={() => setSettings((current) => ({ ...current, resize: !current.resize }))}><i /></button></div>
+              <div className="label-row"><label className="setting-label" htmlFor="resize-toggle">{t("批量最大像素边界（可选）", "Batch maximum pixels (optional)")}</label><button id="resize-toggle" className={`switch ${settings.resize ? "on" : ""}`} type="button" role="switch" aria-checked={settings.resize} onClick={() => setSettings((current) => ({ ...current, resize: !current.resize }))}><i /></button></div>
               <div className={`dimension-grid ${settings.resize ? "" : "disabled"}`}>
                 <label>{t("最大宽度", "Max width")} <span><input type="number" min="1" value={settings.width} disabled={!settings.resize} onChange={(event) => setSettings((current) => ({ ...current, width: Number(event.target.value) }))} /> px</span></label>
                 <button className={settings.lockRatio ? "locked" : ""} type="button" disabled={!settings.resize} aria-label={t("锁定宽高比", "Lock aspect ratio")} onClick={() => setSettings((current) => ({ ...current, lockRatio: !current.lockRatio }))}>↕</button>
@@ -3774,26 +3954,31 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="setting-section watermark-section">
-              <div className="label-row"><label className="setting-label" htmlFor="watermark-toggle">{t("文字水印", "Text watermark")}</label><button id="watermark-toggle" className={`switch ${settings.watermark.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={settings.watermark.enabled} onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, enabled: !current.watermark.enabled } }))}><i /></button></div>
+              <div className="label-row"><label className="setting-label" htmlFor="watermark-toggle">{t("水印", "Watermark")}</label><button id="watermark-toggle" className={`switch ${settings.watermark.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={settings.watermark.enabled} onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, enabled: !current.watermark.enabled } }))}><i /></button></div>
               {settings.watermark.enabled && <div className="watermark-controls">
-                <input className="watermark-text-input" aria-label={t("水印文字", "Watermark text")} value={settings.watermark.text} placeholder={t("输入水印文字", "Enter watermark text")} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, text: event.target.value } }))} />
-                <div className="segmented-control" aria-label={t("水印铺设方式", "Watermark layout")}>
-                  <button className={settings.watermark.layout === "tile" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "tile" } }))}>{t("全屏重复", "Tile")}</button>
-                  <button className={settings.watermark.layout === "single" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "single" } }))}>{t("单点定位", "Position")}</button>
+                <div className="segmented-control watermark-kind-control" aria-label={t("水印类型", "Watermark type")}>
+                  {(["text", "image", "blind"] as WatermarkKind[]).map((kind) => <button className={settings.watermark.kind === kind ? "active" : ""} type="button" key={kind} onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, kind } }))}>{kind === "text" ? t("文字", "Text") : kind === "image" ? t("图片", "Image") : t("盲水印", "Blind")}</button>)}
                 </div>
-                <div className="font-picker-row">
-                  <div className="select-wrap"><select aria-label={t("水印字体", "Watermark font")} value={settings.watermark.fontFamily} onChange={(event) => void selectSystemFont(event.target.value)}>{localFonts.map((font) => <option value={font} key={font} style={{ fontFamily: `"${font.replaceAll('"', "")}"` }}>{font}</option>)}</select></div>
-                  <button type="button" onClick={() => void loadSystemFonts()}>{t("系统字体", "System fonts")}</button>
-                  <button type="button" onClick={() => fontInputRef.current?.click()}>{t("导入字体", "Import font")}</button>
-                </div>
-                <label className="mini-range"><span>{t("字号", "Font size")} <b>{settings.watermark.fontScale.toFixed(1)}%</b></span><input type="range" min="1" max="20" step="0.5" value={settings.watermark.fontScale} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, fontScale: Number(event.target.value) } }))} /></label>
-                <label className="mini-range"><span>{t("方向", "Angle")} <b>{settings.watermark.rotation}°</b></span><input type="range" min="-180" max="180" step="1" value={settings.watermark.rotation} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, rotation: Number(event.target.value) } }))} /></label>
-                {settings.watermark.layout === "tile" ? <label className="mini-range"><span>{t("铺设密度（越低越稀疏）", "Tile density (lower is sparser)")} <b>{settings.watermark.density}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.density} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, density: Number(event.target.value) } }))} /></label> : <>
-                  <label className="mini-range"><span>{t("水平位置", "Horizontal position")} <b>{settings.watermark.positionX}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.positionX} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, positionX: Number(event.target.value) } }))} /></label>
-                  <label className="mini-range"><span>{t("垂直位置", "Vertical position")} <b>{settings.watermark.positionY}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.positionY} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, positionY: Number(event.target.value) } }))} /></label>
+                {settings.watermark.kind === "text" && <>
+                  <input className="watermark-text-input" aria-label={t("水印文字", "Watermark text")} value={settings.watermark.text} placeholder={t("输入水印文字", "Enter watermark text")} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, text: event.target.value } }))} />
+                  <div className="font-picker-row"><div className="select-wrap"><select aria-label={t("水印字体", "Watermark font")} value={settings.watermark.fontFamily} onChange={(event) => void selectSystemFont(event.target.value)}>{localFonts.map((font) => <option value={font} key={font} style={{ fontFamily: `"${font.replaceAll('"', "")}"` }}>{font}</option>)}</select></div><button type="button" onClick={() => void loadSystemFonts()}>{t("系统字体", "System fonts")}</button><button type="button" onClick={() => fontInputRef.current?.click()}>{t("导入字体", "Import font")}</button></div>
+                  <label className="mini-range"><span>{t("字号", "Font size")} <b>{settings.watermark.fontScale.toFixed(1)}%</b></span><input type="range" min="1" max="20" step="0.5" value={settings.watermark.fontScale} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, fontScale: Number(event.target.value) } }))} /></label>
                 </>}
-                <div className="watermark-color-row"><label>{t("文字色", "Text color")} <input type="color" value={settings.watermark.color} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, color: event.target.value } }))} /></label><label className="mini-range"><span>{t("透明度", "Opacity")} <b>{settings.watermark.opacity}%</b></span><input type="range" min="1" max="100" step="1" value={settings.watermark.opacity} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, opacity: Number(event.target.value) } }))} /></label></div>
-                <div className="shadow-row"><label><input type="checkbox" checked={settings.watermark.shadow} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadow: event.target.checked } }))} /> {t("阴影", "Shadow")}</label>{settings.watermark.shadow && <><input aria-label={t("阴影颜色", "Shadow color")} type="color" value={settings.watermark.shadowColor} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadowColor: event.target.value } }))} /><label className="mini-range"><span>{t("模糊", "Blur")} <b>{settings.watermark.shadowBlur}px</b></span><input type="range" min="0" max="40" step="1" value={settings.watermark.shadowBlur} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadowBlur: Number(event.target.value) } }))} /></label></> }</div>
+                {settings.watermark.kind === "image" && <>
+                  <button className="watermark-image-picker" type="button" onClick={() => watermarkImageInputRef.current?.click()}>{settings.watermark.imageDataUrl ? <img src={settings.watermark.imageDataUrl} alt="" /> : <span>＋</span>}<b>{settings.watermark.imageName || t("选择 PNG、JPG 或 WebP 图片", "Choose a PNG, JPG, or WebP image")}</b><small>{settings.watermark.imageDataUrl ? t("点击替换图片", "Click to replace") : t("透明 PNG 可保留透明区域", "Transparent PNGs keep their alpha")}</small></button>
+                  <label className="mini-range"><span>{t("图片尺寸", "Image size")} <b>{settings.watermark.imageScale}%</b></span><input type="range" min="2" max="60" step="1" value={settings.watermark.imageScale} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, imageScale: Number(event.target.value) } }))} /></label>
+                </>}
+                {settings.watermark.kind === "blind" ? <>
+                  <input className="watermark-text-input" aria-label={t("盲水印内容", "Blind watermark payload")} value={settings.watermark.text} placeholder={t("输入版权信息或识别码", "Enter copyright text or an identifier")} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, text: event.target.value } }))} />
+                  <label className="mini-range"><span>{t("嵌入强度", "Embedding strength")} <b>{settings.watermark.blindStrength}</b></span><input type="range" min="1" max="8" step="1" value={settings.watermark.blindStrength} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, blindStrength: Number(event.target.value) } }))} /></label>
+                  <p className="watermark-note">{t("将内容编码为低感知像素纹理；强压缩、裁剪或截图会降低可恢复性。", "Encodes the payload as a low-visibility pixel pattern. Heavy compression, cropping, or screenshots reduce recoverability.")}</p>
+                </> : <>
+                  <div className="segmented-control" aria-label={t("水印铺设方式", "Watermark layout")}><button className={settings.watermark.layout === "tile" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "tile" } }))}>{t("全屏重复", "Tile")}</button><button className={settings.watermark.layout === "single" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "single" } }))}>{t("单点定位", "Position")}</button></div>
+                  <label className="mini-range"><span>{t("方向", "Angle")} <b>{settings.watermark.rotation}°</b></span><input type="range" min="-180" max="180" step="1" value={settings.watermark.rotation} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, rotation: Number(event.target.value) } }))} /></label>
+                  {settings.watermark.layout === "tile" ? <label className="mini-range"><span>{t("铺设密度（越低越稀疏）", "Tile density (lower is sparser)")} <b>{settings.watermark.density}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.density} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, density: Number(event.target.value) } }))} /></label> : <><label className="mini-range"><span>{t("水平位置", "Horizontal position")} <b>{settings.watermark.positionX}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.positionX} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, positionX: Number(event.target.value) } }))} /></label><label className="mini-range"><span>{t("垂直位置", "Vertical position")} <b>{settings.watermark.positionY}%</b></span><input type="range" min="0" max="100" step="1" value={settings.watermark.positionY} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, positionY: Number(event.target.value) } }))} /></label></>}
+                  <div className={`watermark-color-row ${settings.watermark.kind === "image" ? "image-only" : ""}`}>{settings.watermark.kind === "text" && <label>{t("文字色", "Text color")} <input type="color" value={settings.watermark.color} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, color: event.target.value } }))} /></label>}<label className="mini-range"><span>{t("透明度", "Opacity")} <b>{settings.watermark.opacity}%</b></span><input type="range" min="1" max="100" step="1" value={settings.watermark.opacity} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, opacity: Number(event.target.value) } }))} /></label></div>
+                  {settings.watermark.kind === "text" && <div className="shadow-row"><label><input type="checkbox" checked={settings.watermark.shadow} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadow: event.target.checked } }))} /> {t("阴影", "Shadow")}</label>{settings.watermark.shadow && <><input aria-label={t("阴影颜色", "Shadow color")} type="color" value={settings.watermark.shadowColor} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadowColor: event.target.value } }))} /><label className="mini-range"><span>{t("模糊", "Blur")} <b>{settings.watermark.shadowBlur}px</b></span><input type="range" min="0" max="40" step="1" value={settings.watermark.shadowBlur} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, shadowBlur: Number(event.target.value) } }))} /></label></>}</div>}
+                </>}
               </div>}
             </div>
 
@@ -3847,6 +4032,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="watcher-options">
+              <label className="watcher-task-name"><span>{t("任务名称", "Task name")}</span><input type="text" value={watchProfileName} maxLength={40} disabled={!nativeBridge} placeholder={watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("例如：桌面截图", "For example: Desktop screenshots")} onChange={(event) => setWatchProfileName(event.target.value)} /></label>
               <label><span>{t("压缩方案", "Optimisation mode")}</span><select value={watcherSettings.mode} disabled={!nativeBridge} onChange={(event) => {
                 const mode = event.target.value as CompressionMode;
                 const quality = mode === "lossless" ? 100 : mode === "balanced" ? 82 : 45;
@@ -3873,11 +4059,13 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   renameTemplate: "{code}_{name}",
                   firstPadding: 2,
                   secondPadding: 2,
+                  wordSeparator: "",
                 } : undefined,
               }))} /><span>{t("按父文件夹内容命名输出图片", "Name outputs from parent-folder content")}</span></label>
               {watcherSettings.folderRename && <div className="watcher-rename-options">
                 <label><span>{t("父目录匹配规则（正则）", "Parent-folder pattern (regex)")}</span><input value={watcherSettings.folderRename.folderPattern} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, folderPattern: event.target.value } }) : current)} /></label>
-                <label><span>{t("输出文件名模板", "Output filename template")}</span><input value={watcherSettings.folderRename.renameTemplate} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, renameTemplate: event.target.value } }) : current)} /><small>{"{code} {name} {folder} {match} {1} {2} {1:initials}"}</small></label>
+                <label><span>{t("输出文件名模板", "Output filename template")}</span><input value={watcherSettings.folderRename.renameTemplate} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, renameTemplate: event.target.value } }) : current)} /><small>{"{code} {name} {name:words} {folder} {match} {1} {2} {1:words} {1:initials}"}</small></label>
+                <label><span>{t("词语连接符", "Word separator")}</span><input value={watcherSettings.folderRename.wordSeparator || ""} maxLength={12} placeholder={t("留空、-、_ 或空格", "Empty, -, _, or a space")} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, wordSeparator: event.target.value } }) : current)} /></label>
                 <label className="watcher-padding"><span>{t("数字补齐", "Numeric padding")}</span><div><input aria-label={t("第一组补齐位数", "First capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.firstPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /><b>+</b><input aria-label={t("第二组补齐位数", "Second capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.secondPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /></div></label>
                 <small>{t("会向上递归到监控根目录，使用第一个匹配的父文件夹。", "Searches upward to the watch root and uses the first matching parent.")}</small>
               </div>}
