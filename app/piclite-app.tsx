@@ -927,6 +927,25 @@ function mimeFromName(name: string) {
   return "application/octet-stream";
 }
 
+async function isAnimatedWebPFile(file: File) {
+  if (file.type !== "image/webp" && !/\.webp$/i.test(file.name)) return false;
+  const bytes = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
+  if (bytes.length < 21) return false;
+  const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+  if (ascii(0, 4) !== "RIFF" || ascii(8, 4) !== "WEBP") return false;
+  if (ascii(12, 4) === "VP8X" && (bytes[20] & 0x02) !== 0) return true;
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const chunk = ascii(offset, 4);
+    if (chunk === "ANIM" || chunk === "ANMF") return true;
+    const size = bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16) | (bytes[offset + 7] << 24);
+    if (size < 0) return false;
+    const next = offset + 8 + size + (size & 1);
+    if (next <= offset || next > bytes.length) return false;
+    offset = next;
+  }
+  return false;
+}
+
 function outputName(item: ImageItem, suffix = "-piclite", template = "{name}{suffix}") {
   const base = item.name.replace(/\.[^.]+$/, "");
   const extension = outputExtension(item.outputType || item.type, item.name);
@@ -1431,7 +1450,18 @@ function strategyLabel(settings: CompressionSettings) {
 }
 
 async function compressImageBase(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge): Promise<CompressionResult> {
-  if (item.type === "image/gif" && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp")) {
+  const animatedWebP = await isAnimatedWebPFile(item.file);
+  if (animatedWebP && hasWatermark(settings.watermark)) {
+    throw new Error("动态 WebP 暂不支持添加水印；已停止处理以避免动画被压成静态图");
+  }
+  if (animatedWebP && !["keep", "image/webp"].includes(settings.format)) {
+    throw new Error("动态 WebP 只能保持 WebP 格式；已停止处理以避免动画被压成静态图");
+  }
+  if (animatedWebP && !nativeBridge) {
+    throw new Error("动态 WebP 压缩需要 PicLite 桌面客户端；网页端不会将动画压成静态图");
+  }
+  const nativeAnimation = item.type === "image/gif" || animatedWebP;
+  if (nativeAnimation && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp")) {
     const result = await nativeBridge.compressAnimationData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
@@ -1451,7 +1481,7 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
       width: result.width,
       height: result.height,
       keptOriginal: result.keptOriginal,
-      strategy: result.extension === "webp" ? `动态 WebP · ${Math.round(settings.quality)}%` : `GIF · ${Math.round(settings.quality)}%`,
+      strategy: result.extension === "webp" ? `动态 WebP · ${Math.round(settings.quality)}%` : `动态 GIF · ${Math.round(settings.quality)}%`,
     };
   }
   if (item.type === "image/gif" && settings.format === "image/webp") {

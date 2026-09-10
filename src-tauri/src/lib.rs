@@ -46,7 +46,10 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use url::Url;
-use webp::{AnimEncoder as AnimatedWebPEncoder, AnimFrame as AnimatedWebPFrame};
+use webp::{
+    AnimDecoder as AnimatedWebPDecoder, AnimEncoder as AnimatedWebPEncoder,
+    AnimFrame as AnimatedWebPFrame,
+};
 use webp::{Encoder as LossyWebPEncoder, WebPConfig};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -1148,6 +1151,122 @@ fn gif_delay_ms(delay: image::Delay) -> i32 {
     rounded.clamp(10, i32::MAX as u64) as i32
 }
 
+fn is_animated_webp(data: &[u8]) -> bool {
+    if data.len() < 21 || &data[..4] != b"RIFF" || &data[8..12] != b"WEBP" {
+        return false;
+    }
+    if &data[12..16] == b"VP8X" && data[20] & 0x02 != 0 {
+        return true;
+    }
+
+    let mut offset = 12_usize;
+    while offset.saturating_add(8) <= data.len() {
+        let chunk = &data[offset..offset + 4];
+        if chunk == b"ANIM" || chunk == b"ANMF" {
+            return true;
+        }
+        let size = u32::from_le_bytes([
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
+        ]) as usize;
+        let Some(next) = offset
+            .checked_add(8)
+            .and_then(|value| value.checked_add(size))
+            .and_then(|value| value.checked_add(size & 1))
+        else {
+            break;
+        };
+        if next <= offset || next > data.len() {
+            break;
+        }
+        offset = next;
+    }
+    false
+}
+
+struct DecodedWebPAnimation {
+    width: u32,
+    height: u32,
+    loop_count: i32,
+    background: [u8; 4],
+    frames: Vec<(image::RgbaImage, i32)>,
+}
+
+fn decode_webp_animation(original: &[u8]) -> Result<DecodedWebPAnimation, String> {
+    let decoded = AnimatedWebPDecoder::new(original)
+        .decode()
+        .map_err(|error| format!("动态 WebP 解码失败：{error}"))?;
+    if !decoded.has_animation() {
+        return Err("WebP 不包含多个动画帧".to_string());
+    }
+    let loop_count = decoded.loop_count.min(i32::MAX as u32) as i32;
+    let background = [
+        decoded.bg_color as u8,
+        (decoded.bg_color >> 8) as u8,
+        (decoded.bg_color >> 16) as u8,
+        (decoded.bg_color >> 24) as u8,
+    ];
+    let mut frames = Vec::with_capacity(decoded.len());
+    for frame in &decoded {
+        let image =
+            image::RgbaImage::from_raw(frame.width(), frame.height(), frame.get_image().to_vec())
+                .ok_or_else(|| "动态 WebP 帧像素数据无效".to_string())?;
+        frames.push((image, frame.get_time_ms()));
+    }
+    let (width, height) = frames
+        .first()
+        .map(|(frame, _)| frame.dimensions())
+        .ok_or_else(|| "WebP 不包含可编码的动画帧".to_string())?;
+    Ok(DecodedWebPAnimation {
+        width,
+        height,
+        loop_count,
+        background,
+        frames,
+    })
+}
+
+fn encode_rgba_webp_animation(
+    frames: &[(Vec<u8>, i32)],
+    width: u32,
+    height: u32,
+    quality: u8,
+    loop_count: i32,
+    background: [u8; 4],
+) -> Result<Vec<u8>, String> {
+    let mut config = WebPConfig::new().map_err(|_| "无法初始化动态 WebP 编码器".to_string())?;
+    config.lossless = i32::from(quality >= 100);
+    config.quality = quality.clamp(1, 100) as f32;
+    config.alpha_quality = quality.clamp(35, 100) as i32;
+    config.method = 6;
+    config.thread_level = 1;
+    let mut encoder = AnimatedWebPEncoder::new(width, height, &config);
+    encoder.set_bgcolor(background);
+    encoder.set_loop_count(loop_count.max(0));
+    for (pixels, frame_timestamp) in frames {
+        encoder.add_frame(AnimatedWebPFrame::from_rgba(
+            pixels,
+            width,
+            height,
+            *frame_timestamp,
+        ));
+    }
+    let encoded = encoder
+        .try_encode()
+        .map_err(|error| format!("动态 WebP 编码失败：{error:?}"))?;
+    Ok(encoded.to_vec())
+}
+
+fn animation_end_sentinel(total_duration: i32, frame_count: usize, last_start: i32) -> i32 {
+    let count = frame_count.max(1) as i64;
+    let compensated = ((total_duration.max(10) as i64 * count) + count / 2) / (count + 1);
+    (compensated as i32)
+        .max(last_start.saturating_add(10))
+        .min(total_duration.max(last_start.saturating_add(10)))
+}
+
 fn encode_animated_webp(
     original: &[u8],
     width: u32,
@@ -1175,34 +1294,94 @@ fn encode_animated_webp(
         encoded_frames.push((buffer.into_raw(), timestamp));
         timestamp = timestamp.saturating_add(delay);
     }
-    // libwebp derives the final frame duration from the following timestamp.
-    // Repeating the last pixels at the animation end preserves the GIF delay
-    // without adding a visually distinct frame.
-    if let Some((last, _)) = encoded_frames.last() {
-        encoded_frames.push((last.clone(), timestamp.max(10)));
+    // The webp crate finalises animations with a zero timestamp, so libwebp
+    // estimates one trailing interval. A duplicate last frame at the compensated
+    // timestamp keeps the intended total duration without adding a visible frame.
+    if let Some((last, last_start)) = encoded_frames.last() {
+        let sentinel = animation_end_sentinel(timestamp, encoded_frames.len(), *last_start);
+        encoded_frames.push((last.clone(), sentinel));
     }
 
-    let mut config = WebPConfig::new().map_err(|_| "无法初始化动态 WebP 编码器".to_string())?;
-    config.lossless = 0;
-    config.quality = quality.clamp(1, 100) as f32;
-    config.alpha_quality = quality.clamp(35, 100) as i32;
-    config.method = 6;
-    config.thread_level = 1;
-    let mut encoder = AnimatedWebPEncoder::new(width, height, &config);
-    encoder.set_bgcolor([0, 0, 0, 0]);
-    encoder.set_loop_count(0);
-    for (pixels, frame_timestamp) in &encoded_frames {
-        encoder.add_frame(AnimatedWebPFrame::from_rgba(
-            pixels,
-            width,
-            height,
-            *frame_timestamp,
-        ));
+    encode_rgba_webp_animation(&encoded_frames, width, height, quality, 0, [0, 0, 0, 0])
+}
+
+fn encode_decoded_webp_animation(
+    animation: &DecodedWebPAnimation,
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
+    let mut encoded_frames = Vec::with_capacity(animation.frames.len() + 1);
+    let mut start_timestamp = 0_i32;
+    for (frame, end_timestamp) in &animation.frames {
+        let buffer = if frame.width() != width || frame.height() != height {
+            image::imageops::resize(frame, width, height, FilterType::Lanczos3)
+        } else {
+            frame.clone()
+        };
+        encoded_frames.push((buffer.into_raw(), start_timestamp));
+        start_timestamp = (*end_timestamp).max(start_timestamp.saturating_add(10));
     }
-    let encoded = encoder
-        .try_encode()
-        .map_err(|error| format!("动态 WebP 编码失败：{error:?}"))?;
-    Ok(encoded.to_vec())
+    if let Some((last, last_start)) = encoded_frames.last() {
+        let sentinel = animation_end_sentinel(start_timestamp, encoded_frames.len(), *last_start);
+        encoded_frames.push((last.clone(), sentinel));
+    }
+    encode_rgba_webp_animation(
+        &encoded_frames,
+        width,
+        height,
+        quality,
+        animation.loop_count,
+        animation.background,
+    )
+}
+
+fn optimize_webp_animation(
+    original: &[u8],
+    settings: &WatcherSettings,
+) -> Result<OptimizedImage, String> {
+    if !matches!(settings.format.as_str(), "keep" | "image/webp") {
+        return Err("动态 WebP 只能保持 WebP 格式，不能转换为静态 JPG 或 PNG".to_string());
+    }
+    let animation = decode_webp_animation(original)?;
+    let (target_width, target_height) =
+        target_dimensions(animation.width, animation.height, settings);
+    if settings.mode == "lossless"
+        && settings.format == "keep"
+        && target_width == animation.width
+        && target_height == animation.height
+    {
+        return Ok(OptimizedImage {
+            bytes: original.to_vec(),
+            extension: "webp".to_string(),
+        });
+    }
+
+    let quality = match settings.mode.as_str() {
+        "lossless" => 100,
+        "balanced" => settings.quality.clamp(78, 88),
+        "small" => settings.quality.clamp(1, 58),
+        _ => settings.quality.clamp(1, 100),
+    };
+    let candidate =
+        encode_decoded_webp_animation(&animation, target_width, target_height, quality)?;
+    let resized = target_width != animation.width || target_height != animation.height;
+    // Re-encoding every frame through a quality ladder is disproportionately
+    // expensive. One animation encode is enough; the guard restores the source
+    // only when no resize was explicitly requested.
+    if settings.prevent_larger
+        && !resized
+        && !has_meaningful_savings(original.len(), candidate.len())
+    {
+        return Ok(OptimizedImage {
+            bytes: original.to_vec(),
+            extension: "webp".to_string(),
+        });
+    }
+    Ok(OptimizedImage {
+        bytes: candidate,
+        extension: "webp".to_string(),
+    })
 }
 
 fn optimize_gif_animation(
@@ -1436,7 +1615,10 @@ fn rotate_watermark(source: &image::RgbaImage, degrees: f64) -> image::RgbaImage
     let output_height = (width * sin.abs() + height * cos.abs()).ceil().max(1.0) as u32;
     let mut output = image::RgbaImage::new(output_width, output_height);
     let source_center = ((width - 1.0) / 2.0, (height - 1.0) / 2.0);
-    let output_center = ((output_width as f64 - 1.0) / 2.0, (output_height as f64 - 1.0) / 2.0);
+    let output_center = (
+        (output_width as f64 - 1.0) / 2.0,
+        (output_height as f64 - 1.0) / 2.0,
+    );
     for y in 0..output_height {
         for x in 0..output_width {
             let dx = x as f64 - output_center.0;
@@ -1470,8 +1652,8 @@ fn apply_native_image_watermark(
     let mut base = image.to_rgba8();
     let max_side = ((base.width().min(base.height()) as f64)
         * (watermark.image_scale / 100.0).clamp(0.02, 0.6))
-        .round()
-        .max(1.0) as u32;
+    .round()
+    .max(1.0) as u32;
     let ratio = max_side as f64 / source.width().max(source.height()).max(1) as f64;
     let mark_width = ((source.width() as f64 * ratio).round() as u32).max(1);
     let mark_height = ((source.height() as f64 * ratio).round() as u32).max(1);
@@ -1521,6 +1703,9 @@ fn optimize_image_data(
 ) -> Result<OptimizedImage, String> {
     if source_extension == "gif" && matches!(settings.format.as_str(), "keep" | "image/webp") {
         return optimize_gif_animation(&original, settings);
+    }
+    if source_extension == "webp" && is_animated_webp(&original) {
+        return optimize_webp_animation(&original, settings);
     }
 
     let decoded = decode_static_oriented(&original)?;
@@ -2191,22 +2376,27 @@ async fn compress_animation_data(
         .and_then(|value| value.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if extension != "gif" {
-        return Err("当前原生动画编码仅接受 GIF".to_string());
-    }
     let compression = quick_settings(&settings);
-    let decoder =
-        GifDecoder::new(BufReader::new(Cursor::new(&data))).map_err(|error| error.to_string())?;
-    let (source_width, source_height) = decoder.dimensions();
+    let (source_width, source_height) = match extension.as_str() {
+        "gif" => GifDecoder::new(BufReader::new(Cursor::new(&data)))
+            .map_err(|error| error.to_string())?
+            .dimensions(),
+        "webp" if is_animated_webp(&data) => {
+            let animation = decode_webp_animation(&data)?;
+            (animation.width, animation.height)
+        }
+        "webp" => return Err("该 WebP 不包含多个动画帧".to_string()),
+        _ => return Err("当前原生动画编码仅接受 GIF 或动态 WebP".to_string()),
+    };
     let (width, height) = target_dimensions(source_width, source_height, &compression);
-    let optimized = optimize_gif_animation(&data, &compression)?;
+    let optimized = optimize_image_data(data.clone(), extension.clone(), &compression)?;
     let mime_type = if optimized.extension == "webp" {
         "image/webp"
     } else {
         "image/gif"
     };
     Ok(CompressedAnimationData {
-        kept_original: optimized.extension == "gif" && optimized.bytes == data,
+        kept_original: optimized.extension == extension && optimized.bytes == data,
         data: BASE64.encode(optimized.bytes),
         mime_type: mime_type.to_string(),
         extension: optimized.extension,
@@ -2307,6 +2497,9 @@ async fn compress_image_with_watermark_base64(
             _ => return Err("图片水印暂不支持该原图格式".to_string()),
         },
     };
+    if source_extension == "webp" && is_animated_webp(&original) {
+        return Err("动态 WebP 暂不支持图片水印；已停止处理以避免动画被压成静态图".to_string());
+    }
     let compression = quick_settings(&settings);
     let decoded = decode_static_oriented(&original)?;
     let (source_width, source_height) = decoded.dimensions();
@@ -5710,6 +5903,124 @@ mod tests {
     }
 
     #[test]
+    fn animated_webp_compression_preserves_frames_timing_loop_and_dimensions() {
+        let width = 48;
+        let height = 32;
+        let mut gif = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut gif);
+            encoder.set_repeat(Repeat::Infinite).expect("set GIF loop");
+            for (index, color) in [[250, 20, 40, 255], [20, 240, 60, 210], [30, 60, 250, 255]]
+                .into_iter()
+                .enumerate()
+            {
+                let buffer = image::RgbaImage::from_pixel(width, height, image::Rgba(color));
+                encoder
+                    .encode_frame(Frame::from_parts(
+                        buffer,
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(60 + index as u32 * 30, 1),
+                    ))
+                    .expect("encode GIF frame");
+            }
+        }
+        let original = encode_animated_webp(&gif, width, height, 84).expect("encode fixture");
+        assert!(is_animated_webp(&original));
+        let before = decode_webp_animation(&original).expect("decode fixture");
+
+        let settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
+            show_floating_result: false,
+            input_folder: String::new(),
+            input_folders: Vec::new(),
+            output_folder: String::new(),
+            output_suffix: String::new(),
+            rename_template: String::new(),
+            mode: "manual".to_string(),
+            quality: 72,
+            scale: 50.0,
+            format: "keep".to_string(),
+            resize: false,
+            max_width: u32::MAX,
+            max_height: u32::MAX,
+            strip_metadata: true,
+            prevent_larger: false,
+        };
+        let optimized = optimize_image_data(original, "webp".to_string(), &settings)
+            .expect("compress animated WebP");
+        let after = decode_webp_animation(&optimized.bytes).expect("decode compressed animation");
+
+        assert_eq!(optimized.extension, "webp");
+        assert_eq!((after.width, after.height), (24, 16));
+        assert_eq!(after.frames.len(), before.frames.len());
+        assert_eq!(after.loop_count, before.loop_count);
+        assert_eq!(
+            after
+                .frames
+                .iter()
+                .map(|(_, time)| *time)
+                .collect::<Vec<_>>(),
+            before
+                .frames
+                .iter()
+                .map(|(_, time)| *time)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn animated_webp_rejects_static_output_formats() {
+        let mut gif = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut gif);
+            encoder.set_repeat(Repeat::Infinite).expect("set GIF loop");
+            for color in [[255, 0, 0, 255], [0, 0, 255, 255]] {
+                encoder
+                    .encode_frame(Frame::from_parts(
+                        image::RgbaImage::from_pixel(8, 8, image::Rgba(color)),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(80, 1),
+                    ))
+                    .expect("encode GIF frame");
+            }
+        }
+        let original = encode_animated_webp(&gif, 8, 8, 80).expect("encode fixture");
+        let mut settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
+            show_floating_result: false,
+            input_folder: String::new(),
+            input_folders: Vec::new(),
+            output_folder: String::new(),
+            output_suffix: String::new(),
+            rename_template: String::new(),
+            mode: "manual".to_string(),
+            quality: 80,
+            scale: 100.0,
+            format: "image/png".to_string(),
+            resize: false,
+            max_width: u32::MAX,
+            max_height: u32::MAX,
+            strip_metadata: true,
+            prevent_larger: false,
+        };
+        let error = match optimize_image_data(original.clone(), "webp".to_string(), &settings) {
+            Ok(_) => panic!("static PNG output must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.contains("动态 WebP"));
+        settings.format = "image/jpeg".to_string();
+        assert!(optimize_image_data(original, "webp".to_string(), &settings).is_err());
+    }
+
+    #[test]
     fn png_quality_controls_palette_output_and_100_is_lossless() {
         let mut pixels = image::RgbaImage::new(48, 32);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
@@ -6182,7 +6493,10 @@ mod tests {
 
     #[test]
     fn rename_words_support_custom_connectors_for_names_and_captures() {
-        assert_eq!(words_with_separator("New York-cover", "_"), "New_York_cover");
+        assert_eq!(
+            words_with_separator("New York-cover", "_"),
+            "New_York_cover"
+        );
         assert_eq!(word_initials("New York-cover", "-"), "N-Y-C");
         assert_eq!(
             batch_rename_name(
