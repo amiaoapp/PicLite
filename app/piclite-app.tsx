@@ -422,7 +422,7 @@ async function loadPluginText(url: string, bridge?: NativeBridge) {
   return response.text();
 }
 
-function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; bridge?: NativeBridge; language: "zh" | "en" }) {
+function PluginRuntime({ plugin, bridge, language, theme }: { plugin: WorkspacePlugin; bridge?: NativeBridge; language: "zh" | "en"; theme: "light" | "dark" }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
 
@@ -439,10 +439,11 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
 
         const parsed = new DOMParser().parseFromString(source, "text/html");
         activeHost = hostRef.current;
+        activeHost.dataset.theme = theme;
         const shadow = activeHost.shadowRoot || activeHost.attachShadow({ mode: "open" });
         shadow.replaceChildren();
         const runtimeStyle = document.createElement("style");
-        runtimeStyle.textContent = ":host{display:block;width:100%;min-height:100%;background:#fff;color:#172033}.piclite-plugin-page{width:100%;min-height:100%;height:auto;overflow:visible;box-sizing:border-box}";
+        runtimeStyle.textContent = ":host{display:block;width:100%;min-height:100%;background:#fff;color:#172033}:host([data-theme='dark']){background:#0b1220;color:#e6eef8}.piclite-plugin-page{width:100%;min-height:100%;height:auto;overflow:visible;box-sizing:border-box}";
         shadow.append(runtimeStyle);
 
         for (const style of Array.from(parsed.querySelectorAll("style"))) {
@@ -460,6 +461,7 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
 
         const page = document.createElement("div");
         page.className = "piclite-plugin-page";
+        page.dataset.theme = theme;
         const body = parsed.body.cloneNode(true) as HTMLBodyElement;
         body.querySelectorAll("script").forEach((script) => script.remove());
         page.innerHTML = body.innerHTML;
@@ -478,14 +480,25 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
         const api = {
           version: "1.0.0",
           root: page.querySelector<HTMLElement>("#piclite-plugin-root") || page,
+          theme,
           post(type: string, payload?: unknown) {
             window.dispatchEvent(new CustomEvent("piclite:plugin-message", { detail: { pluginId: plugin.id, type, payload } }));
           },
         };
         activeApi = api;
         (window as unknown as { PicLitePlugin?: unknown }).PicLitePlugin = api;
+        const scopedStorage = new Proxy(window.localStorage, {
+          get(target, key) {
+            if (key === "getItem") return (name: string) => /theme/i.test(name) ? theme : target.getItem(name);
+            if (key === "setItem") return (name: string, value: string) => { if (!/theme/i.test(name)) target.setItem(name, value); };
+            if (key === "removeItem") return (name: string) => { if (!/theme/i.test(name)) target.removeItem(name); };
+            const value = Reflect.get(target, key);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
         const scopedDocument = new Proxy(document, {
           get(target, key) {
+            if (key === "documentElement" || key === "body") return page;
             if (key === "querySelector") return shadow.querySelector.bind(shadow);
             if (key === "querySelectorAll") return shadow.querySelectorAll.bind(shadow);
             if (key === "getElementById") return (id: string) => shadow.querySelector(`#${CSS.escape(id)}`);
@@ -496,6 +509,7 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
         const scopedWindow = new Proxy(window, {
           get(target, key) {
             if (key === "document") return scopedDocument;
+            if (key === "localStorage") return scopedStorage;
             if (key === "PicLitePlugin") return api;
             const value = Reflect.get(target, key);
             return typeof value === "function" ? value.bind(target) : value;
@@ -506,7 +520,7 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
           const src = script.getAttribute("src");
           const code = src ? await loadPluginText(absolutisePluginUrl(src, plugin.url), bridge) : script.textContent || "";
           if (disposed) return;
-          new Function("window", "document", "PicLitePlugin", `${code}\n//# sourceURL=piclite-plugin-${plugin.id}-${index}.js`)(scopedWindow, scopedDocument, api);
+          new Function("window", "document", "PicLitePlugin", "localStorage", `${code}\n//# sourceURL=piclite-plugin-${plugin.id}-${index}.js`)(scopedWindow, scopedDocument, api, scopedStorage);
         }
       } catch (reason) {
         if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
@@ -519,7 +533,7 @@ function PluginRuntime({ plugin, bridge, language }: { plugin: WorkspacePlugin; 
       if (target.PicLitePlugin === activeApi) delete target.PicLitePlugin;
       activeHost?.shadowRoot?.replaceChildren();
     };
-  }, [bridge, language, plugin]);
+  }, [bridge, language, plugin, theme]);
 
   return <div className="plugin-runtime-shell">{error && <div className="plugin-runtime-error"><strong>{language === "en" ? "Plugin could not be loaded" : "插件载入失败"}</strong><p>{error}</p></div>}<div className="plugin-runtime" ref={hostRef} /></div>;
 }
@@ -3936,7 +3950,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         </section>
       ) : view.startsWith("plugin:") ? (
         <section className="plugin-workspace" aria-label={t("插件工作台", "Plugin workbench")}>
-          {(() => { const plugin = workspacePlugins.find((item) => `plugin:${item.id}` === view); if (!plugin) return null; return <><header><div><span className="section-index">PLUGIN / TRUSTED RUNTIME</span><h1>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</h1></div><button type="button" onClick={() => { if (nativeBridge) void nativeBridge.showPreferencesWindow("plugins"); else { setPreferenceSection("plugins"); setView("preferences"); } }}>{t("管理插件", "Manage plugins")}</button></header><PluginRuntime plugin={plugin} bridge={nativeBridge} language={desktopPreferences.language} /></>; })()}
+          {(() => { const plugin = workspacePlugins.find((item) => `plugin:${item.id}` === view); if (!plugin) return null; return <><header><div><span className="section-index">PLUGIN / TRUSTED RUNTIME</span><h1>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</h1></div><button type="button" onClick={() => { if (nativeBridge) void nativeBridge.showPreferencesWindow("plugins"); else { setPreferenceSection("plugins"); setView("preferences"); } }}>{t("管理插件", "Manage plugins")}</button></header><PluginRuntime plugin={plugin} bridge={nativeBridge} language={desktopPreferences.language} theme={resolveTheme(desktopPreferences.theme)} /></>; })()}
         </section>
       ) : (
         <section className="preferences-page clop-preferences" aria-label={t("PicLite 应用设置", "PicLite preferences")}>

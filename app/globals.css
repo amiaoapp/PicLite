@@ -1796,6 +1796,10 @@ html[data-theme="light"] .clop-dock .clop-drop-zone > strong { color: #213328; }
 .plugin-runtime { width: 100%; min-height: 100%; background: white; }
 .plugin-runtime-error { position: absolute; z-index: 3; inset: 22px; height: max-content; padding: 18px; border: 1px solid rgba(191,65,65,.22); border-radius: 14px; color: #7a2424; background: #fff2f2; box-shadow: 0 10px 28px rgba(100,30,30,.08); }
 .plugin-runtime-error p { margin: 6px 0 0; font-size: 12px; line-height: 1.55; }
+html[data-theme="dark"] .plugin-runtime-shell,
+html[data-theme="dark"] .plugin-runtime { background: #0b1220; }
+html[data-theme="dark"] .plugin-runtime-shell { border-color: rgba(173,208,181,.14); box-shadow: 0 18px 54px rgba(0,0,0,.27); }
+html[data-theme="dark"] .plugin-runtime-shell::-webkit-scrollbar-thumb { border-color: #0b1220; background: rgba(173,208,181,.28); }
 .plugin-row-actions { display: flex; align-items: center; gap: 8px; }
 .plugin-name-input { width: min(300px, 42vw); height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: inherit; font: inherit; font-weight: 750; }
 .plugin-import-panel { display: grid; grid-template-columns: auto auto minmax(140px,.55fr) minmax(220px,1fr) auto; align-items: center; gap: 10px; padding: 16px; }
@@ -1943,10 +1947,14 @@ html[data-platform="darwin"] .desktop-app .settings-panel > .panel-heading {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-html[data-platform="darwin"] .desktop-app .topbar { background: rgba(250,252,249,.98); }
-html[data-platform="darwin"] .desktop-app .queue-panel,
-html[data-platform="darwin"] .desktop-app .settings-panel { background: rgba(252,253,251,.99); }
-html[data-platform="darwin"] .desktop-app .preview-panel { background: rgba(237,244,238,.96); }
+html[data-platform="darwin"][data-theme="light"] .desktop-app .topbar { background: rgba(250,252,249,.98); }
+html[data-platform="darwin"][data-theme="light"] .desktop-app .queue-panel,
+html[data-platform="darwin"][data-theme="light"] .desktop-app .settings-panel { background: rgba(252,253,251,.99); }
+html[data-platform="darwin"][data-theme="light"] .desktop-app .preview-panel { background: rgba(237,244,238,.96); }
+html[data-platform="darwin"][data-theme="dark"] .desktop-app .topbar { background: color-mix(in srgb, var(--surface) 96%, black); }
+html[data-platform="darwin"][data-theme="dark"] .desktop-app .queue-panel,
+html[data-platform="darwin"][data-theme="dark"] .desktop-app .settings-panel { background: color-mix(in srgb, var(--surface) 94%, black); }
+html[data-platform="darwin"][data-theme="dark"] .desktop-app .preview-panel { background: color-mix(in srgb, var(--paper) 94%, black); }
 html[data-palette][data-theme="dark"] .desktop-app .clop-preferences,
 html[data-palette][data-theme="dark"] .preferences-window .clop-preferences { background: var(--palette-bg-b); }
 html[data-palette][data-theme="dark"] .preferences-sidebar { background: color-mix(in srgb, var(--palette-bg-a) 92%, black); }
