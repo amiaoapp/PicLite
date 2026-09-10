@@ -117,6 +117,15 @@ if ("__TAURI_INTERNALS__" in window) {
       const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_animation_base64", { data: encodeBase64(data), fileName, settings });
       return { ...result, data: decodeBase64(result.data) };
     },
+    compressAnimationWithWatermarkData: async (data, fileName, settings, watermark) => {
+      const result = await invoke<Omit<import("./clop-types").CompressedAnimationData, "data"> & { data: string }>("compress_animation_with_watermark_base64", {
+        data: encodeBase64(data),
+        fileName,
+        settings,
+        watermark: { ...watermark, data: encodeBase64(watermark.data) },
+      });
+      return { ...result, data: decodeBase64(result.data) };
+    },
     configureGlobalShortcuts: (bindings) => invoke("configure_global_shortcuts", { bindings }),
     cleanupOptimisedFiles: (payload) => invoke("cleanup_optimised_files", { request: payload }),
     previewBatchRename: (request) => invoke("preview_batch_rename", { request }),
@@ -302,6 +311,7 @@ if ("__TAURI_INTERNALS__" in window) {
     compressImageData: async () => { throw new Error("Native image encoding requires the desktop app"); },
     compressImageWithWatermarkData: async () => { throw new Error("Native image watermarking requires the desktop app"); },
     compressAnimationData: async () => { throw new Error("Animated WebP encoding requires the desktop app"); },
+    compressAnimationWithWatermarkData: async () => { throw new Error("Animated watermarking requires the desktop app"); },
     configureGlobalShortcuts: noop,
     cleanupOptimisedFiles: async () => ({ deleted: 0 }),
     revealPath: noop,

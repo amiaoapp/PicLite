@@ -206,6 +206,16 @@ struct NativeImageWatermark {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct NativeAnimationWatermark {
+    kind: String,
+    data: String,
+    opacity: u8,
+    text: String,
+    blind_strength: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ShortcutBindings {
     enabled: bool,
     #[serde(default)]
@@ -1237,10 +1247,19 @@ fn encode_rgba_webp_animation(
     background: [u8; 4],
 ) -> Result<Vec<u8>, String> {
     let mut config = WebPConfig::new().map_err(|_| "无法初始化动态 WebP 编码器".to_string())?;
-    config.lossless = i32::from(quality >= 100);
-    config.quality = quality.clamp(1, 100) as f32;
+    let lossless = quality >= 100;
+    config.lossless = i32::from(lossless);
+    // In libwebp's lossless mode, `quality` controls compression effort rather
+    // than pixel fidelity. 100 spends much longer searching for a smaller file
+    // without improving the image. A medium effort remains pixel-lossless and
+    // keeps interactive animation watermark previews practical.
+    config.quality = if lossless {
+        75.0
+    } else {
+        quality.clamp(1, 99) as f32
+    };
     config.alpha_quality = quality.clamp(35, 100) as i32;
-    config.method = 6;
+    config.method = if lossless { 3 } else { 4 };
     config.thread_level = 1;
     let mut encoder = AnimatedWebPEncoder::new(width, height, &config);
     encoder.set_bgcolor(background);
@@ -1311,14 +1330,105 @@ fn encode_decoded_webp_animation(
     height: u32,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
+    encode_decoded_webp_animation_with_watermark(animation, width, height, quality, None)
+}
+
+enum PreparedAnimationWatermark {
+    Visible(image::RgbaImage),
+    Blind { bits: Vec<i8>, strength: i16 },
+}
+
+fn prepare_animation_watermark(
+    watermark: &NativeAnimationWatermark,
+    width: u32,
+    height: u32,
+) -> Result<PreparedAnimationWatermark, String> {
+    if watermark.kind == "blind" {
+        let payload = format!("PicLite:{}", watermark.text.trim());
+        if watermark.text.trim().is_empty() {
+            return Err("盲水印内容不能为空".to_string());
+        }
+        let bits = payload
+            .as_bytes()
+            .iter()
+            .flat_map(|byte| (0..8).map(move |bit| if byte >> (7 - bit) & 1 == 1 { 1 } else { -1 }))
+            .collect::<Vec<_>>();
+        return Ok(PreparedAnimationWatermark::Blind {
+            bits,
+            strength: watermark.blind_strength.clamp(1, 8) as i16,
+        });
+    }
+
+    let bytes = BASE64
+        .decode(watermark.data.as_bytes())
+        .map_err(|error| format!("动图水印无法解码：{error}"))?;
+    let source = image::load_from_memory(&bytes)
+        .map_err(|error| format!("动图水印无法读取：{error}"))?
+        .to_rgba8();
+    let mut overlay = if source.dimensions() == (width, height) {
+        source
+    } else {
+        image::imageops::resize(&source, width, height, FilterType::Lanczos3)
+    };
+    let opacity = watermark.opacity.clamp(1, 100) as u16;
+    for pixel in overlay.pixels_mut() {
+        pixel.0[3] = ((pixel.0[3] as u16 * opacity) / 100) as u8;
+    }
+    Ok(PreparedAnimationWatermark::Visible(overlay))
+}
+
+fn apply_animation_watermark(frame: &mut image::RgbaImage, watermark: &PreparedAnimationWatermark) {
+    match watermark {
+        PreparedAnimationWatermark::Visible(overlay) => {
+            image::imageops::overlay(frame, overlay, 0, 0);
+        }
+        PreparedAnimationWatermark::Blind { bits, strength } => {
+            if bits.is_empty() {
+                return;
+            }
+            let block = 8_u32;
+            let blocks_across = frame.width().div_ceil(block).max(1);
+            let samples = [(1_u32, 1_u32, 1_i16), (2, 1, -1), (5, 5, 1), (6, 5, -1)];
+            for y in (0..frame.height()).step_by(block as usize) {
+                for x in (0..frame.width()).step_by(block as usize) {
+                    let bit_index = ((y / block) * blocks_across + x / block) as usize % bits.len();
+                    let bit = bits[bit_index] as i16;
+                    for (dx, dy, carrier) in samples {
+                        let px = x + dx;
+                        let py = y + dy;
+                        if px >= frame.width() || py >= frame.height() {
+                            continue;
+                        }
+                        let pixel = frame.get_pixel_mut(px, py);
+                        let delta = bit * carrier * *strength;
+                        for channel in &mut pixel.0[..3] {
+                            *channel = (*channel as i16 + delta).clamp(0, 255) as u8;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn encode_decoded_webp_animation_with_watermark(
+    animation: &DecodedWebPAnimation,
+    width: u32,
+    height: u32,
+    quality: u8,
+    watermark: Option<&PreparedAnimationWatermark>,
+) -> Result<Vec<u8>, String> {
     let mut encoded_frames = Vec::with_capacity(animation.frames.len() + 1);
     let mut start_timestamp = 0_i32;
     for (frame, end_timestamp) in &animation.frames {
-        let buffer = if frame.width() != width || frame.height() != height {
+        let mut buffer = if frame.width() != width || frame.height() != height {
             image::imageops::resize(frame, width, height, FilterType::Lanczos3)
         } else {
             frame.clone()
         };
+        if let Some(watermark) = watermark {
+            apply_animation_watermark(&mut buffer, watermark);
+        }
         encoded_frames.push((buffer.into_raw(), start_timestamp));
         start_timestamp = (*end_timestamp).max(start_timestamp.saturating_add(10));
     }
@@ -1334,6 +1444,87 @@ fn encode_decoded_webp_animation(
         animation.loop_count,
         animation.background,
     )
+}
+
+fn encode_animated_webp_with_watermark(
+    original: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    watermark: &PreparedAnimationWatermark,
+) -> Result<Vec<u8>, String> {
+    let decoder = GifDecoder::new(BufReader::new(Cursor::new(original)))
+        .map_err(|error| error.to_string())?;
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|error| error.to_string())?;
+    if frames.is_empty() {
+        return Err("GIF 不包含可编码的动画帧".to_string());
+    }
+
+    let mut timestamp = 0_i32;
+    let mut encoded_frames = Vec::with_capacity(frames.len() + 1);
+    for frame in frames {
+        let delay = gif_delay_ms(frame.delay());
+        let mut buffer = frame.into_buffer();
+        if buffer.width() != width || buffer.height() != height {
+            buffer = image::imageops::resize(&buffer, width, height, FilterType::Lanczos3);
+        }
+        apply_animation_watermark(&mut buffer, watermark);
+        encoded_frames.push((buffer.into_raw(), timestamp));
+        timestamp = timestamp.saturating_add(delay);
+    }
+    if let Some((last, last_start)) = encoded_frames.last() {
+        let sentinel = animation_end_sentinel(timestamp, encoded_frames.len(), *last_start);
+        encoded_frames.push((last.clone(), sentinel));
+    }
+    encode_rgba_webp_animation(&encoded_frames, width, height, quality, 0, [0, 0, 0, 0])
+}
+
+fn encode_gif_with_watermark(
+    original: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+    watermark: &PreparedAnimationWatermark,
+) -> Result<Vec<u8>, String> {
+    let decoder = GifDecoder::new(BufReader::new(Cursor::new(original)))
+        .map_err(|error| error.to_string())?;
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|error| error.to_string())?;
+    let mut encoded = Vec::new();
+    {
+        let speed = (31_u8.saturating_sub((quality as u16 * 30 / 100) as u8)).clamp(1, 30) as i32;
+        let mut encoder = GifEncoder::new_with_speed(&mut encoded, speed);
+        encoder
+            .set_repeat(Repeat::Infinite)
+            .map_err(|error| error.to_string())?;
+        for frame in frames {
+            let delay = frame.delay();
+            let mut buffer = frame.into_buffer();
+            if buffer.width() != width || buffer.height() != height {
+                buffer = image::imageops::resize(&buffer, width, height, FilterType::Lanczos3);
+            }
+            apply_animation_watermark(&mut buffer, watermark);
+            quantize_rgba(&mut buffer, quality);
+            encoder
+                .encode_frame(Frame::from_parts(buffer, 0, 0, delay))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(encoded)
+}
+
+fn animation_quality(settings: &WatcherSettings) -> u8 {
+    match settings.mode.as_str() {
+        "lossless" => 100,
+        "balanced" => settings.quality.clamp(78, 88),
+        "small" => settings.quality.clamp(1, 58),
+        _ => settings.quality.clamp(1, 100),
+    }
 }
 
 fn optimize_webp_animation(
@@ -1357,12 +1548,7 @@ fn optimize_webp_animation(
         });
     }
 
-    let quality = match settings.mode.as_str() {
-        "lossless" => 100,
-        "balanced" => settings.quality.clamp(78, 88),
-        "small" => settings.quality.clamp(1, 58),
-        _ => settings.quality.clamp(1, 100),
-    };
+    let quality = animation_quality(settings);
     let candidate =
         encode_decoded_webp_animation(&animation, target_width, target_height, quality)?;
     let resized = target_width != animation.width || target_height != animation.height;
@@ -1711,98 +1897,36 @@ fn optimize_image_data(
     let decoded = decode_static_oriented(&original)?;
     let (width, height) = decoded.dimensions();
     if matches!(settings.mode.as_str(), "balanced" | "small") {
-        // The desktop auto modes mirror the workbench: encode a short ladder
-        // of format/quality/scale candidates and pick the smallest real file,
-        // while retaining PNG/WebP alpha by never forcing JPEG conversion.
-        let quality_stops: Vec<u8> = if settings.mode == "balanced" {
-            vec![90, settings.quality.clamp(82, 88), 82]
+        // Presets already define their quality and scale. A single measured
+        // encode keeps imports and slider previews responsive; the explicit
+        // target-size feature owns the bounded multi-pass search.
+        let output_extension = if settings.format == "keep" {
+            source_extension.clone()
         } else {
-            vec![
-                settings.quality.min(68),
-                settings.quality.min(58),
-                settings.quality.min(46),
-            ]
+            extension_for(Path::new("image.png"), &settings.format)
         };
-        let scale_stops: Vec<f64> = if settings.mode == "balanced" {
-            // The first automatic pass must not silently reduce resolution.
-            // Downscaling remains an explicit/repeatable action in the result card.
-            vec![100.0]
+        let quality = if settings.mode == "balanced" {
+            settings.quality.clamp(78, 88)
         } else {
-            vec![
-                settings.scale.min(88.0),
-                settings.scale.min(80.0),
-                settings.scale.min(72.0),
-            ]
+            settings.quality.clamp(1, 58)
         };
-        let source_supported = matches!(
-            source_extension.as_str(),
-            "jpg" | "jpeg" | "jfif" | "png" | "webp"
-        );
-        let mut formats = if settings.format == "keep" {
-            vec![if source_supported {
-                source_extension.clone()
-            } else {
-                "webp".to_string()
-            }]
+        let (target_width, target_height) = target_dimensions(width, height, settings);
+        let resized = if target_width != width || target_height != height {
+            decoded.resize_exact(target_width, target_height, FilterType::Lanczos3)
         } else {
-            vec![extension_for(Path::new("image.png"), &settings.format)]
+            decoded
         };
-        if settings.format == "keep" {
-            if !formats.iter().any(|format| format == "webp") {
-                formats.push("webp".to_string());
-            }
-            let has_alpha = decoded
-                .to_rgba8()
-                .pixels()
-                .any(|pixel| pixel.0[3] != u8::MAX);
-            let fallback = if has_alpha { "png" } else { "jpg" };
-            if !formats
-                .iter()
-                .any(|format| format == fallback || (fallback == "jpg" && format == "jpeg"))
-            {
-                formats.push(fallback.to_string());
-            }
-        }
-        let mut best: Option<OptimizedImage> = None;
-        for output_extension in formats {
-            for quality in &quality_stops {
-                for scale in &scale_stops {
-                    let mut candidate_settings = settings.clone();
-                    candidate_settings.quality = (*quality).max(1);
-                    candidate_settings.scale = scale.clamp(0.1, 100.0);
-                    let (candidate_width, candidate_height) =
-                        target_dimensions(width, height, &candidate_settings);
-                    let resized = if candidate_width != width || candidate_height != height {
-                        decoded.resize_exact(
-                            candidate_width,
-                            candidate_height,
-                            FilterType::Lanczos3,
-                        )
-                    } else {
-                        decoded.clone()
-                    };
-                    let bytes =
-                        encode_static(resized, &output_extension, candidate_settings.quality)?;
-                    if best
-                        .as_ref()
-                        .is_none_or(|current| bytes.len() < current.bytes.len())
-                    {
-                        best = Some(OptimizedImage {
-                            bytes,
-                            extension: output_extension.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        let best = best.ok_or_else(|| "未生成可用的智能优化结果".to_string())?;
-        if settings.prevent_larger && !has_meaningful_savings(original.len(), best.bytes.len()) {
+        let candidate = encode_static(resized, &output_extension, quality)?;
+        if settings.prevent_larger && !has_meaningful_savings(original.len(), candidate.len()) {
             return Ok(OptimizedImage {
                 bytes: original,
                 extension: source_extension,
             });
         }
-        return Ok(best);
+        return Ok(OptimizedImage {
+            bytes: candidate,
+            extension: output_extension,
+        });
     }
 
     let (target_width, target_height) = target_dimensions(width, height, settings);
@@ -2405,6 +2529,78 @@ async fn compress_animation_data(
     })
 }
 
+fn compress_animation_with_watermark_data(
+    data: Vec<u8>,
+    file_name: String,
+    settings: QuickCompressSettings,
+    watermark: NativeAnimationWatermark,
+) -> Result<CompressedAnimationData, String> {
+    if data.is_empty() || data.len() > 256 * 1024 * 1024 {
+        return Err("动画图片为空或超过 256 MB".to_string());
+    }
+    let extension = Path::new(&file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let compression = quick_settings(&settings);
+    let quality = animation_quality(&compression);
+
+    let (encoded, width, height, output_extension) = match extension.as_str() {
+        "webp" if is_animated_webp(&data) => {
+            if !matches!(compression.format.as_str(), "keep" | "image/webp") {
+                return Err("动态 WebP 添加水印后只能输出 WebP".to_string());
+            }
+            let animation = decode_webp_animation(&data)?;
+            let (width, height) =
+                target_dimensions(animation.width, animation.height, &compression);
+            let prepared = prepare_animation_watermark(&watermark, width, height)?;
+            let encoded = encode_decoded_webp_animation_with_watermark(
+                &animation,
+                width,
+                height,
+                quality,
+                Some(&prepared),
+            )?;
+            (encoded, width, height, "webp")
+        }
+        "webp" => return Err("该 WebP 不包含多个动画帧".to_string()),
+        "gif" => {
+            if !matches!(compression.format.as_str(), "keep" | "image/webp") {
+                return Err("GIF 添加水印后只能输出 GIF 或 WebP".to_string());
+            }
+            let decoder = GifDecoder::new(BufReader::new(Cursor::new(&data)))
+                .map_err(|error| error.to_string())?;
+            let (source_width, source_height) = decoder.dimensions();
+            let (width, height) = target_dimensions(source_width, source_height, &compression);
+            let prepared = prepare_animation_watermark(&watermark, width, height)?;
+            if compression.format == "image/webp" {
+                let encoded =
+                    encode_animated_webp_with_watermark(&data, width, height, quality, &prepared)?;
+                (encoded, width, height, "webp")
+            } else {
+                let encoded = encode_gif_with_watermark(&data, width, height, quality, &prepared)?;
+                (encoded, width, height, "gif")
+            }
+        }
+        _ => return Err("当前原生动图水印仅接受 GIF 或动态 WebP".to_string()),
+    };
+
+    Ok(CompressedAnimationData {
+        data: BASE64.encode(encoded),
+        mime_type: if output_extension == "webp" {
+            "image/webp"
+        } else {
+            "image/gif"
+        }
+        .to_string(),
+        extension: output_extension.to_string(),
+        width,
+        height,
+        kept_original: false,
+    })
+}
+
 #[tauri::command]
 async fn compress_image_data(
     data: Vec<u8>,
@@ -2547,6 +2743,19 @@ async fn compress_animation_base64(
         .decode(data.as_bytes())
         .map_err(|error| format!("动画数据无法解码：{error}"))?;
     compress_animation_data(decoded, file_name, settings).await
+}
+
+#[tauri::command]
+async fn compress_animation_with_watermark_base64(
+    data: String,
+    file_name: String,
+    settings: QuickCompressSettings,
+    watermark: NativeAnimationWatermark,
+) -> Result<CompressedAnimationData, String> {
+    let decoded = BASE64
+        .decode(data.as_bytes())
+        .map_err(|error| format!("动画数据无法解码：{error}"))?;
+    compress_animation_with_watermark_data(decoded, file_name, settings, watermark)
 }
 
 #[tauri::command]
@@ -5514,6 +5723,7 @@ pub fn run() {
             compress_image_with_watermark_base64,
             compress_animation_data,
             compress_animation_base64,
+            compress_animation_with_watermark_base64,
             configure_global_shortcuts,
             cleanup_optimised_files,
             preview_batch_rename,
@@ -5633,7 +5843,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_first_pass_keeps_dimensions_and_selects_a_smaller_format() {
+    fn automatic_first_pass_keeps_dimensions_and_source_format() {
         let mut pixels = image::RgbImage::new(640, 360);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
             let noise = ((x * 17 + y * 31 + (x * y) % 251) % 256) as u8;
@@ -5681,10 +5891,8 @@ mod tests {
 
         assert_eq!(dimensions, (640, 360));
         assert!(optimized.bytes.len() < original.len());
-        assert!(matches!(
-            optimized.extension.as_str(),
-            "jpg" | "webp" | "png"
-        ));
+        assert_eq!(optimized.extension, "png");
+        assert_eq!(&optimized.bytes[..8], b"\x89PNG\r\n\x1a\n");
     }
 
     #[test]
@@ -5970,6 +6178,169 @@ mod tests {
                 .map(|(_, time)| *time)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn animated_webp_visible_watermark_preserves_animation() {
+        let width = 16;
+        let height = 12;
+        let mut gif = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut gif);
+            encoder.set_repeat(Repeat::Infinite).expect("set GIF loop");
+            for color in [[20, 40, 60, 255], [70, 90, 110, 255]] {
+                encoder
+                    .encode_frame(Frame::from_parts(
+                        image::RgbaImage::from_pixel(width, height, image::Rgba(color)),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(80, 1),
+                    ))
+                    .expect("encode GIF frame");
+            }
+        }
+        let original = encode_animated_webp(&gif, width, height, 100).expect("encode fixture");
+        let mut overlay = image::RgbaImage::new(width, height);
+        overlay.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        let overlay =
+            encode_static(DynamicImage::ImageRgba8(overlay), "png", 100).expect("encode overlay");
+        let settings = QuickCompressSettings {
+            mode: "lossless".to_string(),
+            quality: 100,
+            scale: 100.0,
+            format: "keep".to_string(),
+            strip_metadata: true,
+            prevent_larger: false,
+            export_mode: "same-folder".to_string(),
+            export_suffix: "-piclite".to_string(),
+            rename_template: String::new(),
+            fixed_folder: None,
+        };
+        let output = compress_animation_with_watermark_data(
+            original.clone(),
+            "animation.webp".to_string(),
+            settings,
+            NativeAnimationWatermark {
+                kind: "visible".to_string(),
+                data: BASE64.encode(overlay),
+                opacity: 100,
+                text: String::new(),
+                blind_strength: 3,
+            },
+        )
+        .expect("watermark animation");
+        let encoded = BASE64.decode(output.data).expect("decode output");
+        let before = decode_webp_animation(&original).expect("decode input animation");
+        let after = decode_webp_animation(&encoded).expect("decode output animation");
+
+        assert_eq!(output.extension, "webp");
+        assert!(!output.kept_original);
+        assert_eq!(after.frames.len(), before.frames.len());
+        assert_eq!(after.loop_count, before.loop_count);
+        assert_eq!(
+            after
+                .frames
+                .iter()
+                .map(|(_, time)| *time)
+                .collect::<Vec<_>>(),
+            before
+                .frames
+                .iter()
+                .map(|(_, time)| *time)
+                .collect::<Vec<_>>()
+        );
+        assert!(after
+            .frames
+            .iter()
+            .all(|(frame, _)| frame.get_pixel(0, 0).0[..3] == [255, 0, 0]));
+        assert_eq!(
+            after.frames[0].0.get_pixel(1, 1),
+            before.frames[0].0.get_pixel(1, 1),
+            "100% animation watermark encoding must remain pixel-lossless"
+        );
+    }
+
+    #[test]
+    fn blind_animation_watermark_changes_rgb_without_touching_alpha() {
+        let mut frame = image::RgbaImage::from_pixel(16, 16, image::Rgba([128, 128, 128, 77]));
+        let prepared = prepare_animation_watermark(
+            &NativeAnimationWatermark {
+                kind: "blind".to_string(),
+                data: String::new(),
+                opacity: 100,
+                text: "测试".to_string(),
+                blind_strength: 4,
+            },
+            16,
+            16,
+        )
+        .expect("prepare blind watermark");
+        apply_animation_watermark(&mut frame, &prepared);
+
+        assert_ne!(frame.get_pixel(1, 1).0[0], 128);
+        assert_eq!(frame.get_pixel(1, 1).0[3], 77);
+        assert_eq!(frame.get_pixel(0, 0).0, [128, 128, 128, 77]);
+    }
+
+    #[test]
+    fn gif_visible_watermark_keeps_multiple_frames() {
+        let width = 16;
+        let height = 12;
+        let mut gif = Vec::new();
+        {
+            let mut encoder = GifEncoder::new(&mut gif);
+            encoder.set_repeat(Repeat::Infinite).expect("set GIF loop");
+            for color in [[20, 80, 140, 255], [140, 80, 20, 255]] {
+                encoder
+                    .encode_frame(Frame::from_parts(
+                        image::RgbaImage::from_pixel(width, height, image::Rgba(color)),
+                        0,
+                        0,
+                        image::Delay::from_numer_denom_ms(90, 1),
+                    ))
+                    .expect("encode GIF frame");
+            }
+        }
+        let mut overlay = image::RgbaImage::new(width, height);
+        overlay.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        let overlay =
+            encode_static(DynamicImage::ImageRgba8(overlay), "png", 100).expect("encode overlay");
+        let output = compress_animation_with_watermark_data(
+            gif,
+            "animation.gif".to_string(),
+            QuickCompressSettings {
+                mode: "balanced".to_string(),
+                quality: 82,
+                scale: 100.0,
+                format: "keep".to_string(),
+                strip_metadata: true,
+                prevent_larger: false,
+                export_mode: "same-folder".to_string(),
+                export_suffix: "-piclite".to_string(),
+                rename_template: String::new(),
+                fixed_folder: None,
+            },
+            NativeAnimationWatermark {
+                kind: "visible".to_string(),
+                data: BASE64.encode(overlay),
+                opacity: 100,
+                text: String::new(),
+                blind_strength: 3,
+            },
+        )
+        .expect("watermark GIF");
+        let encoded = BASE64.decode(output.data).expect("decode GIF output");
+        let frames = GifDecoder::new(BufReader::new(Cursor::new(encoded)))
+            .expect("decode GIF")
+            .into_frames()
+            .collect_frames()
+            .expect("collect GIF frames");
+
+        assert_eq!(output.extension, "gif");
+        assert_eq!(frames.len(), 2);
+        assert!(frames
+            .iter()
+            .all(|frame| frame.buffer().get_pixel(0, 0).0[0] > 220));
     }
 
     #[test]

@@ -15,7 +15,7 @@ import {
 } from "react";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
-import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
+import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes } from "./compression-policy";
 import packageManifest from "../package.json";
 import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 
@@ -185,6 +185,7 @@ type NativeBridge = {
   compressImageData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   compressImageWithWatermarkData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings, watermark: { data: string; imageScale: number; opacity: number; rotation: number; layout: WatermarkLayout; density: number; positionX: number; positionY: number }) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   compressAnimationData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
+  compressAnimationWithWatermarkData: (data: Uint8Array, fileName: string, settings: QuickCompressSettings, watermark: { kind: "visible" | "blind"; data: Uint8Array; opacity: number; text: string; blindStrength: number }) => Promise<{ data: Uint8Array; mimeType: string; extension: string; width: number; height: number; keptOriginal: boolean }>;
   configureGlobalShortcuts: (bindings: { enabled: boolean; toggleDropzone: string; optimiseClipboard: string; showMain: string; showGallery?: string; uploadCurrent?: string }) => Promise<void>;
   cleanupOptimisedFiles: (payload: { folder: string; suffix: string; olderThanSeconds: number }) => Promise<{ deleted: number }>;
   previewBatchRename: (request: BatchRenameRequest) => Promise<BatchRenameResult>;
@@ -1420,28 +1421,11 @@ async function encodeIndexedPng(context: CanvasRenderingContext2D, width: number
 type CompressionResult = { blob: Blob; width: number; height: number; keptOriginal?: boolean; sizeGuardQuality?: number; strategy?: string };
 
 function smartCandidates(item: ImageItem, settings: CompressionSettings) {
-  if (settings.mode === "lossless" || settings.mode === "manual" || item.type === "image/gif" || hasWatermark(settings.watermark)) return [settings];
-
-  // These are quality guard rails, not just named presets. We try a small set
-  // of real encodes and retain the smallest result within the mode's visual
-  // budget. PNG is not blindly converted to JPEG because it may be transparent.
-  // "Keep original" is a hard output constraint. Previous builds also tested
-  // WebP here, so Windows batches could preview a WebP candidate and later
-  // export every mixed PNG/JPG input with a .webp extension.
-  const formats: OutputFormat[] = smartCandidateOutputFormats(settings.format);
-  const qualityStops = settings.mode === "balanced"
-    ? [Math.min(settings.quality, 86), Math.min(settings.quality, 81), Math.min(settings.quality, 77)]
-    : [Math.min(settings.quality, 68), Math.min(settings.quality, 58), Math.min(settings.quality, 46)];
-  const scaleStops = settings.mode === "balanced"
-    ? [settings.scale, Math.min(settings.scale, 96), Math.min(settings.scale, 92)]
-    : [Math.min(settings.scale, 88), Math.min(settings.scale, 80), Math.min(settings.scale, 72)];
-  const candidates: CompressionSettings[] = [];
-  formats.forEach((format) => qualityStops.forEach((quality, index) => {
-    candidates.push({ ...settings, format, quality: Math.max(1, Math.round(quality)), scale: Math.max(0.1, scaleStops[index]) });
-  }));
-  return candidates.filter((candidate, index, all) => all.findIndex((other) => (
-    other.format === candidate.format && other.quality === candidate.quality && other.scale === candidate.scale
-  )) === index);
+  void item;
+  // Live preview must stay interactive. Presets already carry their intended
+  // quality and scale, so one real encode is enough; target-size mode performs
+  // its own bounded search when the user explicitly asks for a byte limit.
+  return [settings];
 }
 
 function strategyLabel(settings: CompressionSettings) {
@@ -1451,9 +1435,6 @@ function strategyLabel(settings: CompressionSettings) {
 
 async function compressImageBase(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge): Promise<CompressionResult> {
   const animatedWebP = await isAnimatedWebPFile(item.file);
-  if (animatedWebP && hasWatermark(settings.watermark)) {
-    throw new Error("动态 WebP 暂不支持添加水印；已停止处理以避免动画被压成静态图");
-  }
   if (animatedWebP && !["keep", "image/webp"].includes(settings.format)) {
     throw new Error("动态 WebP 只能保持 WebP 格式；已停止处理以避免动画被压成静态图");
   }
@@ -1461,6 +1442,45 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
     throw new Error("动态 WebP 压缩需要 PicLite 桌面客户端；网页端不会将动画压成静态图");
   }
   const nativeAnimation = item.type === "image/gif" || animatedWebP;
+  if (nativeBridge && hasWatermark(settings.watermark) && (animatedWebP || item.type === "image/gif")) {
+    const { width, height } = getTargetDimensions(item, settings);
+    let layerBytes = new Uint8Array();
+    if (settings.watermark.kind !== "blind") {
+      const layer = await createWatermarkLayer(width, height, settings.watermark);
+      if (!layer) throw new Error("无法生成动图水印图层");
+      const layerBlob = await new Promise<Blob | null>((resolve) => layer.toBlob(resolve, "image/png"));
+      if (!layerBlob) throw new Error("无法编码动图水印图层");
+      layerBytes = new Uint8Array(await layerBlob.arrayBuffer());
+    }
+    const result = await nativeBridge.compressAnimationWithWatermarkData(
+      new Uint8Array(await item.file.arrayBuffer()),
+      item.name,
+      {
+        mode: settings.mode,
+        quality: settings.quality,
+        scale: settings.scale,
+        format: settings.format,
+        stripMetadata: settings.stripMetadata,
+        preventLarger: false,
+        exportMode: "same-folder",
+        exportSuffix: "-piclite",
+      },
+      {
+        kind: settings.watermark.kind === "blind" ? "blind" : "visible",
+        data: layerBytes,
+        opacity: settings.watermark.opacity,
+        text: settings.watermark.text.trim(),
+        blindStrength: settings.watermark.blindStrength,
+      },
+    );
+    return {
+      blob: new Blob([new Uint8Array(result.data)], { type: result.mimeType }),
+      width: result.width,
+      height: result.height,
+      keptOriginal: result.keptOriginal,
+      strategy: `${result.extension === "webp" ? "动态 WebP" : "动态 GIF"} · ${Math.round(settings.quality)}% · ${settings.watermark.kind === "blind" ? "盲水印" : settings.watermark.kind === "image" ? "图片水印" : "文字水印"}`,
+    };
+  }
   if (nativeAnimation && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp")) {
     const result = await nativeBridge.compressAnimationData(
       new Uint8Array(await item.file.arrayBuffer()),
@@ -1488,14 +1508,10 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
     throw new Error("动态 WebP 转换需要 PicLite 桌面客户端；网页端会保留 GIF 动画");
   }
   if (nativeBridge && item.type !== "image/gif" && settings.watermark.enabled && settings.watermark.kind === "image" && settings.watermark.imageDataUrl) {
-    const sourceFormat = item.type === "image/jpg" ? "image/jpeg" : item.type;
-    const requestedFormat = settings.format === "keep"
-      ? (["image/jpeg", "image/png", "image/webp"].includes(sourceFormat) ? sourceFormat as OutputFormat : "image/png")
-      : settings.format;
     const result = await nativeBridge.compressImageWithWatermarkData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
-      { mode: "manual", quality: settings.quality, scale: settings.scale, format: requestedFormat, stripMetadata: settings.stripMetadata, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" },
+      { mode: "manual", quality: settings.quality, scale: settings.scale, format: settings.format, stripMetadata: settings.stripMetadata, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" },
       {
         data: settings.watermark.imageDataUrl.split(",", 2)[1] || "",
         imageScale: settings.watermark.imageScale,
@@ -1515,10 +1531,6 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
     };
   }
   if (nativeBridge && item.type !== "image/gif" && !hasWatermark(settings.watermark)) {
-    const sourceFormat = item.type === "image/jpg" ? "image/jpeg" : item.type;
-    const requestedFormat = settings.format === "keep"
-      ? (["image/jpeg", "image/png", "image/webp"].includes(sourceFormat) ? sourceFormat as OutputFormat : "image/png")
-      : settings.format;
     const result = await nativeBridge.compressImageData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
@@ -1526,7 +1538,7 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
         mode: settings.mode,
         quality: settings.quality,
         scale: settings.scale,
-        format: requestedFormat,
+        format: settings.format,
         stripMetadata: settings.stripMetadata,
         preventLarger: settings.preventLarger,
         exportMode: "same-folder",
@@ -3877,8 +3889,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className="mode-grid">
                 {([
                   ["lossless", 100, t("无损优先", "Lossless"), "100%", "◌"],
-                  ["balanced", 82, t("智能平衡", "Smart balance"), t("实测候选", "Measured candidates"), "◐"],
-                  ["small", 45, t("更小体积", "Smaller files"), t("多档试压", "Multi-pass test"), "●"],
+                  ["balanced", 82, t("智能平衡", "Smart balance"), t("快速实测", "Fast measured pass"), "◐"],
+                  ["small", 45, t("更小体积", "Smaller files"), t("快速压缩", "Fast compression"), "●"],
                 ] as const).map(([value, quality, label, note, icon]) => (
                   <button className={settings.mode === value ? "active" : ""} type="button" key={value} onClick={() => {
                     const preset = BUILT_IN_PRESETS.find((candidate) => candidate.id === value);
@@ -3923,7 +3935,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <strong>{selected?.status === "processing" ? t("计算中…", "Calculating…") : selected?.outputBytes ? formatBytes(selected.outputBytes) : t("导入图片后显示", "Shown after import")}</strong>
                 <small>{selected?.outputBytes ? selected.keptOriginal ? selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
               </div>
-              <p className="setting-hint"><i /> {t("智能平衡会实测多档画质/尺寸并选择较小结果。PNG 在 100% 时保持真彩无损，低于 100% 时通过调色板减色压缩；JPG / WebP 调整编码质量，GIF 调整每帧色板。", "Smart balance measures several quality/scale candidates and chooses a smaller result. PNG is true-colour lossless at 100%; below 100% it uses palette reduction. JPG/WebP use encoding quality and GIF adjusts its frame palette.")}</p>
+              <p className="setting-hint"><i /> {t("智能平衡按当前格式快速实测一次，避免导入和调参时反复等待。PNG 在 100% 时保持真彩无损，低于 100% 时通过调色板减色压缩；JPG / WebP 调整编码质量，GIF 调整每帧色板。", "Smart balance runs one measured encode in the current format so imports and adjustments stay responsive. PNG is true-colour lossless at 100%; below 100% it uses palette reduction. JPG/WebP use encoding quality and GIF adjusts its frame palette.")}</p>
             </div>
 
             <div className="setting-section target-size-section">
