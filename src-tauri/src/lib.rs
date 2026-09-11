@@ -3041,6 +3041,7 @@ async fn show_preferences_window(app: AppHandle, section: Option<String>) -> Res
                 | "plugins"
                 | "shortcuts"
                 | "about"
+                | "sponsor"
         )
     }) {
         let _ = app.emit("tray:action", format!("preferences_section:{section}"));

@@ -31,6 +31,20 @@ const BUILTIN_WORKSPACE_PLUGINS: WorkspacePlugin[] = [
   { id: "rename", nameZh: "图片批量重命名", nameEn: "Batch image rename", kind: "builtin", enabled: true },
   { id: "gallery", nameZh: "图库", nameEn: "Library", kind: "builtin", enabled: true },
 ];
+const SPONSOR_METHODS = [
+  { id: "alipay", image: "/sponsor/alipay.png", zh: "支付宝", en: "Alipay" },
+  { id: "wechat-pay", image: "/sponsor/wechat-pay.png", zh: "微信支付", en: "WeChat Pay" },
+  { id: "wechat-reward", image: "/sponsor/wechat-reward.png", zh: "微信赞赏码", en: "WeChat Reward" },
+  { id: "tron", image: "/sponsor/tron.png", zh: "TRON · TRC10 / TRC20", en: "TRON · TRC10 / TRC20" },
+] as const;
+const CREATOR_LINKS = [
+  { id: "website", icon: "globe", label: "appmiao.com", url: "https://www.appmiao.com" },
+  { id: "bilibili", icon: "bilibili", label: "Bilibili", url: "https://space.bilibili.com/6623126" },
+  { id: "douyin", icon: "douyin", label: "抖音", url: "https://v.douyin.com/qmJBSlpdlgs/" },
+  { id: "youtube", icon: "youtube", label: "YouTube", url: "https://www.youtube.com/@amiaoapp" },
+  { id: "x", icon: "x-social", label: "X", url: "https://x.com/amiaoapp" },
+  { id: "telegram", icon: "telegram", label: "Telegram", url: "https://t.me/miaoaaaaa" },
+] as const;
 const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|tiff?)$/i;
 
 function supportedImagePaths(paths: string[]) {
@@ -622,9 +636,9 @@ function BatchOptimiser({ api }: { api: PicLiteBridge }) {
   </main>;
 }
 
-type SettingsSection = "general" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about";
+type SettingsSection = "general" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor";
 
-const SETTINGS_SECTIONS = new Set<SettingsSection>(["general", "clipboard", "files", "images", "dropzone", "zones", "floating", "hosting", "plugins", "shortcuts", "about"]);
+const SETTINGS_SECTIONS = new Set<SettingsSection>(["general", "clipboard", "files", "images", "dropzone", "zones", "floating", "hosting", "plugins", "shortcuts", "about", "sponsor"]);
 
 function requestedSettingsSection(): SettingsSection {
   const requested = localStorage.getItem(REQUESTED_SETTINGS_SECTION_KEY);
@@ -645,6 +659,7 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "plugins", icon: "zones", zh: "插件", en: "Plugins" },
   { id: "shortcuts", icon: "shortcut", zh: "键盘快捷键", en: "Keyboard Shortcuts", group: "automation" },
   { id: "about", icon: "info", zh: "更新与关于", en: "Updates & About", group: "support" },
+  { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
 const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "watermark", "undo", "copy", "preview", "reveal", "gallery", "upload"];
@@ -1008,6 +1023,28 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="检查 GitHub Releases" en="Check GitHub Releases" />} note={updateText}><button className="settings-button" onClick={() => void checkUpdates()}><T language={language} zh="立即检查" en="Check now" /></button></SettingsRow>
         </SettingsCard>
         <SettingsCard title={<T language={language} zh="关于 PicLite" en="About PicLite" />}><div className="about-pane"><p><T language={language} zh="面向自媒体工作人员和开发人员的本地优先跨平台媒体优化工具。" en="A local-first, cross-platform media optimiser for content creators and developers." /></p><small>GPL-3.0-or-later · Tauri 2 + Rust</small><p><T language={language} zh="工作流与部分实现基于 GPL 项目 Clop；PicLite 使用独立名称、图标和跨平台实现。" en="Workflow and parts of the implementation are based on the GPL-licensed Clop project. PicLite uses its own name, icons and cross-platform implementation." /></p><button className="settings-button" onClick={() => void api.openExternal("https://github.com/amiaoapp/PicLite")}><T language={language} zh="打开 GitHub" en="Open GitHub" /></button></div></SettingsCard>
+      </>}
+      {section === "sponsor" && <>
+        <section className="sponsor-hero">
+          <span className="sponsor-heart" aria-hidden="true"><Icon name="heart" /></span>
+          <div><span><T language={language} zh="感谢赞助支持" en="Thank you for supporting PicLite" /></span><strong><T language={language} zh="让 PicLite 继续轻盈地走下去" en="Help PicLite keep moving forward" /></strong><small><T language={language} zh="软件会继续免费维护。每一份支持，都会用于开发、测试和跨平台发布。" en="PicLite will remain free to use. Your support helps fund development, testing and cross-platform releases." /></small></div>
+        </section>
+        <SettingsCard title={<T language={language} zh="赞助方式" en="Ways to support" />} note={<T language={language} zh="请选择你方便的方式，感谢你的认可。" en="Choose whichever method works for you. Thank you." />}>
+          <div className="sponsor-grid">
+            {SPONSOR_METHODS.map((method) => <figure className="sponsor-method" key={method.id}>
+              <div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={method.image} alt={tr(language, `${method.zh}收款码`, `${method.en} payment QR code`)} />
+              </div>
+              <figcaption>{tr(language, method.zh, method.en)}</figcaption>
+            </figure>)}
+          </div>
+        </SettingsCard>
+        <SettingsCard title={<T language={language} zh="找到阿喵" en="Find Amiao online" />} note={<T language={language} zh="网站与社交平台" en="Website and social profiles" />}>
+          <div className="creator-links">
+            {CREATOR_LINKS.map((link) => <button type="button" key={link.id} title={link.label} aria-label={link.label} onClick={() => void api.openExternal(link.url)}><Icon name={link.icon} /><span>{link.label}</span></button>)}
+          </div>
+        </SettingsCard>
       </>}
     </div>
   </main>;

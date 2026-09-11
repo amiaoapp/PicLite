@@ -132,6 +132,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .topbar-quick-controls button { width: 34px; height: 34px; border: 1px solid rgba(59,88,70,.13); border-radius: 10px; background: rgba(255,255,255,.58); color: #3e5648; font-size: 11px; font-weight: 850; cursor: pointer; box-shadow: inset 0 1px rgba(255,255,255,.92), 0 4px 14px rgba(34,57,45,.05); }
 .topbar-quick-controls button:hover { border-color: rgba(72,124,88,.42); background: rgba(255,255,255,.84); transform: translateY(-1px); }
 .topbar-quick-controls .settings-entry-button { font-size: 18px; line-height: 1; }
+.topbar-quick-controls .sponsor-entry-button { color: #9a7652; font-size: 14px; line-height: 1; }
 .topbar-quick-controls .floating-entry-button { color: #174936; font-size: 15px; }
 
 .desktop-download-guide,
@@ -1121,6 +1122,7 @@ html[data-theme="dark"] .about-links button { background: #18201c; border-color:
 html[data-theme="dark"] .topbar-quick-controls button { border-color: rgba(181,216,185,.13); background: rgba(255,255,255,.075); color: #d8e5dc; box-shadow: inset 0 1px rgba(255,255,255,.045); }
 html[data-theme="dark"] .topbar-quick-controls button:hover { background: rgba(255,255,255,.14); border-color: rgba(196,245,123,.34); }
 html[data-theme="dark"] .topbar-quick-controls .floating-entry-button { color: #c4f57b; }
+html[data-theme="dark"] .topbar-quick-controls .sponsor-entry-button { color: #d8b38c; }
 html[data-theme="dark"] .panel-heading,
 html[data-theme="dark"] .setting-section,
 html[data-theme="dark"] .queue-footer,

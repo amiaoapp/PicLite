@@ -33,7 +33,7 @@ type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 type UiDensity = "auto" | "comfortable" | "compact";
 type ShortcutPreferenceKey = "shortcutShow" | "shortcutPaste" | "shortcutDock" | "shortcutGallery" | "shortcutUpload";
 type DockLayout = "compact" | "full";
-type PreferenceSection = "rename" | "general" | "clipboard" | "files" | "images" | "dropzone" | "floating" | "hosting" | "plugins" | "shortcuts" | "about";
+type PreferenceSection = "rename" | "general" | "clipboard" | "files" | "images" | "dropzone" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor";
 
 const APP_VERSION = packageManifest.version;
 const APP_RELEASE_DATE = packageManifest.releaseDate;
@@ -2790,7 +2790,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           try {
             const result = await compressImage(item, job.settings, nativeBridge);
             if (job.generation !== livePreviewGenerationRef.current) continue;
-            const outputUrl = URL.createObjectURL(result.blob);
+            const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
             setItems((current) => current.map((candidate) => {
               if (candidate.id !== job.id) return candidate;
               if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
@@ -2887,7 +2887,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "processing", error: undefined } : candidate));
     try {
       const result = await compressImage(item, settings, nativeBridge);
-      const outputUrl = URL.createObjectURL(result.blob);
+      const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
       const completed: ImageItem = { ...item, outputBlob: result.blob, outputUrl, outputBytes: result.blob.size, outputType: result.blob.type || item.type, outputWidth: result.width, outputHeight: result.height, keptOriginal: result.keptOriginal, sizeGuardQuality: result.sizeGuardQuality, strategy: result.strategy, status: "done" };
       setItems((current) => current.map((candidate) => {
         if (candidate.id !== id) return candidate;
@@ -3090,7 +3090,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       }
       setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "processing", error: undefined } : candidate));
       const result = await compressImage(item, settings, nativeBridge);
-      const outputUrl = URL.createObjectURL(result.blob);
+      const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
       const completed = { ...item, outputBlob: result.blob, outputUrl, outputBytes: result.blob.size, outputType: result.blob.type || item.type, outputWidth: result.width, outputHeight: result.height, keptOriginal: result.keptOriginal, sizeGuardQuality: result.sizeGuardQuality, strategy: result.strategy, status: "done" as const };
       setItems((current) => current.map((candidate) => {
         if (candidate.id !== item.id) return candidate;
@@ -3747,7 +3747,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
         </nav>}
         <div className="topbar-actions">
-          {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><span aria-hidden="true">⚙</span></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><span aria-hidden="true">▣</span></button>}<button type="button" title={t("切换浅色 / 深色主题", "Toggle light / dark theme")} aria-label={t("切换主题", "Toggle theme")} onClick={toggleHeaderTheme}>{resolveTheme(desktopPreferences.theme) === "dark" ? "☀" : "☾"}</button><button type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
+          {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{nativeBridge && <button type="button" className="sponsor-entry-button" title={t("赞助支持", "Support PicLite")} aria-label={t("打开赞助支持", "Open support options")} onClick={() => void nativeBridge.showPreferencesWindow("sponsor")}><span aria-hidden="true">♥</span></button>}{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><span aria-hidden="true">⚙</span></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><span aria-hidden="true">▣</span></button>}<button type="button" title={t("切换浅色 / 深色主题", "Toggle light / dark theme")} aria-label={t("切换主题", "Toggle theme")} onClick={toggleHeaderTheme}>{resolveTheme(desktopPreferences.theme) === "dark" ? "☀" : "☾"}</button><button type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
         </div>
       </header>
 
@@ -3952,7 +3952,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className={`live-size-card ${selected?.status === "processing" ? "calculating" : ""}`}>
                 <span><i /> {t("实时试压结果", "Live result")}</span>
                 <strong>{selected?.status === "processing" ? t("计算中…", "Calculating…") : selected?.outputBytes ? formatBytes(selected.outputBytes) : t("导入图片后显示", "Shown after import")}</strong>
-                <small>{selected?.outputBytes ? selected.keptOriginal ? selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
+                <small>{selected?.outputBytes ? selected.keptOriginal ? settings.mode === "lossless" ? t("无损重编码没有减小体积，已保留原文件；预览与导出均使用原图", "Lossless re-encoding was not smaller, so the original is used for both preview and export") : selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
               </div>
               <p className="setting-hint"><i /> {t("智能平衡按当前格式快速实测一次，避免导入和调参时反复等待。PNG 在 100% 时保持真彩无损，低于 100% 时通过调色板减色压缩；JPG / WebP 调整编码质量，GIF 调整每帧色板。", "Smart balance runs one measured encode in the current format so imports and adjustments stay responsive. PNG is true-colour lossless at 100%; below 100% it uses palette reduction. JPG/WebP use encoding quality and GIF adjusts its frame palette.")}</p>
             </div>

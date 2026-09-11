@@ -31,6 +31,13 @@ const paths: Record<string, React.ReactNode> = {
   watermark: <><path d="M12 3s5 5.7 5 10a5 5 0 0 1-10 0c0-4.3 5-10 5-10Z"/><path d="M9.5 14.5c.7 1.2 1.6 1.7 2.8 1.7"/></>,
   upload: <><path d="M12 16V4m0 0-4 4m4-4 4 4"/><path d="M5 14v6h14v-6"/></>,
   gallery: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m6 16 4-4 3 3 2-2 3 3"/><circle cx="16" cy="9" r="1"/></>,
+  heart: <path d="M20.8 5.8a5.2 5.2 0 0 0-7.4 0L12 7.2l-1.4-1.4a5.2 5.2 0 0 0-7.4 7.4L12 22l8.8-8.8a5.2 5.2 0 0 0 0-7.4Z"/>,
+  globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.5 3.7 5.5 3.7 9s-1.3 6.5-3.7 9c-2.4-2.5-3.7-5.5-3.7-9S9.6 5.5 12 3Z"/></>,
+  youtube: <><rect x="3" y="6" width="18" height="12" rx="4"/><path d="m10 9 5 3-5 3Z"/></>,
+  bilibili: <><path d="m8 3 2 3m6-3-2 3"/><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M8 11v3m8-3v3"/></>,
+  douyin: <path d="M14 4v10.5a4 4 0 1 1-3-3.9M14 4c1.1 2.7 2.8 4.2 5 4.5"/>,
+  telegram: <><path d="m3 11 17-7-4 16-5-6-4 3 1-5Z"/><path d="m8 12 8-5"/></>,
+  "x-social": <><path d="M5 4 19 20M19 4l-6.4 7.4M11.3 12.9 5 20"/></>,
 };
 
 export function Icon({ name, ...props }: IconProps) {
