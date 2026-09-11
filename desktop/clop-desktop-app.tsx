@@ -35,7 +35,7 @@ const SPONSOR_METHODS = [
   { id: "alipay", image: "/sponsor/alipay.png", zh: "支付宝", en: "Alipay" },
   { id: "wechat-pay", image: "/sponsor/wechat-pay.png", zh: "微信支付", en: "WeChat Pay" },
   { id: "wechat-reward", image: "/sponsor/wechat-reward.png", zh: "微信赞赏码", en: "WeChat Reward" },
-  { id: "tron", image: "/sponsor/tron.png", zh: "TRON · TRC10 / TRC20", en: "TRON · TRC10 / TRC20" },
+  { id: "tron", image: "/sponsor/tron.png", zh: "USDT (TRC20)", en: "USDT (TRC20)" },
 ] as const;
 const CREATOR_LINKS = [
   { id: "website", icon: "globe", label: "appmiao.com", url: "https://www.appmiao.com" },

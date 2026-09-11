@@ -314,7 +314,7 @@ html[data-theme="dark"] .settings-sidebar nav button.active { color: #18211c; }
 .sponsor-hero small { max-width: 620px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .sponsor-grid { padding: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .sponsor-method { min-width: 0; margin: 0; }
-.sponsor-method > div { aspect-ratio: 4 / 5.15; overflow: hidden; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.sponsor-method > div { aspect-ratio: 3 / 4.25; overflow: hidden; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .sponsor-method img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .sponsor-method figcaption { padding: 8px 3px 1px; overflow: hidden; color: var(--muted); font-size: 9px; font-weight: 650; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .creator-links { min-height: 68px; padding: 14px 16px; display: flex; align-items: center; justify-content: center; gap: 9px; }
