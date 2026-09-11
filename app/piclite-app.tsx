@@ -262,6 +262,7 @@ type ImageItem = {
   fileHandle?: FileHandleLike;
   sourcePath?: string;
   sourceIsThumbnail?: boolean;
+  thumbnailUrl?: string;
 };
 
 type WatermarkSettings = {
@@ -1635,6 +1636,8 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
     // Keep the full source bytes after the first read. Subsequent slider and
     // watermark changes can then re-encode immediately without reopening the
     // same file through the native bridge every time.
+    item.thumbnailUrl = item.sourceUrl;
+    item.sourceUrl = URL.createObjectURL(file);
     item.file = file;
     item.sourceIsThumbnail = false;
     return compressImage(item, settings, nativeBridge);
@@ -2403,11 +2406,12 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setSettings((current) => ({ ...current, scale, resize: false }));
   }, [selected]);
   const galleryPreview = useMemo(() => galleryItems.find((item) => item.id === galleryPreviewId) || null, [galleryItems, galleryPreviewId]);
-  const totals = useMemo(() => {
-    const original = items.reduce((sum, item) => sum + item.originalBytes, 0);
-    const output = items.reduce((sum, item) => sum + (item.outputBytes ?? item.originalBytes), 0);
-    return { original, output, saved: savedPercent(original, output) };
-  }, [items]);
+  const selectedMetrics = useMemo(() => {
+    const original = selected?.originalBytes || 0;
+    const hasOutput = selected?.outputBytes != null;
+    const output = hasOutput ? selected.outputBytes! : original;
+    return { original, output, hasOutput, saved: savedPercent(original, output) };
+  }, [selected]);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -2735,6 +2739,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   useEffect(() => () => {
     itemsRef.current.forEach((item) => {
       URL.revokeObjectURL(item.sourceUrl);
+      if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
       if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
     });
   }, []);
@@ -2791,6 +2796,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
               return {
                 ...candidate,
+                file: item.file,
+                sourceUrl: item.sourceUrl,
+                sourceIsThumbnail: item.sourceIsThumbnail,
+                thumbnailUrl: item.thumbnailUrl,
                 outputBlob: result.blob,
                 outputUrl,
                 outputBytes: result.blob.size,
@@ -2805,7 +2814,15 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             }));
           } catch (error) {
             if (job.generation !== livePreviewGenerationRef.current) continue;
-            setItems((current) => current.map((candidate) => candidate.id === job.id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("预览失败", "Preview failed") } : candidate));
+            setItems((current) => current.map((candidate) => candidate.id === job.id ? {
+              ...candidate,
+              file: item.file,
+              sourceUrl: item.sourceUrl,
+              sourceIsThumbnail: item.sourceIsThumbnail,
+              thumbnailUrl: item.thumbnailUrl,
+              status: "error",
+              error: error instanceof Error ? error.message : t("预览失败", "Preview failed"),
+            } : candidate));
           }
         }
       } finally {
@@ -3197,6 +3214,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     const item = items.find((candidate) => candidate.id === id);
     if (item) {
       URL.revokeObjectURL(item.sourceUrl);
+      if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
       if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
     }
     const remaining = items.filter((candidate) => candidate.id !== id);
@@ -3207,6 +3225,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const clearAll = useCallback(() => {
     items.forEach((item) => {
       URL.revokeObjectURL(item.sourceUrl);
+      if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
       if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
     });
     setItems([]);
@@ -3863,10 +3882,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="result-strip">
-              <div><span>{t("原始体积", "Original")}</span><strong>{formatBytes(totals.original)}</strong></div>
+              <div><span>{t("当前原图", "Selected original")}</span><strong>{formatBytes(selectedMetrics.original)}</strong></div>
               <span className="result-arrow">→</span>
-              <div><span>{t("当前实时结果", "Result")}</span><strong>{items.some((item) => item.outputBytes) ? formatBytes(totals.output) : "—"}</strong></div>
-              <div className={`savings-pill ${totals.saved < 0 ? "larger" : ""}`}><span>{totals.saved < 0 ? t("体积增加", "Larger") : t("共节省", "Saved")}</span><strong>{sizeChangeLabel(totals.original, totals.output)}</strong></div>
+              <div><span>{t("当前实时结果", "Selected result")}</span><strong>{selectedMetrics.hasOutput ? formatBytes(selectedMetrics.output) : "—"}</strong></div>
+              <div className={`savings-pill ${selectedMetrics.saved < 0 ? "larger" : ""}`}><span>{selectedMetrics.saved < 0 ? t("体积增加", "Larger") : t("节省", "Saved")}</span><strong>{selectedMetrics.hasOutput ? sizeChangeLabel(selectedMetrics.original, selectedMetrics.output) : "—"}</strong></div>
               <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting} onClick={exportSelected} />
               <button className="export-button" type="button" disabled={!items.length || exporting} onClick={exportAll}><span>↓</span> {exporting ? t("正在导出", "Exporting") : t("导出全部", "Export all")}</button>
             </div>
