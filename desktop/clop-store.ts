@@ -2,6 +2,7 @@ import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, Op
 
 const SETTINGS_KEY = "piclite.desktop.clop-settings.v1";
 const MAIN_DESKTOP_PREFERENCES_KEY = "piclite.desktopPreferences.v1";
+const WINDOWS_CLIPBOARD_REPAIR_KEY = "piclite.windows-clipboard-repair.v1.8.3";
 const SETTINGS_EVENT = "piclite:settings-changed";
 
 export const DEFAULT_SETTINGS: DesktopSettings = {
@@ -97,6 +98,19 @@ function userFacingPath(value: string) {
   return value;
 }
 
+function repairWindowsClipboardPreference(
+  parsed: Partial<DesktopSettings>,
+  mainPreferences: Record<string, unknown>,
+  current: boolean,
+) {
+  if (typeof navigator === "undefined" || !/windows|win32|win64/i.test(`${navigator.userAgent} ${navigator.platform}`)) return current;
+  if (localStorage.getItem(WINDOWS_CLIPBOARD_REPAIR_KEY)) return current;
+  localStorage.setItem(WINDOWS_CLIPBOARD_REPAIR_KEY, "1");
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...parsed, clipboardOptimiser: true }));
+  localStorage.setItem(MAIN_DESKTOP_PREFERENCES_KEY, JSON.stringify({ ...mainPreferences, clipboardWatcherEnabled: true }));
+  return true;
+}
+
 export function loadSettings(): DesktopSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Partial<DesktopSettings>;
@@ -104,6 +118,11 @@ export function loadSettings(): DesktopSettings {
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
     if (!validFormat(preset.format)) preset.format = "keep";
+    const clipboardOptimiser = repairWindowsClipboardPreference(
+      parsed,
+      mainPreferences as Record<string, unknown>,
+      typeof parsed.clipboardOptimiser === "boolean" ? parsed.clipboardOptimiser : mainPreferences.clipboardWatcherEnabled ?? DEFAULT_SETTINGS.clipboardOptimiser,
+    );
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -114,7 +133,7 @@ export function loadSettings(): DesktopSettings {
       // The dedicated desktop settings key was the original source of truth.
       // Prefer it while migrating older installs whose main-window key still
       // contains the former false default, then save both keys in sync below.
-      clipboardOptimiser: typeof parsed.clipboardOptimiser === "boolean" ? parsed.clipboardOptimiser : mainPreferences.clipboardWatcherEnabled ?? DEFAULT_SETTINGS.clipboardOptimiser,
+      clipboardOptimiser,
       updateCheckFrequency: validUpdateCheckFrequency(mainPreferences.updateCheckFrequency)
         ? mainPreferences.updateCheckFrequency
         : validUpdateCheckFrequency(parsed.updateCheckFrequency)

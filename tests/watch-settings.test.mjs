@@ -17,3 +17,27 @@ test('legacy watch folders migrate with independent rules and explicit empty pro
   saveSettings({ ...migrated, watchProfiles: [] });
   assert.deepEqual(loadSettings().watchProfiles, []);
 });
+
+test('Windows clipboard repair re-enables old disabled monitor settings once', () => {
+  values.clear();
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', platform: 'Win32' },
+  });
+  try {
+    values.set('piclite.desktop.clop-settings.v1', JSON.stringify({ clipboardOptimiser: false }));
+    values.set('piclite.desktopPreferences.v1', JSON.stringify({ clipboardWatcherEnabled: false }));
+    assert.equal(loadSettings().clipboardOptimiser, true);
+    assert.equal(JSON.parse(values.get('piclite.desktop.clop-settings.v1')).clipboardOptimiser, true);
+    assert.equal(JSON.parse(values.get('piclite.desktopPreferences.v1')).clipboardWatcherEnabled, true);
+
+    const manuallyDisabled = JSON.parse(values.get('piclite.desktop.clop-settings.v1'));
+    manuallyDisabled.clipboardOptimiser = false;
+    values.set('piclite.desktop.clop-settings.v1', JSON.stringify(manuallyDisabled));
+    assert.equal(loadSettings().clipboardOptimiser, false);
+  } finally {
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+    else delete globalThis.navigator;
+  }
+});

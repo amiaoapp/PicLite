@@ -1928,7 +1928,11 @@ fn optimize_image_data(
             let output_extension = extension_for(Path::new("image.png"), &settings.format);
             // An explicitly requested lossless format remains truly lossless.
             // The high-quality cross-format preset above applies only to AUTO.
-            let explicit_quality = if settings.mode == "lossless" { 100 } else { quality };
+            let explicit_quality = if settings.mode == "lossless" {
+                100
+            } else {
+                quality
+            };
             return Ok(OptimizedImage {
                 bytes: encode_static_ref(&resized, &output_extension, explicit_quality)?,
                 extension: output_extension,
@@ -3453,13 +3457,182 @@ async fn select_image_folder_entries(
 }
 
 fn clipboard_image() -> Result<Option<ClipboardImage>, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
-    let image = match clipboard.get_image() {
-        Ok(image) => image,
-        Err(arboard::Error::ContentNotAvailable) => return Ok(None),
-        Err(error) => return Err(error.to_string()),
+    clipboard_bitmap()?
+        .as_ref()
+        .map(encode_clipboard_bitmap)
+        .transpose()
+}
+
+fn clipboard_bitmap() -> Result<Option<arboard::ImageData<'static>>, String> {
+    let arboard_result = arboard::Clipboard::new()
+        .map_err(|error| error.to_string())
+        .and_then(|mut clipboard| match clipboard.get_image() {
+            Ok(image) => Ok(Some(image.to_owned_img())),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        });
+
+    #[cfg(target_os = "windows")]
+    {
+        match arboard_result {
+            Ok(Some(image)) => Ok(Some(image)),
+            Ok(None) => windows_clipboard_dib_image(),
+            Err(primary_error) => match windows_clipboard_dib_image() {
+                Ok(Some(image)) => Ok(Some(image)),
+                Ok(None) => Err(primary_error),
+                Err(fallback_error) => Err(format!(
+                    "无法读取 Windows 剪贴板图片：{primary_error}；{fallback_error}"
+                )),
+            },
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    arboard_result
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn read_le_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    bytes
+        .get(offset..offset + 2)
+        .and_then(|value| value.try_into().ok())
+        .map(u16::from_le_bytes)
+        .ok_or_else(|| "Windows DIB 位图头不完整".to_string())
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn read_le_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    bytes
+        .get(offset..offset + 4)
+        .and_then(|value| value.try_into().ok())
+        .map(u32::from_le_bytes)
+        .ok_or_else(|| "Windows DIB 位图头不完整".to_string())
+}
+
+/// Windows screenshot tools commonly publish CF_DIB instead of the newer
+/// CF_DIBV5/PNG formats supported by arboard. A DIB is a BMP without the
+/// 14-byte file header, so prepend that header before decoding it with image.
+#[cfg(any(target_os = "windows", test))]
+fn dib_to_bmp_bytes(dib: &[u8]) -> Result<Vec<u8>, String> {
+    let header_size = read_le_u32(dib, 0)? as usize;
+    if header_size < 12 || header_size > dib.len() {
+        return Err("Windows DIB 位图头无效".to_string());
+    }
+
+    let pixel_offset = if header_size == 12 {
+        let bit_count = read_le_u16(dib, 10)? as usize;
+        let palette_entries = if bit_count <= 8 {
+            1usize << bit_count
+        } else {
+            0
+        };
+        header_size
+            .checked_add(palette_entries.saturating_mul(3))
+            .ok_or_else(|| "Windows DIB 调色板无效".to_string())?
+    } else {
+        if header_size < 40 {
+            return Err("不支持该 Windows DIB 位图头".to_string());
+        }
+        let bit_count = read_le_u16(dib, 14)? as usize;
+        let compression = read_le_u32(dib, 16)?;
+        let colors_used = read_le_u32(dib, 32)? as usize;
+        let palette_entries = if colors_used > 0 {
+            colors_used
+        } else if bit_count <= 8 {
+            1usize << bit_count
+        } else {
+            0
+        };
+        let external_masks = if header_size == 40 {
+            match compression {
+                3 => 12,
+                6 => 16,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+        header_size
+            .checked_add(external_masks)
+            .and_then(|value| value.checked_add(palette_entries.saturating_mul(4)))
+            .ok_or_else(|| "Windows DIB 像素偏移无效".to_string())?
     };
-    encode_clipboard_bitmap(&image).map(Some)
+    if pixel_offset > dib.len() {
+        return Err("Windows DIB 像素数据不完整".to_string());
+    }
+
+    let file_size = 14usize
+        .checked_add(dib.len())
+        .ok_or_else(|| "Windows DIB 数据过大".to_string())?;
+    let bmp_pixel_offset = 14usize
+        .checked_add(pixel_offset)
+        .ok_or_else(|| "Windows DIB 像素偏移无效".to_string())?;
+    let mut bmp = Vec::with_capacity(file_size);
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+    bmp.extend_from_slice(&[0; 4]);
+    bmp.extend_from_slice(&(bmp_pixel_offset as u32).to_le_bytes());
+    bmp.extend_from_slice(dib);
+    Ok(bmp)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_clipboard_dib_image() -> Result<Option<arboard::ImageData<'static>>, String> {
+    use windows_sys::Win32::System::{
+        DataExchange::{
+            CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+        },
+        Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+        Ole::{CF_DIB, CF_DIBV5},
+    };
+
+    let format = [CF_DIBV5, CF_DIB]
+        .into_iter()
+        .find(|format| unsafe { IsClipboardFormatAvailable(*format as u32) } != 0);
+    let Some(format) = format else {
+        return Ok(None);
+    };
+
+    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
+        return Err("Windows 剪贴板暂时被占用".to_string());
+    }
+    struct ClipboardGuard;
+    impl Drop for ClipboardGuard {
+        fn drop(&mut self) {
+            unsafe {
+                CloseClipboard();
+            }
+        }
+    }
+    let _guard = ClipboardGuard;
+
+    let handle = unsafe { GetClipboardData(format as u32) };
+    if handle.is_null() {
+        return Err("Windows 剪贴板没有返回位图数据".to_string());
+    }
+    let size = unsafe { GlobalSize(handle) };
+    if size == 0 {
+        return Err("Windows 剪贴板位图为空".to_string());
+    }
+    let pointer = unsafe { GlobalLock(handle) };
+    if pointer.is_null() {
+        return Err("Windows 剪贴板位图暂时不可读".to_string());
+    }
+    let dib = unsafe { std::slice::from_raw_parts(pointer.cast::<u8>(), size) }.to_vec();
+    unsafe {
+        GlobalUnlock(handle);
+    }
+
+    let bmp = dib_to_bmp_bytes(&dib)?;
+    let rgba = image::load_from_memory_with_format(&bmp, image::ImageFormat::Bmp)
+        .map_err(|error| format!("无法解码 Windows 剪贴板位图：{error}"))?
+        .to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(Some(arboard::ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: Cow::Owned(rgba.into_raw()),
+    }))
 }
 
 /// Encode clipboard pixels only after the monitor has established that the
@@ -3505,6 +3678,21 @@ fn clipboard_bitmap_fingerprint(image: &arboard::ImageData<'_>) -> String {
         }
     }
     format!("{:x}", digest.finalize())
+}
+
+fn clipboard_payload_is_new(
+    was_enabled: bool,
+    deliver_initial: bool,
+    change_token: Option<u64>,
+    last_change_token: Option<u64>,
+    fingerprint_changed: bool,
+) -> bool {
+    if !was_enabled {
+        return deliver_initial;
+    }
+    change_token
+        .map(|token| last_change_token != Some(token))
+        .unwrap_or(fingerprint_changed)
 }
 
 /// Return the operating system's cheap clipboard generation counter where it
@@ -5609,9 +5797,10 @@ fn start_clipboard_monitor(app: AppHandle) {
                 was_enabled = false;
                 last_fingerprint = None;
                 last_change_token = None;
-                // Monitoring is disabled: wake infrequently just to observe a
-                // settings change. This thread otherwise consumes no CPU.
-                thread::sleep(Duration::from_millis(1500));
+                // Observe a startup preference sync quickly. A long disabled
+                // sleep could make the first Windows screenshot become the
+                // baseline and disappear before monitoring woke up.
+                thread::sleep(Duration::from_millis(200));
                 continue;
             }
 
@@ -5638,39 +5827,43 @@ fn start_clipboard_monitor(app: AppHandle) {
                     } else {
                         let fingerprint = format!("paths:{}", paths.join("\u{1f}"));
                         let ignored = ignore_until_ms > now_ms().min(u64::MAX as u128) as u64;
-                        if !was_enabled {
-                            last_fingerprint = Some(fingerprint);
-                            was_enabled = true;
-                        } else if last_fingerprint.as_deref() != Some(fingerprint.as_str()) {
-                            last_fingerprint = Some(fingerprint);
-                            if !ignored {
-                                deliver_clipboard_paths(&app, paths);
-                            }
+                        let fingerprint_changed =
+                            last_fingerprint.as_deref() != Some(fingerprint.as_str());
+                        let should_deliver = clipboard_payload_is_new(
+                            was_enabled,
+                            cfg!(target_os = "windows"),
+                            change_token,
+                            last_change_token,
+                            fingerprint_changed,
+                        );
+                        last_fingerprint = Some(fingerprint);
+                        was_enabled = true;
+                        if should_deliver && !ignored {
+                            deliver_clipboard_paths(&app, paths);
                         }
                     }
                     true
                 }
                 Ok(None) => {
-                    let bitmap = arboard::Clipboard::new()
-                        .map_err(|error| error.to_string())
-                        .and_then(|mut clipboard| match clipboard.get_image() {
-                            Ok(image) => Ok(Some(image.to_owned_img())),
-                            Err(arboard::Error::ContentNotAvailable) => Ok(None),
-                            Err(error) => Err(error.to_string()),
-                        });
+                    let bitmap = clipboard_bitmap();
                     match bitmap {
                         Ok(Some(image)) => {
                             let fingerprint = clipboard_bitmap_fingerprint(&image);
                             let ignored = ignore_until_ms > now_ms().min(u64::MAX as u128) as u64;
-                            if !was_enabled {
-                                last_fingerprint = Some(fingerprint);
-                                was_enabled = true;
-                            } else if last_fingerprint.as_deref() != Some(fingerprint.as_str()) {
-                                last_fingerprint = Some(fingerprint);
-                                if !ignored {
-                                    if let Ok(encoded) = encode_clipboard_bitmap(&image) {
-                                        deliver_clipboard_image(&app, encoded);
-                                    }
+                            let fingerprint_changed =
+                                last_fingerprint.as_deref() != Some(fingerprint.as_str());
+                            let should_deliver = clipboard_payload_is_new(
+                                was_enabled,
+                                cfg!(target_os = "windows"),
+                                change_token,
+                                last_change_token,
+                                fingerprint_changed,
+                            );
+                            last_fingerprint = Some(fingerprint);
+                            was_enabled = true;
+                            if should_deliver && !ignored {
+                                if let Ok(encoded) = encode_clipboard_bitmap(&image) {
+                                    deliver_clipboard_image(&app, encoded);
                                 }
                             }
                             true
@@ -7053,6 +7246,52 @@ mod tests {
             clipboard_bitmap_fingerprint(&original),
             clipboard_bitmap_fingerprint(&changed)
         );
+    }
+
+    #[test]
+    fn windows_dib_header_is_converted_to_a_decodable_bmp() {
+        // Two 24-bit pixels (red, green) stored bottom-up with DWORD padding.
+        let mut dib = Vec::new();
+        dib.extend_from_slice(&40u32.to_le_bytes());
+        dib.extend_from_slice(&2i32.to_le_bytes());
+        dib.extend_from_slice(&1i32.to_le_bytes());
+        dib.extend_from_slice(&1u16.to_le_bytes());
+        dib.extend_from_slice(&24u16.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&8u32.to_le_bytes());
+        dib.extend_from_slice(&0i32.to_le_bytes());
+        dib.extend_from_slice(&0i32.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&[0, 0, 255, 0, 255, 0, 0, 0]);
+        let bmp = dib_to_bmp_bytes(&dib).unwrap();
+        assert_eq!(&bmp[..2], b"BM");
+        let decoded = image::load_from_memory_with_format(&bmp, image::ImageFormat::Bmp)
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(decoded.dimensions(), (2, 1));
+        assert_eq!(decoded.get_pixel(0, 0).0, [255, 0, 0]);
+        assert_eq!(decoded.get_pixel(1, 0).0, [0, 255, 0]);
+    }
+
+    #[test]
+    fn clipboard_sequence_change_delivers_identical_and_initial_windows_images() {
+        assert!(clipboard_payload_is_new(false, true, Some(11), None, true));
+        assert!(clipboard_payload_is_new(
+            true,
+            false,
+            Some(12),
+            Some(11),
+            false
+        ));
+        assert!(!clipboard_payload_is_new(
+            true,
+            false,
+            Some(12),
+            Some(12),
+            true
+        ));
+        assert!(clipboard_payload_is_new(true, false, None, None, true));
     }
 
     #[test]

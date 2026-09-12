@@ -699,11 +699,11 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
     const stored = saved ? JSON.parse(saved) as Partial<DesktopPreferences> : {};
     let clipboardWatcherEnabled = stored.clipboardWatcherEnabled ?? DEFAULT_DESKTOP_PREFERENCES.clipboardWatcherEnabled;
     try {
-      const desktop = JSON.parse(window.localStorage.getItem("piclite.desktop.clop-settings.v1") || "{}") as { clipboardOptimiser?: boolean };
+      const desktop = loadDesktopSettings();
       // Older builds saved a false main-window default beside the actual
       // enabled desktop optimiser. Prefer that dedicated setting during the
       // migration so startup does not silently disable clipboard monitoring.
-      if (typeof desktop.clipboardOptimiser === "boolean") clipboardWatcherEnabled = desktop.clipboardOptimiser;
+      clipboardWatcherEnabled = desktop.clipboardOptimiser;
     } catch { /* keep the main-window value when the old desktop key is malformed */ }
     const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled } as DesktopPreferences & { dockLayout?: string };
     // 0.11 之前的“桌宠”偏好自动迁移到紧凑压缩坞。

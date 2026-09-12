@@ -1,6 +1,6 @@
 [package]
 name = "piclite"
-version = "1.8.2"
+version = "1.8.3"
 description = "PicLite local-first image compressor"
 authors = ["PicLite contributors"]
 edition = "2021"
@@ -19,7 +19,7 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 color_quant = "1.1"
 hmac = "0.12"
-image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 notify = "8.2"
 percent-encoding = "2.3"
 png = "0.18.1"
@@ -44,7 +44,7 @@ webp = "0.3.1"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_DataExchange"] }
+windows-sys = { version = "0.61", features = ["Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
 
 [profile.release]
 panic = "abort"
