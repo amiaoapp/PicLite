@@ -1,13 +1,13 @@
 export type SmartCompressionMode = "balanced" | "small";
 
 /**
- * The output-format selector is an explicit constraint. Smart optimisation may
- * explore quality and scale, but it must not silently turn "keep" into WebP.
- * Keeping this rule in a small pure helper also prevents platform-specific
- * encoders from drifting into different batch-export behaviour.
+ * In smart modes, "keep" means prefer the source container while also measuring
+ * WebP. Explicit JPEG/PNG/WebP choices remain hard output constraints.
  */
 export function smartCandidateOutputFormats<T extends string>(requestedFormat: T): T[] {
-  return [requestedFormat];
+  return requestedFormat === "keep"
+    ? [requestedFormat, "image/webp" as T]
+    : [requestedFormat];
 }
 
 export function isRequestedMimeType(actualType: string, requestedType: string) {

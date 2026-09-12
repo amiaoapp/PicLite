@@ -463,14 +463,25 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     setDragging(event.type === "over");
     if (event.type === "drop" && event.paths?.length) void optimise(event.paths);
   }), [api, optimise]);
-  useEffect(() => api.onClipboardPaths((paths) => {
+  const handleClipboardPaths = useCallback((paths: string[]) => {
     if (!settings.clipboardOptimiser || !settings.clipboardImageFiles || settings.pauseAutomaticOptimisations) return;
     void api.showDropzoneWindow().then(() => optimise(paths));
-  }), [api, optimise, settings.clipboardImageFiles, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
-  useEffect(() => api.onClipboardImage((data) => {
+  }, [api, optimise, settings.clipboardImageFiles, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
+  const handleClipboardImage = useCallback((data: Uint8Array) => {
     if (!settings.clipboardOptimiser || !settings.clipboardImageData || settings.pauseAutomaticOptimisations) return;
     void api.cacheImageData(data, `clipboard-${Date.now()}.png`).then((path) => api.showDropzoneWindow().then(() => optimise([path])));
-  }), [api, optimise, settings.clipboardImageData, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
+  }, [api, optimise, settings.clipboardImageData, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
+  useEffect(() => api.onClipboardPaths(handleClipboardPaths), [api, handleClipboardPaths]);
+  useEffect(() => api.onClipboardImage(handleClipboardImage), [api, handleClipboardImage]);
+  useEffect(() => {
+    let disposed = false;
+    void api.takePendingClipboard().then((pending) => {
+      if (disposed || !pending) return;
+      if (pending.kind === "paths") handleClipboardPaths(pending.paths);
+      else handleClipboardImage(pending.data);
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [api, handleClipboardImage, handleClipboardPaths]);
   useEffect(() => api.onWatcherEvent((event) => {
     if (event.type !== "success" || !event.file || !event.output) return;
     const item: ResultItem = {

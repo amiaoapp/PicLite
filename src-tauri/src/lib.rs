@@ -69,6 +69,9 @@ struct DesktopState {
     folders: Mutex<SelectedFolders>,
     source_files: Mutex<HashSet<PathBuf>>,
     pending_corner_drop: Mutex<Vec<String>>,
+    /// Clipboard content that created the lazy floating window. Keeping the
+    /// first payload here avoids losing it while WebView2 mounts its listeners.
+    pending_clipboard: Mutex<Option<PendingClipboard>>,
     processing: Arc<Mutex<HashSet<PathBuf>>>,
     quitting: AtomicBool,
     tray_available: AtomicBool,
@@ -93,6 +96,7 @@ impl Default for DesktopState {
             folders: Mutex::new(SelectedFolders::default()),
             source_files: Mutex::new(HashSet::new()),
             pending_corner_drop: Mutex::new(Vec::new()),
+            pending_clipboard: Mutex::new(None),
             processing: Arc::new(Mutex::new(HashSet::new())),
             quitting: AtomicBool::new(false),
             tray_available: AtomicBool::new(false),
@@ -376,6 +380,13 @@ struct ImageImportProgress {
 #[derive(Clone, Serialize)]
 struct ClipboardImage {
     data: String,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum PendingClipboard {
+    Paths { paths: Vec<String> },
+    Image { data: String },
 }
 
 #[derive(Clone, Serialize)]
@@ -1698,29 +1709,12 @@ fn encode_static_ref(
                     .clamp(64.0, 256.0) as usize;
                 let quantizer = color_quant::NeuQuant::new(10, colors, rgba.as_raw());
                 let color_map = quantizer.color_map_rgba();
-                // Error-diffusion dithering can form regular diagonal worms on
-                // long, smooth gradients. A small tiled stochastic perturbation
-                // breaks those bands without introducing a visible directional
-                // pattern, while keeping the indexed PNG compact.
-                let strength =
-                    (((100_u16 - quality.clamp(1, 99) as u16) + 5) / 6).clamp(2, 12) as i16;
                 let mut indices = Vec::with_capacity((rgba.width() * rgba.height()) as usize);
-                for (position, pixel) in rgba.pixels().enumerate() {
-                    let x = position as u32 % rgba.width();
-                    let y = position as u32 / rgba.width();
-                    let mut adjusted = pixel.0;
-                    for (channel, value) in adjusted[..3].iter_mut().enumerate() {
-                        let mut hash = (x & 63)
-                            .wrapping_mul(374_761_393)
-                            .wrapping_add((y & 63).wrapping_mul(668_265_263))
-                            .wrapping_add((channel as u32).wrapping_mul(2_246_822_519));
-                        hash = (hash ^ (hash >> 13)).wrapping_mul(1_274_126_177);
-                        hash ^= hash >> 16;
-                        let triangular = (hash & 255) as i16 - ((hash >> 8) & 255) as i16;
-                        let offset = triangular * strength / 255;
-                        *value = (*value as i16 + offset).clamp(0, 255) as u8;
-                    }
-                    indices.push(quantizer.index_of(&adjusted) as u8);
+                for pixel in rgba.pixels() {
+                    // Per-pixel noise made flat artwork much harder for
+                    // DEFLATE to compress. Direct palette mapping is faster,
+                    // keeps flat colours stable, and produces smaller PNGs.
+                    indices.push(quantizer.index_of(&pixel.0) as u8);
                 }
                 let mut palette = Vec::with_capacity(colors * 3);
                 let mut transparency = Vec::with_capacity(colors);
@@ -1905,49 +1899,84 @@ fn optimize_image_data(
 
     let decoded = decode_static_oriented(&original)?;
     let (width, height) = decoded.dimensions();
-    if settings.mode == "auto" {
+    if matches!(
+        settings.mode.as_str(),
+        "auto" | "lossless" | "balanced" | "small"
+    ) {
+        // The original "super compression" behaviour came from measuring real
+        // JPEG, WebP and PNG encodes, rather than blindly re-encoding the source
+        // container. Keep that useful behaviour while decoding and resizing only
+        // once, then run the independent encoders in parallel.
+        let quality = match settings.mode.as_str() {
+            "auto" => settings.quality.clamp(78, 90),
+            // "Lossless priority" is a perceptual high-quality preset. A strict
+            // pixel-lossless re-encode commonly saves 0 bytes and is not useful
+            // as the product's first compression option.
+            "lossless" => settings.quality.clamp(88, 92),
+            "balanced" => settings.quality.clamp(72, 82),
+            "small" => settings.quality.clamp(1, 48),
+            _ => unreachable!(),
+        };
         let (target_width, target_height) = target_dimensions(width, height, settings);
         let resized = if target_width != width || target_height != height {
             decoded.resize_exact(target_width, target_height, FilterType::Lanczos3)
         } else {
             decoded
         };
-        let quality = settings.quality.clamp(78, 90);
 
         if settings.format != "keep" {
             let output_extension = extension_for(Path::new("image.png"), &settings.format);
+            // An explicitly requested lossless format remains truly lossless.
+            // The high-quality cross-format preset above applies only to AUTO.
+            let explicit_quality = if settings.mode == "lossless" { 100 } else { quality };
             return Ok(OptimizedImage {
-                bytes: encode_static(resized, &output_extension, quality)?,
+                bytes: encode_static_ref(&resized, &output_extension, explicit_quality)?,
                 extension: output_extension,
             });
         }
 
-        // AUTO keeps a single decode in memory and measures each useful static
-        // output format at the same high-quality setting. JPEG is omitted only
-        // when it would destroy real transparency.
         let has_transparency = resized.color().has_alpha()
             && resized.to_rgba8().pixels().any(|pixel| pixel.0[3] < 255);
-        let formats = if has_transparency {
+        let source_format = match source_extension.as_str() {
+            "jpeg" | "jfif" => "jpg",
+            other => other,
+        };
+        let mut formats = Vec::with_capacity(3);
+        if matches!(source_format, "jpg" | "png" | "webp")
+            && !(has_transparency && source_format == "jpg")
+        {
+            formats.push(source_format);
+        }
+        for format in if has_transparency {
             &["webp", "png"][..]
         } else {
             &["webp", "jpg", "png"][..]
+        } {
+            if !formats.contains(format) {
+                formats.push(format);
+            }
+        }
+
+        let encode_candidate = |extension: &str| {
+            // PNG has no perceptual quality control. In the high-quality preset
+            // retain its true-colour pixels; WebP/JPEG still provide the useful
+            // visually-lossless size reduction users expect from this option.
+            let candidate_quality = if settings.mode == "lossless" && extension == "png" {
+                100
+            } else {
+                quality
+            };
+            encode_static_ref(&resized, extension, candidate_quality).map(|bytes| OptimizedImage {
+                bytes,
+                extension: extension.to_string(),
+            })
         };
         let pixel_count = u64::from(resized.width()) * u64::from(resized.height());
         let candidates = if pixel_count <= 24_000_000 && formats.len() > 1 {
             thread::scope(|scope| -> Result<Vec<OptimizedImage>, String> {
-                let image = &resized;
                 let handles = formats
                     .iter()
-                    .map(|&extension| {
-                        scope.spawn(move || {
-                            encode_static_ref(image, extension, quality).map(|bytes| {
-                                OptimizedImage {
-                                    bytes,
-                                    extension: extension.to_string(),
-                                }
-                            })
-                        })
-                    })
+                    .map(|extension| scope.spawn(|| encode_candidate(extension)))
                     .collect::<Vec<_>>();
                 handles
                     .into_iter()
@@ -1961,58 +1990,26 @@ fn optimize_image_data(
         } else {
             formats
                 .iter()
-                .map(|&extension| {
-                    encode_static_ref(&resized, extension, quality).map(|bytes| OptimizedImage {
-                        bytes,
-                        extension: extension.to_string(),
-                    })
-                })
+                .map(|extension| encode_candidate(extension))
                 .collect::<Result<Vec<_>, _>>()?
         };
         let best = candidates
             .into_iter()
             .min_by_key(|candidate| candidate.bytes.len())
             .ok_or_else(|| "没有生成可用的智能优化结果".to_string())?;
-        if !has_meaningful_savings(original.len(), best.bytes.len()) {
+        let worthwhile = if settings.mode == "auto" {
+            has_meaningful_savings(original.len(), best.bytes.len())
+        } else {
+            best.bytes.len() < original.len()
+        };
+        let visual_transform = target_width != width || target_height != height;
+        if settings.prevent_larger && !worthwhile && !visual_transform {
             return Ok(OptimizedImage {
                 bytes: original,
                 extension: source_extension,
             });
         }
         return Ok(best);
-    }
-
-    if matches!(settings.mode.as_str(), "balanced" | "small") {
-        // Presets already define their quality and scale. A single measured
-        // encode keeps imports and slider previews responsive; the explicit
-        // target-size feature owns the bounded multi-pass search.
-        let output_extension = if settings.format == "keep" {
-            source_extension.clone()
-        } else {
-            extension_for(Path::new("image.png"), &settings.format)
-        };
-        let quality = if settings.mode == "balanced" {
-            settings.quality.clamp(78, 88)
-        } else {
-            settings.quality.clamp(1, 58)
-        };
-        let (target_width, target_height) = target_dimensions(width, height, settings);
-        let resized = if target_width != width || target_height != height {
-            decoded.resize_exact(target_width, target_height, FilterType::Lanczos3)
-        } else {
-            decoded
-        };
-        let candidate = encode_static(resized, &output_extension, quality)?;
-        if settings.prevent_larger && !has_meaningful_savings(original.len(), candidate.len()) {
-            return Ok(OptimizedImage {
-                bytes: original,
-                extension: source_extension,
-            });
-        }
-        return Ok(OptimizedImage {
-            bytes: candidate,
-            extension: output_extension,
-        });
     }
 
     let (target_width, target_height) = target_dimensions(width, height, settings);
@@ -2026,24 +2023,7 @@ fn optimize_image_data(
     } else {
         extension_for(Path::new("image.png"), &settings.format)
     };
-    let encode_quality = if settings.mode == "lossless" {
-        100
-    } else {
-        settings.quality
-    };
-    if settings.mode == "lossless"
-        && settings.format == "keep"
-        && target_width == width
-        && target_height == height
-        && matches!(source_extension.as_str(), "jpg" | "jpeg" | "jfif")
-    {
-        // JPEG cannot be re-encoded losslessly. Keeping its original bytes is
-        // the only honest implementation of the lossless preset.
-        return Ok(OptimizedImage {
-            bytes: original,
-            extension: source_extension,
-        });
-    }
+    let encode_quality = settings.quality;
     let candidate = encode_static(resized.clone(), &output_extension, encode_quality)?;
     let visual_transform =
         target_width != width || target_height != height || settings.format != "keep";
@@ -2445,11 +2425,7 @@ fn quick_settings(value: &QuickCompressSettings) -> WatcherSettings {
         output_folder: String::new(),
         output_suffix: value.export_suffix.clone(),
         rename_template: value.rename_template.clone(),
-        quality: if mode == "lossless" {
-            100
-        } else {
-            value.quality.clamp(1, 100)
-        },
+        quality: value.quality.clamp(1, 100),
         mode,
         scale: value.scale.clamp(0.1, 100.0),
         format: value.format.clone(),
@@ -3110,6 +3086,17 @@ async fn take_pending_corner_drop(state: State<'_, DesktopState>) -> Result<Vec<
 }
 
 #[tauri::command]
+async fn take_pending_clipboard(
+    state: State<'_, DesktopState>,
+) -> Result<Option<PendingClipboard>, String> {
+    Ok(state
+        .pending_clipboard
+        .lock()
+        .map_err(|_| "剪贴板待处理状态不可用".to_string())?
+        .take())
+}
+
+#[tauri::command]
 async fn show_preferences_window(app: AppHandle, section: Option<String>) -> Result<(), String> {
     ensure_preferences_window(&app)?;
     if let Some(section) = section.filter(|value| {
@@ -3535,7 +3522,10 @@ fn clipboard_change_token() -> Option<u64> {
 fn clipboard_change_token() -> Option<u64> {
     // SAFETY: GetClipboardSequenceNumber has no parameters and only reads the
     // system-maintained clipboard counter.
-    Some(unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() } as u64)
+    let token = unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() };
+    // Zero means Windows could not supply a sequence number. Falling back to
+    // the bounded pixel fingerprint keeps monitoring functional in that case.
+    (token != 0).then_some(token as u64)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -5576,6 +5566,28 @@ async fn open_external_url(url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())?
 }
 
+fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>) {
+    if app.get_webview_window("dropzone").is_none() {
+        if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
+            *pending = Some(PendingClipboard::Paths { paths });
+        }
+        let _ = ensure_dropzone_window(app);
+    } else {
+        let _ = app.emit("clipboard:paths", paths);
+    }
+}
+
+fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage) {
+    if app.get_webview_window("dropzone").is_none() {
+        if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
+            *pending = Some(PendingClipboard::Image { data: image.data });
+        }
+        let _ = ensure_dropzone_window(app);
+    } else {
+        let _ = app.emit("clipboard:image", image);
+    }
+}
+
 fn start_clipboard_monitor(app: AppHandle) {
     thread::spawn(move || {
         let mut was_enabled = false;
@@ -5607,15 +5619,15 @@ fn start_clipboard_monitor(app: AppHandle) {
             // when clipboard contents change. Previously every pass decoded
             // and PNG-compressed the same bitmap; for a large screenshot that
             // alone could sustain 20–30% CPU usage.
-            if let Some(change_token) = clipboard_change_token() {
+            let change_token = clipboard_change_token();
+            if let Some(change_token) = change_token {
                 if was_enabled && last_change_token == Some(change_token) {
                     thread::sleep(Duration::from_millis(650));
                     continue;
                 }
-                last_change_token = Some(change_token);
             }
 
-            match clipboard_file_image_paths() {
+            let observed = match clipboard_file_image_paths() {
                 Ok(Some(paths)) => {
                     // A copied document may expose both a file path and its
                     // Finder/Explorer thumbnail as a bitmap. A file-list takes
@@ -5632,18 +5644,11 @@ fn start_clipboard_monitor(app: AppHandle) {
                         } else if last_fingerprint.as_deref() != Some(fingerprint.as_str()) {
                             last_fingerprint = Some(fingerprint);
                             if !ignored {
-                                // The floating renderer is intentionally lazy
-                                // to keep idle memory low. Create it on the
-                                // first real clipboard event, then give its
-                                // event listeners a moment to mount before
-                                // delivering the payload.
-                                if ensure_dropzone_window(&app).unwrap_or(false) {
-                                    thread::sleep(Duration::from_millis(250));
-                                }
-                                let _ = app.emit("clipboard:paths", paths);
+                                deliver_clipboard_paths(&app, paths);
                             }
                         }
                     }
+                    true
                 }
                 Ok(None) => {
                     let bitmap = arboard::Clipboard::new()
@@ -5664,22 +5669,27 @@ fn start_clipboard_monitor(app: AppHandle) {
                                 last_fingerprint = Some(fingerprint);
                                 if !ignored {
                                     if let Ok(encoded) = encode_clipboard_bitmap(&image) {
-                                        if ensure_dropzone_window(&app).unwrap_or(false) {
-                                            thread::sleep(Duration::from_millis(250));
-                                        }
-                                        let _ = app.emit("clipboard:image", encoded);
+                                        deliver_clipboard_image(&app, encoded);
                                     }
                                 }
                             }
+                            true
                         }
                         Ok(None) => {
                             was_enabled = true;
                             last_fingerprint = None;
+                            true
                         }
-                        Err(_) => {}
+                        Err(_) => false,
                     }
                 }
-                Err(_) => {}
+                Err(_) => false,
+            };
+            // Windows can hold the clipboard lock briefly after a copy. Do not
+            // consume the sequence number until the payload was read, so the
+            // next poll retries instead of losing that clipboard change.
+            if observed {
+                last_change_token = change_token;
             }
             // A lightweight counter check at this cadence feels immediate to
             // users without continuously waking the expensive image path.
@@ -5831,6 +5841,7 @@ pub fn run() {
             show_gallery_window,
             submit_corner_drop,
             take_pending_corner_drop,
+            take_pending_clipboard,
             show_preferences_window,
             show_dropzone_window,
             configure_dropzone_window,
@@ -6052,6 +6063,156 @@ mod tests {
     }
 
     #[test]
+    fn keep_format_presets_get_progressively_smaller_for_static_formats() {
+        let pixels = image::RgbImage::from_fn(320, 180, |x, y| {
+            let texture = ((x * 17 + y * 31 + (x * y) % 251) % 256) as u8;
+            image::Rgb([
+                texture,
+                texture.wrapping_add((x % 83) as u8),
+                texture.wrapping_add((y % 67) as u8),
+            ])
+        });
+        let source = DynamicImage::ImageRgb8(pixels);
+        let settings = |mode: &str, quality: u8, scale: f64| WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
+            show_floating_result: false,
+            input_folder: String::new(),
+            input_folders: Vec::new(),
+            output_folder: String::new(),
+            output_suffix: String::new(),
+            rename_template: String::new(),
+            mode: mode.to_string(),
+            quality,
+            scale,
+            format: "keep".to_string(),
+            resize: false,
+            max_width: u32::MAX,
+            max_height: u32::MAX,
+            strip_metadata: true,
+            prevent_larger: true,
+        };
+
+        for extension in ["jpg", "png", "webp"] {
+            // Starting with an already encoded 82%-quality file reproduces the
+            // regression where the first balanced pass matched or grew and the
+            // guard incorrectly reported 0% for every preset.
+            let original = encode_static_ref(&source, extension, 82).expect("encode source");
+            let lossless = optimize_image_data(
+                original.clone(),
+                extension.to_string(),
+                &settings("lossless", 100, 100.0),
+            )
+            .expect("lossless preset");
+            let balanced = optimize_image_data(
+                original.clone(),
+                extension.to_string(),
+                &settings("balanced", 82, 100.0),
+            )
+            .expect("balanced preset");
+            let small = optimize_image_data(
+                original,
+                extension.to_string(),
+                &settings("small", 45, 75.0),
+            )
+            .expect("small preset");
+            let balanced_dimensions = image::load_from_memory(&balanced.bytes)
+                .expect("decode balanced")
+                .dimensions();
+            let small_dimensions = image::load_from_memory(&small.bytes)
+                .expect("decode small")
+                .dimensions();
+
+            assert!(
+                balanced.bytes.len() < lossless.bytes.len(),
+                "{extension}: balanced {} should be smaller than lossless {}",
+                balanced.bytes.len(),
+                lossless.bytes.len()
+            );
+            assert!(
+                small.bytes.len() < balanced.bytes.len(),
+                "{extension}: small {} should be smaller than balanced {}",
+                small.bytes.len(),
+                balanced.bytes.len()
+            );
+            assert!(balanced_dimensions.0 <= 320 && balanced_dimensions.1 <= 180);
+            assert!(small_dimensions.0 <= 240 && small_dimensions.1 <= 135);
+        }
+    }
+
+    #[test]
+    fn real_product_artwork_uses_the_super_compression_ladder() {
+        let original = include_bytes!("../../public/og.png").to_vec();
+        let settings = |mode: &str, quality: u8, scale: f64| WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
+            show_floating_result: false,
+            input_folder: String::new(),
+            input_folders: Vec::new(),
+            output_folder: String::new(),
+            output_suffix: String::new(),
+            rename_template: String::new(),
+            mode: mode.to_string(),
+            quality,
+            scale,
+            format: "keep".to_string(),
+            resize: false,
+            max_width: u32::MAX,
+            max_height: u32::MAX,
+            strip_metadata: true,
+            prevent_larger: true,
+        };
+        let lossless = optimize_image_data(
+            original.clone(),
+            "png".to_string(),
+            &settings("lossless", 92, 100.0),
+        )
+        .expect("high-quality optimisation");
+        let balanced = optimize_image_data(
+            original.clone(),
+            "png".to_string(),
+            &settings("balanced", 82, 100.0),
+        )
+        .expect("balanced optimisation");
+        let small = optimize_image_data(
+            original.clone(),
+            "png".to_string(),
+            &settings("small", 45, 75.0),
+        )
+        .expect("small optimisation");
+
+        eprintln!(
+            "real artwork: original={} lossless={}({}) balanced={}({}) small={}({})",
+            original.len(),
+            lossless.bytes.len(),
+            lossless.extension,
+            balanced.bytes.len(),
+            balanced.extension,
+            small.bytes.len(),
+            small.extension,
+        );
+        assert!(lossless.bytes.len() < original.len());
+        assert!(balanced.bytes.len() < lossless.bytes.len());
+        assert!(small.bytes.len() < balanced.bytes.len());
+        assert_eq!(
+            image::load_from_memory(&lossless.bytes)
+                .expect("decode high-quality output")
+                .dimensions(),
+            (1731, 909)
+        );
+        assert_eq!(
+            image::load_from_memory(&balanced.bytes)
+                .expect("decode balanced output")
+                .dimensions(),
+            (1731, 909)
+        );
+    }
+
+    #[test]
     fn automatic_quick_settings_preserve_mode_and_explicit_format() {
         let quick = QuickCompressSettings {
             mode: "auto".to_string(),
@@ -6141,10 +6302,10 @@ mod tests {
     }
 
     #[test]
-    fn lossless_quick_settings_discard_stale_lossy_quality() {
+    fn lossless_priority_keeps_its_requested_high_quality_setting() {
         let quick = QuickCompressSettings {
             mode: "lossless".to_string(),
-            quality: 31,
+            quality: 92,
             scale: 100.0,
             format: "keep".to_string(),
             strip_metadata: true,
@@ -6157,12 +6318,12 @@ mod tests {
 
         let settings = quick_settings(&quick);
         assert_eq!(settings.mode, "lossless");
-        assert_eq!(settings.quality, 100);
+        assert_eq!(settings.quality, 92);
         assert_eq!(settings.scale, 100.0);
     }
 
     #[test]
-    fn lossless_keep_jpeg_preserves_original_bytes() {
+    fn lossless_priority_reduces_a_high_quality_jpeg_without_resizing() {
         let pixels = image::RgbImage::from_fn(128, 96, |x, y| {
             image::Rgb([
                 ((x * 5 + y) % 256) as u8,
@@ -6171,7 +6332,7 @@ mod tests {
             ])
         });
         let original =
-            encode_static(DynamicImage::ImageRgb8(pixels), "jpg", 44).expect("encode JPEG");
+            encode_static(DynamicImage::ImageRgb8(pixels), "jpg", 100).expect("encode JPEG");
         let settings = WatcherSettings {
             profiles: Vec::new(),
             folder_rename: None,
@@ -6184,7 +6345,7 @@ mod tests {
             output_suffix: String::new(),
             rename_template: String::new(),
             mode: "lossless".to_string(),
-            quality: 22,
+            quality: 92,
             scale: 100.0,
             format: "keep".to_string(),
             resize: false,
@@ -6195,9 +6356,14 @@ mod tests {
         };
 
         let optimized = optimize_image_data(original.clone(), "jpg".to_string(), &settings)
-            .expect("keep JPEG losslessly");
-        assert_eq!(optimized.extension, "jpg");
-        assert_eq!(optimized.bytes, original);
+            .expect("optimise JPEG at visually high quality");
+        assert!(optimized.bytes.len() < original.len());
+        assert_eq!(
+            image::load_from_memory(&optimized.bytes)
+                .expect("decode optimised JPEG")
+                .dimensions(),
+            (128, 96)
+        );
     }
 
     #[test]
@@ -6621,7 +6787,7 @@ mod tests {
     }
 
     #[test]
-    fn lossless_jpeg_resize_does_not_silently_lower_encoding_quality() {
+    fn lossless_priority_honours_an_explicit_resize() {
         let mut pixels = image::RgbImage::new(640, 360);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
             *pixel = image::Rgb([
@@ -6661,20 +6827,12 @@ mod tests {
         };
 
         let optimized = optimize_bytes(&path, &settings).expect("optimize jpeg");
-        let decoded = image::load_from_memory(&original).expect("decode source jpeg");
-        let expected = encode_static(
-            decoded.resize_exact(480, 270, FilterType::Lanczos3),
-            "jpg",
-            100,
-        )
-        .expect("encode expected quality-100 jpeg");
         let dimensions = image::load_from_memory(&optimized)
             .expect("decode optimized jpeg")
             .dimensions();
         let _ = fs::remove_file(&path);
 
         assert_eq!(dimensions, (480, 270));
-        assert_eq!(optimized, expected);
     }
 
     #[test]

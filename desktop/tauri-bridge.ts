@@ -58,6 +58,10 @@ if ("__TAURI_INTERNALS__" in window) {
       return result ? { data: decodeBase64(result.data) } : null;
     },
     readClipboardPaths: () => invoke<string[]>("read_clipboard_paths"),
+    takePendingClipboard: async () => {
+      const result = await invoke<{ kind: "paths"; paths: string[] } | { kind: "image"; data: string } | null>("take_pending_clipboard");
+      return result?.kind === "image" ? { kind: "image" as const, data: decodeBase64(result.data) } : result;
+    },
     copyImageData: (data) => invoke("copy_image_data", { data: Array.from(data) }),
     copyCompressedData: (data, fileName) => invoke("copy_compressed_data", { data: Array.from(data), fileName }),
     cacheImageData: (data, fileName) => invoke("cache_image_data", { data: Array.from(data), fileName }),
@@ -209,7 +213,10 @@ if ("__TAURI_INTERNALS__" in window) {
     onImageImportProgress: (callback) => {
       let unlisten: (() => void) | undefined;
       let disposed = false;
-      void listen<{ current: number; total: number }>("image-import:progress", (event) => callback(event.payload)).then((stop) => {
+      void listen<{ current: number; total: number }>("image-import:progress", (event) => {
+        const progress = event.payload;
+        callback(progress.total > 0 && progress.current >= progress.total ? null : progress);
+      }).then((stop) => {
         if (disposed) stop();
         else unlisten = stop;
       });
@@ -288,6 +295,7 @@ if ("__TAURI_INTERNALS__" in window) {
     windowLabel: label,
     readClipboardImage: async () => null,
     readClipboardPaths: async () => [],
+    takePendingClipboard: async () => null,
     copyImageData: noop,
     copyCompressedData: async (_data, fileName) => `/preview/${fileName}`,
     cacheImageData: async (_data, fileName) => `/preview/${fileName}`,

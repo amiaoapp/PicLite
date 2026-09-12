@@ -73,7 +73,7 @@ Create a `.env` file in the project directory to change the bind address, host p
 ```dotenv
 PICLITE_BIND=0.0.0.0
 PICLITE_PORT=3456
-PICLITE_TAG=1.6.1
+PICLITE_TAG=1.8.2
 ```
 
 To build from the current source tree instead:

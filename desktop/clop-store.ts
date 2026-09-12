@@ -100,7 +100,7 @@ function userFacingPath(value: string) {
 export function loadSettings(): DesktopSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Partial<DesktopSettings>;
-    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
+    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
     if (!validFormat(preset.format)) preset.format = "keep";
@@ -111,6 +111,10 @@ export function loadSettings(): DesktopSettings {
       colorTheme: validColorTheme(mainPreferences.colorTheme) ? mainPreferences.colorTheme : validColorTheme(parsed.colorTheme) ? parsed.colorTheme : DEFAULT_SETTINGS.colorTheme,
       showInTaskbarDock: typeof mainPreferences.showInTaskbarDock === "boolean" ? mainPreferences.showInTaskbarDock : parsed.showInTaskbarDock ?? DEFAULT_SETTINGS.showInTaskbarDock,
       allowFloatingCapture: typeof mainPreferences.allowFloatingCapture === "boolean" ? mainPreferences.allowFloatingCapture : parsed.allowFloatingCapture ?? DEFAULT_SETTINGS.allowFloatingCapture,
+      // The dedicated desktop settings key was the original source of truth.
+      // Prefer it while migrating older installs whose main-window key still
+      // contains the former false default, then save both keys in sync below.
+      clipboardOptimiser: typeof parsed.clipboardOptimiser === "boolean" ? parsed.clipboardOptimiser : mainPreferences.clipboardWatcherEnabled ?? DEFAULT_SETTINGS.clipboardOptimiser,
       updateCheckFrequency: validUpdateCheckFrequency(mainPreferences.updateCheckFrequency)
         ? mainPreferences.updateCheckFrequency
         : validUpdateCheckFrequency(parsed.updateCheckFrequency)
@@ -157,6 +161,7 @@ export function saveSettings(settings: DesktopSettings) {
       updateCheckFrequency: settings.updateCheckFrequency,
       showInTaskbarDock: settings.showInTaskbarDock,
       allowFloatingCapture: settings.allowFloatingCapture,
+      clipboardWatcherEnabled: settings.clipboardOptimiser,
       shortcutsEnabled: settings.shortcutsEnabled,
       shortcutDock: settings.shortcutToggleDropzone,
       shortcutPaste: settings.shortcutOptimiseClipboard,

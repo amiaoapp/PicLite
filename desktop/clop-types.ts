@@ -209,6 +209,7 @@ export type PicLiteBridge = {
   windowLabel: string;
   readClipboardImage: () => Promise<{ data: Uint8Array } | null>;
   readClipboardPaths: () => Promise<string[]>;
+  takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | { kind: "image"; data: Uint8Array } | null>;
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;
   cacheImageData: (data: Uint8Array, fileName: string) => Promise<string>;
@@ -255,7 +256,7 @@ export type PicLiteBridge = {
   quitApplication: () => Promise<void>;
   onFileDrop: (callback: (event: { type: "over" | "drop" | "leave" | "error"; paths?: string[]; error?: string }) => void) => () => void;
   onTrayAction: (callback: (action: string) => void) => () => void;
-  onImageImportProgress: (callback: (progress: { current: number; total: number }) => void) => () => void;
+  onImageImportProgress: (callback: (progress: { current: number; total: number } | null) => void) => () => void;
   onClipboardImage: (callback: (data: Uint8Array) => void) => () => void;
   onClipboardPaths: (callback: (paths: string[]) => void) => () => void;
   onWatcherEvent: (callback: (event: { type: string; message?: string; file?: string; output?: string; originalBytes?: number; outputBytes?: number; time: number }) => void) => () => void;

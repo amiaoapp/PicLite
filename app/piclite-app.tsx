@@ -15,7 +15,7 @@ import {
 } from "react";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
-import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes } from "./compression-policy";
+import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
 import packageManifest from "../package.json";
 import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 
@@ -164,6 +164,7 @@ type NativeBridge = {
   windowLabel: string;
   readClipboardImage: () => Promise<{ data: Uint8Array } | null>;
   readClipboardPaths: () => Promise<string[]>;
+  takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | { kind: "image"; data: Uint8Array } | null>;
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;
   cacheImageData: (data: Uint8Array, fileName: string) => Promise<string>;
@@ -220,7 +221,7 @@ type NativeBridge = {
   onFileDrop: (callback: (event: { type: "over" | "drop" | "leave" | "error"; paths?: string[]; error?: string }) => void) => () => void;
   onCornerDrop: (callback: () => void) => () => void;
   onTrayAction: (callback: (action: string) => void) => () => void;
-  onImageImportProgress: (callback: (progress: { current: number; total: number }) => void) => () => void;
+  onImageImportProgress: (callback: (progress: { current: number; total: number } | null) => void) => () => void;
   onWatcherEvent: (callback: (event: WatcherEvent) => void) => () => void;
   onClipboardImage: (callback: (data: Uint8Array) => void) => () => void;
   onClipboardPaths: (callback: (paths: string[]) => void) => () => void;
@@ -615,7 +616,7 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
 
 const DEFAULT_SETTINGS: CompressionSettings = {
   mode: "lossless",
-  quality: 100,
+  quality: 92,
   scale: 100,
   targetSizeKb: 0,
   format: "keep",
@@ -671,7 +672,7 @@ const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
   shortcutUpload: "CommandOrControl+Alt+U",
   dockLayout: "compact",
   floatingResultSeconds: 10,
-  clipboardWatcherEnabled: false,
+  clipboardWatcherEnabled: true,
   autoCheckUpdates: true,
   updateCheckFrequency: "startup",
   language: "zh",
@@ -695,8 +696,16 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
   if (typeof window === "undefined") return DEFAULT_DESKTOP_PREFERENCES;
   try {
     const saved = window.localStorage.getItem("piclite.desktopPreferences.v1");
-    if (!saved) return DEFAULT_DESKTOP_PREFERENCES;
-    const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...JSON.parse(saved) } as DesktopPreferences & { dockLayout?: string };
+    const stored = saved ? JSON.parse(saved) as Partial<DesktopPreferences> : {};
+    let clipboardWatcherEnabled = stored.clipboardWatcherEnabled ?? DEFAULT_DESKTOP_PREFERENCES.clipboardWatcherEnabled;
+    try {
+      const desktop = JSON.parse(window.localStorage.getItem("piclite.desktop.clop-settings.v1") || "{}") as { clipboardOptimiser?: boolean };
+      // Older builds saved a false main-window default beside the actual
+      // enabled desktop optimiser. Prefer that dedicated setting during the
+      // migration so startup does not silently disable clipboard monitoring.
+      if (typeof desktop.clipboardOptimiser === "boolean") clipboardWatcherEnabled = desktop.clipboardOptimiser;
+    } catch { /* keep the main-window value when the old desktop key is malformed */ }
+    const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled } as DesktopPreferences & { dockLayout?: string };
     // 0.11 之前的“桌宠”偏好自动迁移到紧凑压缩坞。
     const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green"].includes(preferences.colorTheme)
       ? preferences.colorTheme
@@ -769,7 +778,7 @@ function presetSettings(mode: CompressionMode, quality: number, scale = 100): Co
 }
 
 const BUILT_IN_PRESETS: SavedPreset[] = [
-  { id: "lossless", name: "无损优先", settings: presetSettings("lossless", 100) },
+  { id: "lossless", name: "无损优先", settings: presetSettings("lossless", 92) },
   { id: "balanced", name: "智能平衡", settings: presetSettings("balanced", 82) },
   { id: "small", name: "更小体积", settings: presetSettings("small", 45, 75) },
 ];
@@ -802,7 +811,7 @@ const DEFAULT_WATCHER_SETTINGS: WatcherSettings = {
   inputFolders: [],
   outputFolder: "",
   mode: "lossless",
-  quality: 100,
+  quality: 92,
   scale: 100,
   format: "keep",
   resize: false,
@@ -1422,11 +1431,21 @@ async function encodeIndexedPng(context: CanvasRenderingContext2D, width: number
 type CompressionResult = { blob: Blob; width: number; height: number; keptOriginal?: boolean; sizeGuardQuality?: number; strategy?: string };
 
 function smartCandidates(item: ImageItem, settings: CompressionSettings) {
-  void item;
-  // Live preview must stay interactive. Presets already carry their intended
-  // quality and scale, so one real encode is enough; target-size mode performs
-  // its own bounded search when the user explicitly asks for a byte limit.
-  return [settings];
+  if (settings.mode === "manual" || settings.format !== "keep" || item.type === "image/gif" || hasWatermark(settings.watermark)) return [settings];
+
+  // Desktop uses native JPEG/WebP/PNG encoders in parallel. The browser path
+  // mirrors the important part of that policy with the source format and WebP,
+  // which preserves transparency and avoids the old 6–27 pass delay.
+  const quality = settings.mode === "lossless"
+    ? Math.min(settings.quality, 92)
+    : settings.mode === "balanced"
+      ? Math.min(settings.quality, 82)
+      : Math.min(settings.quality, 48);
+  return smartCandidateOutputFormats<OutputFormat>(settings.format).map((format) => ({
+    ...settings,
+    quality,
+    format,
+  }));
 }
 
 function strategyLabel(settings: CompressionSettings) {
@@ -3076,20 +3095,26 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     showToast(t(`已移除 ${ids.length} 条图库记录，本地文件不受影响`, `Removed ${ids.length} library entries; local files were not changed`));
   }, [galleryCheckedIds, galleryDeleteScope, galleryItems, showToast, t]);
 
-  const prepareItemsForExport = useCallback(async (sourceItems: ImageItem[]) => {
+  const prepareItemsForExport = useCallback(async (sourceItems: ImageItem[], preserveSourceFormat = false) => {
     const prepared: Array<{ item: ImageItem; blob: Blob }> = [];
     for (const item of sourceItems) {
-      // Re-encode stale results produced by older builds when the explicit
-      // "Keep original" choice was ignored by Smart Balance. This export-time
-      // guard also makes batch behaviour deterministic across Windows/macOS.
-      const cachedFormatMatches = settings.format !== "keep"
+      // Overwriting a source file must preserve its container. Other export
+      // modes keep the measured cross-format result and use its real extension.
+      const cachedFormatMatches = !preserveSourceFormat
         || outputExtension(item.outputBlob?.type || item.outputType || item.type, item.name) === outputExtension(item.type, item.name);
       if (item.outputBlob && cachedFormatMatches) {
         prepared.push({ item, blob: item.outputBlob });
         continue;
       }
       setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "processing", error: undefined } : candidate));
-      const result = await compressImage(item, settings, nativeBridge);
+      const sourceType = item.type === "image/jpg" || item.type === "image/jfif" ? "image/jpeg" : item.type;
+      const sourceFormat = (["image/jpeg", "image/png", "image/webp"] as string[]).includes(sourceType)
+        ? sourceType as OutputFormat
+        : "keep";
+      const exportSettings = preserveSourceFormat
+        ? { ...settings, mode: "manual" as const, format: sourceFormat }
+        : settings;
+      const result = await compressImage(item, exportSettings, nativeBridge);
       const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
       const completed = { ...item, outputBlob: result.blob, outputUrl, outputBytes: result.blob.size, outputType: result.blob.type || item.type, outputWidth: result.width, outputHeight: result.height, keptOriginal: result.keptOriginal, sizeGuardQuality: result.sizeGuardQuality, strategy: result.strategy, status: "done" as const };
       setItems((current) => current.map((candidate) => {
@@ -3154,7 +3179,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (!nativeBridge && (effectiveExportMode === "same-folder" || effectiveExportMode === "fixed-folder") && !exportDirectoryRef.current && !(await chooseExportFolder())) return;
       if (nativeBridge && effectiveExportMode === "fixed-folder" && !exportFolderName && !(await chooseExportFolder())) return;
 
-      const prepared = await prepareItemsForExport(requestedItems);
+      const prepared = await prepareItemsForExport(requestedItems, effectiveExportMode === "overwrite");
       const suffix = cleanSuffix(exportSuffix);
       if (effectiveExportMode === "download") {
         prepared.forEach(({ item, blob }, index) => window.setTimeout(() => downloadItem(item, blob), index * 160));
@@ -3907,7 +3932,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <label className="setting-label">{t("快速方案", "Quick modes")}</label>
               <div className="mode-grid">
                 {([
-                  ["lossless", 100, t("无损优先", "Lossless"), "100%", "◌"],
+                  ["lossless", 92, t("无损优先", "Lossless priority"), t("肉眼高质量", "Visually high quality"), "◌"],
                   ["balanced", 82, t("智能平衡", "Smart balance"), t("快速实测", "Fast measured pass"), "◐"],
                   ["small", 45, t("更小体积", "Smaller files"), t("快速压缩", "Fast compression"), "●"],
                 ] as const).map(([value, quality, label, note, icon]) => (
@@ -3952,9 +3977,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className={`live-size-card ${selected?.status === "processing" ? "calculating" : ""}`}>
                 <span><i /> {t("实时试压结果", "Live result")}</span>
                 <strong>{selected?.status === "processing" ? t("计算中…", "Calculating…") : selected?.outputBytes ? formatBytes(selected.outputBytes) : t("导入图片后显示", "Shown after import")}</strong>
-                <small>{selected?.outputBytes ? selected.keptOriginal ? settings.mode === "lossless" ? t("无损重编码没有减小体积，已保留原文件；预览与导出均使用原图", "Lossless re-encoding was not smaller, so the original is used for both preview and export") : selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
+                <small>{selected?.outputBytes ? selected.keptOriginal ? settings.mode === "lossless" ? t("高画质候选没有减小体积，已保留原文件", "High-quality candidates were not smaller, so the original was kept") : selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
               </div>
-              <p className="setting-hint"><i /> {t("智能平衡按当前格式快速实测一次，避免导入和调参时反复等待。PNG 在 100% 时保持真彩无损，低于 100% 时通过调色板减色压缩；JPG / WebP 调整编码质量，GIF 调整每帧色板。", "Smart balance runs one measured encode in the current format so imports and adjustments stay responsive. PNG is true-colour lossless at 100%; below 100% it uses palette reduction. JPG/WebP use encoding quality and GIF adjusts its frame palette.")}</p>
+              <p className="setting-hint"><i /> {t("三档预设会并行实测原格式、WebP、JPG 和 PNG，并采用体积最小的有效结果；透明图片会自动跳过 JPG。无损优先使用肉眼高质量参数，智能平衡保持原尺寸，更小体积会同时降低画质和尺寸。", "The three presets measure the source format, WebP, JPEG and PNG in parallel and use the smallest valid result; JPEG is skipped for transparent images. Lossless priority uses visually high-quality settings, Smart balance keeps the original dimensions, and Smaller files reduces both quality and dimensions.")}</p>
             </div>
 
             <div className="setting-section target-size-section">
@@ -3996,7 +4021,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <label className="setting-label" htmlFor="output-format">{t("输出格式", "Output format")}</label>
               <div className="select-wrap">
                 <select id="output-format" value={settings.format} onChange={(event) => setSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}>
-                  <option value="keep">{t("保持原格式", "Keep original")}</option>
+                  <option value="keep">{settings.mode === "manual" ? t("保持原格式", "Keep original") : t("智能择优格式", "Auto-select best format")}</option>
                   <option value="image/jpeg">{t("JPG · 适合照片", "JPG · photos")}</option>
                   <option value="image/png">{t("PNG · 透明 / 100% 无损", "PNG · alpha / lossless at 100%")}</option>
                   <option value="image/webp">{t("WebP · 适合网页", "WebP · web")}</option>
@@ -4096,10 +4121,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <label className="watcher-task-name"><span>{t("任务名称", "Task name")}</span><input type="text" value={watchProfileName} maxLength={40} disabled={!nativeBridge} placeholder={watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("例如：桌面截图", "For example: Desktop screenshots")} onChange={(event) => setWatchProfileName(event.target.value)} /></label>
               <label><span>{t("压缩方案", "Optimisation mode")}</span><select value={watcherSettings.mode} disabled={!nativeBridge} onChange={(event) => {
                 const mode = event.target.value as CompressionMode;
-                const quality = mode === "lossless" ? 100 : mode === "balanced" ? 82 : 45;
+                const quality = mode === "lossless" ? 92 : mode === "balanced" ? 82 : 45;
                 setWatcherSettings((current) => ({ ...current, mode, quality }));
               }}><option value="lossless">{t("无损优先", "Lossless")}</option><option value="balanced">{t("智能平衡", "Smart balance")}</option><option value="small">{t("更小体积", "Smaller files")}</option></select></label>
-              <label><span>{t("输出格式", "Output format")}</span><select value={watcherSettings.format} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}><option value="keep">{t("保持原格式", "Keep original")}</option><option value="image/jpeg">JPG / JFIF</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select></label>
+              <label><span>{t("输出格式", "Output format")}</span><select value={watcherSettings.format} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}><option value="keep">{watcherSettings.mode === "manual" ? t("保持原格式", "Keep original") : t("智能择优格式", "Auto-select best format")}</option><option value="image/jpeg">JPG / JFIF</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select></label>
               <label className="watcher-range"><span>{t("画质", "Quality")} <b>{watcherSettings.quality}%</b></span><input type="range" min="1" max="100" step="1" value={watcherSettings.quality} disabled={!nativeBridge} onChange={(event) => {
                 const quality = Number(event.target.value);
                 setWatcherSettings((current) => ({ ...current, quality, mode: modeFromQuality(quality) }));
