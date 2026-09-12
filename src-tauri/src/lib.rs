@@ -1600,8 +1600,9 @@ fn optimize_gif_animation(
         });
     }
 
-    if settings.format == "keep" && matches!(settings.mode.as_str(), "balanced" | "small") {
-        let quality = if settings.mode == "balanced" {
+    if settings.format == "keep" && matches!(settings.mode.as_str(), "auto" | "balanced" | "small")
+    {
+        let quality = if matches!(settings.mode.as_str(), "auto" | "balanced") {
             settings.quality.clamp(78, 88)
         } else {
             settings.quality.min(58).max(1)
@@ -1653,8 +1654,8 @@ fn optimize_gif_animation(
     })
 }
 
-fn encode_static(
-    image: DynamicImage,
+fn encode_static_ref(
+    image: &DynamicImage,
     output_extension: &str,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
@@ -1766,6 +1767,14 @@ fn encode_static(
         _ => return Err(format!("自动监测暂不支持编码 .{output_extension}")),
     }
     Ok(encoded)
+}
+
+fn encode_static(
+    image: DynamicImage,
+    output_extension: &str,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
+    encode_static_ref(&image, output_extension, quality)
 }
 
 struct OptimizedImage {
@@ -1896,6 +1905,83 @@ fn optimize_image_data(
 
     let decoded = decode_static_oriented(&original)?;
     let (width, height) = decoded.dimensions();
+    if settings.mode == "auto" {
+        let (target_width, target_height) = target_dimensions(width, height, settings);
+        let resized = if target_width != width || target_height != height {
+            decoded.resize_exact(target_width, target_height, FilterType::Lanczos3)
+        } else {
+            decoded
+        };
+        let quality = settings.quality.clamp(78, 90);
+
+        if settings.format != "keep" {
+            let output_extension = extension_for(Path::new("image.png"), &settings.format);
+            return Ok(OptimizedImage {
+                bytes: encode_static(resized, &output_extension, quality)?,
+                extension: output_extension,
+            });
+        }
+
+        // AUTO keeps a single decode in memory and measures each useful static
+        // output format at the same high-quality setting. JPEG is omitted only
+        // when it would destroy real transparency.
+        let has_transparency = resized.color().has_alpha()
+            && resized.to_rgba8().pixels().any(|pixel| pixel.0[3] < 255);
+        let formats = if has_transparency {
+            &["webp", "png"][..]
+        } else {
+            &["webp", "jpg", "png"][..]
+        };
+        let pixel_count = u64::from(resized.width()) * u64::from(resized.height());
+        let candidates = if pixel_count <= 24_000_000 && formats.len() > 1 {
+            thread::scope(|scope| -> Result<Vec<OptimizedImage>, String> {
+                let image = &resized;
+                let handles = formats
+                    .iter()
+                    .map(|&extension| {
+                        scope.spawn(move || {
+                            encode_static_ref(image, extension, quality).map(|bytes| {
+                                OptimizedImage {
+                                    bytes,
+                                    extension: extension.to_string(),
+                                }
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        handle
+                            .join()
+                            .map_err(|_| "智能优化编码线程异常退出".to_string())?
+                    })
+                    .collect()
+            })?
+        } else {
+            formats
+                .iter()
+                .map(|&extension| {
+                    encode_static_ref(&resized, extension, quality).map(|bytes| OptimizedImage {
+                        bytes,
+                        extension: extension.to_string(),
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let best = candidates
+            .into_iter()
+            .min_by_key(|candidate| candidate.bytes.len())
+            .ok_or_else(|| "没有生成可用的智能优化结果".to_string())?;
+        if !has_meaningful_savings(original.len(), best.bytes.len()) {
+            return Ok(OptimizedImage {
+                bytes: original,
+                extension: source_extension,
+            });
+        }
+        return Ok(best);
+    }
+
     if matches!(settings.mode.as_str(), "balanced" | "small") {
         // Presets already define their quality and scale. A single measured
         // encode keeps imports and slider previews responsive; the explicit
@@ -2345,8 +2431,7 @@ fn quick_settings(value: &QuickCompressSettings) -> WatcherSettings {
         "small"
     };
     let mode = match value.mode.as_str() {
-        "auto" => "balanced".to_string(),
-        "balanced" | "small" | "lossless" | "manual" => value.mode.clone(),
+        "auto" | "balanced" | "small" | "lossless" | "manual" => value.mode.clone(),
         _ => inferred_mode.to_string(),
     };
     WatcherSettings {
@@ -5469,14 +5554,22 @@ fn open_url(url: &str) -> Result<(), String> {
         .ok_or_else(|| "系统没有成功打开浏览器".to_string())
 }
 
+fn allowed_external_url(parsed: &Url) -> bool {
+    let host = parsed.host_str().unwrap_or_default();
+    parsed.scheme() == "https"
+        && match host {
+            "github.com" => parsed.path().starts_with("/amiaoapp/PicLite"),
+            "appmiao.com" | "www.appmiao.com" | "space.bilibili.com" | "v.douyin.com"
+            | "youtube.com" | "www.youtube.com" | "x.com" | "www.x.com" | "t.me" => true,
+            _ => false,
+        }
+}
+
 #[tauri::command]
 async fn open_external_url(url: String) -> Result<(), String> {
     let parsed = Url::parse(&url).map_err(|_| "链接格式无效".to_string())?;
-    if parsed.scheme() != "https"
-        || parsed.host_str() != Some("github.com")
-        || !parsed.path().starts_with("/amiaoapp/PicLite")
-    {
-        return Err("只允许打开 PicLite 的 GitHub 页面".to_string());
+    if !allowed_external_url(&parsed) {
+        return Err("该外部链接不在 PicLite 的允许列表中".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || open_url(&url))
         .await
@@ -5844,7 +5937,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_first_pass_keeps_dimensions_and_source_format() {
+    fn automatic_first_pass_measures_all_opaque_formats() {
         let mut pixels = image::RgbImage::new(640, 360);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
             let noise = ((x * 17 + y * 31 + (x * y) % 251) % 256) as u8;
@@ -5854,8 +5947,19 @@ mod tests {
                 noise.wrapping_add((y % 71) as u8),
             ]);
         }
-        let original =
-            encode_static(DynamicImage::ImageRgb8(pixels), "png", 100).expect("encode source png");
+        let source_image = DynamicImage::ImageRgb8(pixels);
+        let original = encode_static(source_image.clone(), "png", 100).expect("encode source png");
+        let expected = ["jpg", "webp", "png"]
+            .into_iter()
+            .map(|extension| {
+                (
+                    extension,
+                    encode_static_ref(&source_image, extension, 86)
+                        .expect("encode automatic candidate"),
+                )
+            })
+            .min_by_key(|(_, bytes)| bytes.len())
+            .expect("automatic candidate");
         let path = std::env::temp_dir().join(format!(
             "piclite-auto-first-pass-{}-{}.png",
             std::process::id(),
@@ -5873,7 +5977,7 @@ mod tests {
             output_folder: String::new(),
             output_suffix: String::new(),
             rename_template: String::new(),
-            mode: "balanced".to_string(),
+            mode: "auto".to_string(),
             quality: 86,
             scale: 100.0,
             format: "keep".to_string(),
@@ -5892,8 +5996,52 @@ mod tests {
 
         assert_eq!(dimensions, (640, 360));
         assert!(optimized.bytes.len() < original.len());
-        assert_eq!(optimized.extension, "png");
-        assert_eq!(&optimized.bytes[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(optimized.extension, expected.0);
+        assert_eq!(optimized.bytes.len(), expected.1.len());
+    }
+
+    #[test]
+    fn automatic_first_pass_preserves_transparency() {
+        let pixels = image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([
+                (x * 3) as u8,
+                (y * 3) as u8,
+                ((x + y) * 2) as u8,
+                if (x + y) % 4 == 0 { 80 } else { 255 },
+            ])
+        });
+        let original = encode_static(DynamicImage::ImageRgba8(pixels), "png", 100)
+            .expect("encode transparent PNG");
+        let settings = WatcherSettings {
+            profiles: Vec::new(),
+            folder_rename: None,
+            only_when_needed: false,
+            notify_on_complete: true,
+            show_floating_result: false,
+            input_folder: String::new(),
+            input_folders: Vec::new(),
+            output_folder: String::new(),
+            output_suffix: String::new(),
+            rename_template: String::new(),
+            mode: "auto".to_string(),
+            quality: 86,
+            scale: 100.0,
+            format: "keep".to_string(),
+            resize: false,
+            max_width: u32::MAX,
+            max_height: u32::MAX,
+            strip_metadata: true,
+            prevent_larger: true,
+        };
+
+        let optimized = optimize_image_data(original, "png".to_string(), &settings)
+            .expect("automatic transparent optimisation");
+        let decoded = image::load_from_memory(&optimized.bytes)
+            .expect("decode automatic transparent result")
+            .to_rgba8();
+
+        assert_ne!(optimized.extension, "jpg");
+        assert!(decoded.pixels().any(|pixel| pixel.0[3] < 255));
     }
 
     #[test]
@@ -5901,6 +6049,49 @@ mod tests {
         assert!(!has_meaningful_savings(10_000, 9_950));
         assert!(!has_meaningful_savings(100_000, 98_100));
         assert!(has_meaningful_savings(100_000, 97_900));
+    }
+
+    #[test]
+    fn automatic_quick_settings_preserve_mode_and_explicit_format() {
+        let quick = QuickCompressSettings {
+            mode: "auto".to_string(),
+            quality: 86,
+            scale: 100.0,
+            format: "image/webp".to_string(),
+            strip_metadata: true,
+            prevent_larger: true,
+            export_mode: "source".to_string(),
+            export_suffix: "-piclite".to_string(),
+            rename_template: String::new(),
+            fixed_folder: None,
+        };
+        let settings = quick_settings(&quick);
+        assert_eq!(settings.mode, "auto");
+        assert_eq!(settings.format, "image/webp");
+    }
+
+    #[test]
+    fn creator_links_are_allowed_without_opening_unrelated_sites() {
+        for url in [
+            "https://www.appmiao.com",
+            "https://space.bilibili.com/6623126",
+            "https://v.douyin.com/qmJBSlpdlgs/",
+            "https://www.youtube.com/@amiaoapp",
+            "https://x.com/amiaoapp",
+            "https://t.me/miaoaaaaa",
+            "https://github.com/amiaoapp/PicLite/releases",
+        ] {
+            assert!(
+                allowed_external_url(&Url::parse(url).expect("valid creator URL")),
+                "{url}"
+            );
+        }
+        assert!(!allowed_external_url(
+            &Url::parse("https://example.com").expect("valid unrelated URL")
+        ));
+        assert!(!allowed_external_url(
+            &Url::parse("http://www.appmiao.com").expect("valid insecure URL")
+        ));
     }
 
     #[test]

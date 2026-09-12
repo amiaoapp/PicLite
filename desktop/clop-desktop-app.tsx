@@ -9,6 +9,8 @@ import packageManifest from "../package.json";
 
 type ResultItem = QuickCompressResult & {
   id: string;
+  originalSource?: string;
+  reencodeSource?: string;
   preview?: string;
   width?: number;
   height?: number;
@@ -154,7 +156,7 @@ function nativeSettings(settings: DesktopSettings): QuickCompressSettings {
     mode: automatic ? "auto" : "manual",
     quality: automatic ? 86 : settings.preset.quality,
     scale: automatic ? 100 : settings.preset.scale,
-    format: automatic ? "keep" : toNativeFormat(settings.preset.format),
+    format: toNativeFormat(settings.preset.format),
     stripMetadata: settings.preset.stripMetadata,
     preventLarger: settings.preset.preventLarger,
     exportMode: settings.filePlacement,
@@ -225,7 +227,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     });
     try {
       const output = await api.quickCompressPaths(unique, nativeSettings(effectiveSettings));
-      const finished = await attachPreviews(output.map((item, index) => ({ ...item, id: placeholders[index].id, status: item.error ? "error" : "done" })), api);
+      const finished = await attachPreviews(output.map((item, index) => ({ ...item, originalSource: item.source, id: placeholders[index].id, status: item.error ? "error" : "done" })), api);
       setResults((current) => current.map((item) => finished.find((candidate) => candidate.id === item.id) || item));
       return finished;
     } catch (error) {
@@ -239,15 +241,24 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
 
   const reoptimise = useCallback(async (item: ResultItem, overrides: Partial<OptimisationPreset> = {}, sourceOverride?: string) => {
     if (!api || item.status === "working") return;
-    const source = sourceOverride || item.output || item.source;
+    const originalSource = item.originalSource || item.source;
+    const source = sourceOverride || item.reencodeSource || originalSource;
     const effectiveSettings = { ...settings, preset: { ...settings.preset, ...overrides } };
     setWorking(true);
-    setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, source, status: "working", error: undefined } : candidate));
+    setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "working", error: undefined } : candidate));
     try {
       const [output] = await api.quickCompressPaths([source], nativeSettings(effectiveSettings));
       if (!output) throw new Error(tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
       const snapshot: ResultItem = { ...item, history: undefined };
-      const [next] = await attachPreviews([{ ...output, id: item.id, status: output.error ? "error" : "done" }], api);
+      const [next] = await attachPreviews([{
+        ...output,
+        source: originalSource,
+        originalSource,
+        reencodeSource: sourceOverride || item.reencodeSource,
+        originalBytes: item.originalBytes ?? output.originalBytes,
+        id: item.id,
+        status: output.error ? "error" : "done",
+      }], api);
       const finished = { ...next, history: [...(item.history || []), snapshot] };
       setResults((current) => current.map((candidate) => {
         if (candidate.id !== item.id) return candidate;
@@ -382,7 +393,7 @@ function ResultCard({ item, api, settings, active, allowWindowDrag = true, notif
         {item.status === "working" ? <><span className="result-state"><T language={settings.language} zh="正在自动选择最优结果…" en="Choosing the best result…" /></span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
           <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
           {(item.width && item.height) ? <small className="result-dimensions"><Icon name="image" /> {item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
-          <FormatBar value={settings.preset.mode === "auto" && item.keptOriginal ? "auto" : format} update={updateFormat} />
+          <FormatBar value={settings.preset.mode === "auto" && settings.preset.format === "keep" ? "auto" : format} update={updateFormat} />
         </>}
       </div>
       {item.status === "done" && <div className="result-hover-actions" onClick={(event) => event.stopPropagation()}>
@@ -467,6 +478,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       source: event.file,
       output: event.output,
       originalBytes: event.originalBytes,
+      originalSource: event.file,
       outputBytes: event.outputBytes,
       keptOriginal: false,
       status: "done",
@@ -545,8 +557,10 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   }, [api, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
 
   const updateFormat = async (item: ResultItem, format: ImageFormat) => {
-    setSettings((current) => ({ ...current, preset: { ...current.preset, mode: format === "keep" ? "auto" : "manual", format, scale: format === "keep" ? 100 : current.preset.scale } }));
-    await reoptimise(item, { mode: format === "keep" ? "auto" : "manual", format, scale: format === "keep" ? 100 : settings.preset.scale, preventLarger: format === "keep" });
+    const mode = format === "keep" ? "auto" : settings.preset.mode;
+    const nextScale = format === "keep" ? 100 : settings.preset.scale;
+    setSettings((current) => ({ ...current, preset: { ...current.preset, mode, format, scale: nextScale } }));
+    await reoptimise(item, { mode, format, scale: nextScale });
   };
   const undo = (item: ResultItem) => setResults((current) => current.map((candidate) => {
     if (candidate.id !== item.id || !candidate.history?.length) return candidate;
@@ -933,10 +947,10 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       </SettingsCard></>}
       {section === "images" && <>
         <SettingsCard title={<T language={language} zh="图片优化规则" en="Image optimisation rules" />}>
-          <SettingsRow title={<T language={language} zh="智能首次优化" en="Smart first pass" />} note={<T language={language} zh="保持原尺寸和原格式，按高质量参数快速实测一次，有实际收益时采用结果" en="Keep the original dimensions and format, run one fast high-quality encode, and use it when the savings are meaningful" />}><Switch label="automatic optimisation" checked={settings.preset.mode === "auto"} onChange={(value) => patchPreset({ mode: value ? "auto" : "manual", format: value ? "keep" : settings.preset.format, scale: value ? 100 : settings.preset.scale })} /></SettingsRow>
+          <SettingsRow title={<T language={language} zh="智能首次优化" en="Smart first pass" />} note={<T language={language} zh="保持原尺寸，实测 JPEG、WebP、PNG 三种高质量结果，有透明像素时跳过 JPEG，再采用收益最好的格式" en="Keep the original dimensions, measure high-quality JPEG, WebP and PNG results, skip JPEG when transparency is present, then use the format with the best savings" />}><Switch label="automatic optimisation" checked={settings.preset.mode === "auto"} onChange={(value) => patchPreset({ mode: value ? "auto" : "manual", scale: value ? 100 : settings.preset.scale })} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="压缩质量" en="Compression quality" />} note={settings.preset.mode === "auto" ? tr(language, "自动", "Automatic") : `${settings.preset.quality}%`}><input disabled={settings.preset.mode === "auto"} type="range" min="5" max="100" value={settings.preset.quality} onChange={(event) => patchPreset({ mode: "manual", quality: Number(event.target.value) })} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="缩放" en="Downscale" />} note={settings.preset.mode === "auto" ? "100%" : `${settings.preset.scale}%`}><input disabled={settings.preset.mode === "auto"} type="range" min="5" max="100" value={settings.preset.scale} onChange={(event) => patchPreset({ mode: "manual", scale: Number(event.target.value) })} /></SettingsRow>
-          <SettingsRow title={<T language={language} zh="输出格式" en="Output format" />}><Select label="format" value={settings.preset.mode === "auto" ? "keep" : settings.preset.format} onChange={(value) => patchPreset({ mode: value === "keep" ? "auto" : "manual", format: value, scale: value === "keep" ? 100 : settings.preset.scale })}><option value="keep">{tr(language, "保持原格式", "Keep original format")}</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="png">PNG</option></Select></SettingsRow>
+          <SettingsRow title={<T language={language} zh="输出格式" en="Output format" />}><Select label="format" value={settings.preset.format} onChange={(value) => patchPreset({ format: value })}><option value="keep">{tr(language, settings.preset.mode === "auto" ? "自动择优（JPEG / WebP / PNG）" : "保持原格式", settings.preset.mode === "auto" ? "Auto-select (JPEG / WebP / PNG)" : "Keep original format")}</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="png">PNG</option></Select></SettingsRow>
         </SettingsCard>
       </>}
       {section === "dropzone" && <SettingsCard title={<T language={language} zh="拖放区" en="Drop zone" />} note={<T language={language} zh="把图片拖入悬浮结果窗口即可优化" en="Drop images into the floating results window to optimise them" />}>
@@ -1035,6 +1049,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
               <div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={method.image} alt={tr(language, `${method.zh}收款码`, `${method.en} payment QR code`)} />
+                {method.id === "tron" && <span className="sponsor-wallet-address"><small>{tr(language, "钱包地址", "Wallet address")}</small><code><b>TV3yLCDwV9RVeW1hb</b><b>yUY7i3UKrMK63gJ5x</b></code></span>}
               </div>
               <figcaption>{tr(language, method.zh, method.en)}</figcaption>
             </figure>)}
