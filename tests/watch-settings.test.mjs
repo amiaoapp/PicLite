@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadSettings, resolveOptimisationPreset, saveSettings } from '../desktop/clop-store.ts';
+import { loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings } from '../desktop/clop-store.ts';
 const values = new Map();
 globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
 globalThis.window = { dispatchEvent() {} };
@@ -52,4 +52,16 @@ test('smart compression uses multi-format defaults while custom compression keep
     resolveOptimisationPreset({ mode: 'manual', quality: 35, scale: 45, format: 'jpeg', ...shared }),
     { mode: 'manual', quality: 35, scale: 45, format: 'jpeg', ...shared },
   );
+});
+
+test('Windows preview paths match canonical device paths and ordinary output paths', () => {
+  assert.equal(
+    nativePathIdentity('\\\\?\\C:\\Users\\Miao\\Pictures\\Result.WEBP', 'win32'),
+    nativePathIdentity('C:/Users/Miao/Pictures/Result.WEBP', 'win32'),
+  );
+  assert.equal(
+    nativePathIdentity('\\\\?\\UNC\\server\\pictures\\Result.PNG', 'win32'),
+    nativePathIdentity('\\\\server\\pictures\\result.png', 'win32'),
+  );
+  assert.notEqual(nativePathIdentity('/tmp/A.png', 'linux'), nativePathIdentity('/tmp/a.png', 'linux'));
 });

@@ -98,6 +98,14 @@ export function resolveOptimisationPreset(preset: OptimisationPreset): Optimisat
     : { ...preset };
 }
 
+export function nativePathIdentity(value: string, platform: string) {
+  if (platform !== "win32") return value;
+  let path = value.replaceAll("/", "\\");
+  if (path.toLowerCase().startsWith("\\\\?\\unc\\")) path = `\\\\${path.slice(8)}`;
+  else if (path.startsWith("\\\\?\\")) path = path.slice(4);
+  return path.toLowerCase();
+}
+
 function userFacingPath(value: string) {
   if (value.startsWith("\\\\?\\UNC\\")) return `\\\\${value.slice(8)}`;
   if (value.startsWith("\\\\?\\")) return value.slice(4);

@@ -3,7 +3,7 @@ import { disable as disableAutostart, enable as enableAutostart, isEnabled as is
 import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
-import { fileName, formatBytes, loadSettings, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
+import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
 import packageManifest from "../package.json";
 
@@ -173,9 +173,12 @@ async function attachPreviews(items: ResultItem[], api: PicLiteBridge) {
   if (!paths.length) return items;
   try {
     const images = await api.readImagesFromPaths(paths);
-    const byPath = new Map(images.map((image) => [image.path, image]));
+    // Windows canonical paths can come back as `\\?\C:\...` while the
+    // compression result uses `C:\...`. Compare their native identities so a
+    // valid output is not mistaken for a missing preview.
+    const byPath = new Map(images.map((image) => [nativePathIdentity(image.path, api.platform), image]));
     return await Promise.all(items.map(async (item) => {
-      const image = item.output ? byPath.get(item.output) : undefined;
+      const image = item.output ? byPath.get(nativePathIdentity(item.output, api.platform)) : undefined;
       if (!image) return item;
       const blob = new Blob([image.data.slice().buffer as ArrayBuffer], { type: image.type });
       const preview = URL.createObjectURL(blob);

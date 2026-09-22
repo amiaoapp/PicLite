@@ -4461,34 +4461,58 @@ async fn open_image(path: String) -> Result<(), String> {
     if !target.is_file() || !is_image(&target) {
         return Err("目标不是支持的图片文件".to_string());
     }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::{
+            UI::Shell::ShellExecuteW,
+            UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        };
+
+        // `canonicalize` adds the `\\?\` device prefix on Windows. A file URL
+        // made from that path is not understood by every registered image
+        // viewer. ShellExecuteW accepts a normal filesystem path and delegates
+        // directly to the user's default application association.
+        let target = PathBuf::from(user_facing_path(&target));
+        let operation = "open\0".encode_utf16().collect::<Vec<_>>();
+        let target = target
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if result as isize <= 32 {
+            return Err(format!("无法调用系统默认看图程序（错误代码 {}）", result as isize));
+        }
+        return Ok(());
+    }
     #[cfg(target_os = "macos")]
-    let mut command = {
+    {
         let mut command = Command::new("open");
         command.arg(&target);
-        command
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let mut command = Command::new("rundll32.exe");
-        let file_url =
-            Url::from_file_path(&target).map_err(|_| "无法生成图片文件链接".to_string())?;
-        command
-            .args(["url.dll,FileProtocolHandler", file_url.as_str()])
-            .creation_flags(CREATE_NO_WINDOW);
-        command
-    };
+        return command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("无法用系统看图程序打开图片：{error}"));
+    }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let mut command = {
+    {
         let mut command = Command::new("xdg-open");
         command.arg(&target);
-        command
-    };
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("无法用系统看图程序打开图片：{error}"))
+        return command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("无法用系统看图程序打开图片：{error}"));
+    }
 }
 
 const URL_PATH_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
