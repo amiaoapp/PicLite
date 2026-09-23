@@ -73,6 +73,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
     format: "keep",
     stripMetadata: true,
     preventLarger: true,
+    targetSizeKb: 0,
   },
 };
 
@@ -172,7 +173,7 @@ export function loadSettings(): DesktopSettings {
         stripMetadata: preset.stripMetadata, preventLarger: preset.preventLarger, onlyWhenNeeded: false, notifyOnComplete: true, showFloatingResult: false,
       })),
       watchFolders: Array.isArray(parsed.watchFolders) ? parsed.watchFolders.map(userFacingPath) : DEFAULT_SETTINGS.watchFolders,
-      renameTemplate: mainPreferences.renameTemplate || parsed.renameTemplate || DEFAULT_SETTINGS.renameTemplate,
+      renameTemplate: parsed.renameTemplate || DEFAULT_SETTINGS.renameTemplate,
       language: mainPreferences.language === "en" || (!mainPreferences.language && parsed.language === "en") ? "en" : "zh",
       preset,
     };
@@ -201,7 +202,6 @@ export function saveSettings(settings: DesktopSettings) {
       shortcutShow: settings.shortcutShowMain,
       shortcutGallery: settings.shortcutShowGallery,
       shortcutUpload: settings.shortcutUploadCurrent,
-      renameTemplate: settings.renameTemplate,
     }));
   } catch {
     // The floating window still owns a complete local copy when an older main-window preference is malformed.

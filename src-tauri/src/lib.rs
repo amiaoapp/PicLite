@@ -193,6 +193,8 @@ struct QuickCompressSettings {
     #[serde(default)]
     rename_template: String,
     fixed_folder: Option<String>,
+    #[serde(default)]
+    target_size_kb: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +259,16 @@ struct BatchRenameRequest {
     second_padding: usize,
     #[serde(default)]
     word_separator: String,
+    #[serde(default)]
+    preserve_original: bool,
+    #[serde(default)]
+    output_format: String,
+    #[serde(default = "default_batch_quality")]
+    quality: u8,
+}
+
+fn default_batch_quality() -> u8 {
+    86
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -338,6 +350,8 @@ struct WatcherSettings {
     strip_metadata: bool,
     #[serde(default = "default_true")]
     prevent_larger: bool,
+    #[serde(default)]
+    target_size_kb: u32,
 }
 
 fn default_true() -> bool {
@@ -556,6 +570,25 @@ fn collect_image_paths(root: &Path) -> Vec<PathBuf> {
             .cmp(&right.to_string_lossy().to_lowercase())
     });
     images
+}
+
+fn collect_initial_watch_paths(source_root: &Path, rule: &WatcherSettings) -> Vec<PathBuf> {
+    let generated_root = if rule.output_folder.is_empty() {
+        Some(source_root.join("PicLite"))
+    } else if rule.output_folder == "@same-folder" {
+        None
+    } else {
+        Some(PathBuf::from(&rule.output_folder))
+    };
+    collect_image_paths(source_root)
+        .into_iter()
+        .filter(|path| {
+            !registered_output(path)
+                && !generated_root
+                    .as_ref()
+                    .is_some_and(|output| path.starts_with(output))
+        })
+        .collect()
 }
 
 fn padded_capture(value: &str, width: usize) -> String {
@@ -797,10 +830,15 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("image");
-        let extension = source
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("png");
+        let extension = if request.output_format.is_empty() || request.output_format == "keep" {
+            source
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("png")
+                .to_ascii_lowercase()
+        } else {
+            extension_for(source, &request.output_format)
+        };
         let Some((matched_folder, matched_text, captures)) =
             folder_match_for_path(source, &root, &pattern)
         else {
@@ -821,7 +859,7 @@ fn build_batch_rename_plan(request: &BatchRenameRequest) -> Result<BatchRenameRe
         let target_name = batch_rename_name(
             &request.rename_template,
             base,
-            extension,
+            &extension,
             &matched_folder,
             &matched_text,
             &captures,
@@ -944,6 +982,74 @@ fn move_without_overwrite(source: &Path, target: &Path) -> Result<(), std::io::E
     Ok(())
 }
 
+fn copy_without_overwrite(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)?;
+    let result = (|| {
+        let mut input = fs::File::open(source)?;
+        std::io::copy(&mut input, &mut output)?;
+        if let Ok(modified) = input.metadata()?.modified() {
+            output.set_times(fs::FileTimes::new().set_modified(modified))?;
+        }
+        output.flush()
+    })();
+    if let Err(error) = result {
+        drop(output);
+        let _ = fs::remove_file(target);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn write_converted_without_overwrite(
+    read_path: &Path,
+    original_path: &Path,
+    target: &Path,
+    request: &BatchRenameRequest,
+) -> Result<(), String> {
+    let original = fs::read(read_path).map_err(|error| error.to_string())?;
+    let source_extension = extension_for(original_path, "keep");
+    let settings = WatcherSettings {
+        profiles: Vec::new(),
+        folder_rename: None,
+        only_when_needed: false,
+        notify_on_complete: false,
+        show_floating_result: false,
+        input_folder: String::new(),
+        input_folders: Vec::new(),
+        output_folder: String::new(),
+        output_suffix: String::new(),
+        rename_template: String::new(),
+        mode: "manual".into(),
+        quality: request.quality.clamp(1, 100),
+        scale: 100.0,
+        format: request.output_format.clone(),
+        resize: false,
+        max_width: u32::MAX,
+        max_height: u32::MAX,
+        strip_metadata: true,
+        prevent_larger: false,
+        target_size_kb: 0,
+    };
+    let converted = optimize_image_data(original, source_extension, &settings)?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = output.write_all(&converted.bytes) {
+        drop(output);
+        let _ = fs::remove_file(target);
+        return Err(error.to_string());
+    }
+    if let Ok(modified) = fs::metadata(read_path).and_then(|metadata| metadata.modified()) {
+        let _ = output.set_times(fs::FileTimes::new().set_modified(modified));
+    }
+    Ok(())
+}
+
 fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResult, String> {
     let mut result = build_batch_rename_plan(&request)?;
     let runnable = result
@@ -952,7 +1058,41 @@ fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResul
         .filter(|entry| entry.ready && !entry.unchanged)
         .map(|entry| (PathBuf::from(&entry.source), PathBuf::from(&entry.target)))
         .collect::<Vec<_>>();
+    let convert = !request.output_format.is_empty() && request.output_format != "keep";
+
+    if request.preserve_original && !convert {
+        let mut completed = Vec::<PathBuf>::new();
+        for (source, target) in &runnable {
+            if let Err(error) = copy_without_overwrite(source, target) {
+                for path in completed.iter().rev() {
+                    let _ = fs::remove_file(path);
+                }
+                return Err(format!("无法复制到 {}：{error}", target.to_string_lossy()));
+            }
+            completed.push(target.clone());
+        }
+        result.renamed = completed.len();
+        result.skipped = result.entries.len().saturating_sub(result.renamed);
+        return Ok(result);
+    }
+
     let mut staged = Vec::<(PathBuf, PathBuf, PathBuf)>::new();
+    if request.preserve_original && convert {
+        let mut completed = Vec::<PathBuf>::new();
+        for (source, target) in &runnable {
+            if let Err(error) = write_converted_without_overwrite(source, source, target, request) {
+                for path in completed.iter().rev() {
+                    let _ = fs::remove_file(path);
+                }
+                return Err(format!("无法转换到 {}：{error}", target.to_string_lossy()));
+            }
+            completed.push(target.clone());
+        }
+        result.renamed = completed.len();
+        result.skipped = result.entries.len().saturating_sub(result.renamed);
+        return Ok(result);
+    }
+
     for (index, (source, target)) in runnable.iter().enumerate() {
         let temporary = temporary_rename_path(source, index);
         if let Err(error) = move_without_overwrite(source, &temporary) {
@@ -962,6 +1102,33 @@ fn execute_batch_rename(request: &BatchRenameRequest) -> Result<BatchRenameResul
             return Err(format!("无法暂存 {}：{error}", source.to_string_lossy()));
         }
         staged.push((source.clone(), target.clone(), temporary));
+    }
+
+    if convert {
+        let mut completed = Vec::<PathBuf>::new();
+        for (source, target, temporary) in &staged {
+            if let Err(error) =
+                write_converted_without_overwrite(temporary, source, target, request)
+            {
+                for path in completed.iter().rev() {
+                    let _ = fs::remove_file(path);
+                }
+                for (remaining_source, _, remaining_temporary) in staged.iter().rev() {
+                    if remaining_temporary.exists() {
+                        let _ = move_without_overwrite(remaining_temporary, remaining_source);
+                    }
+                }
+                return Err(format!("无法转换到 {}：{error}", target.to_string_lossy()));
+            }
+            completed.push(target.clone());
+        }
+        for (source, _, temporary) in &staged {
+            fs::remove_file(temporary)
+                .map_err(|error| format!("无法完成 {}：{error}", source.to_string_lossy()))?;
+        }
+        result.renamed = completed.len();
+        result.skipped = result.entries.len().saturating_sub(result.renamed);
+        return Ok(result);
     }
 
     let mut completed = Vec::<(PathBuf, PathBuf)>::new();
@@ -1778,6 +1945,7 @@ fn encode_static(
     encode_static_ref(&image, output_extension, quality)
 }
 
+#[derive(Clone)]
 struct OptimizedImage {
     bytes: Vec<u8>,
     extension: String,
@@ -1892,7 +2060,7 @@ fn apply_native_image_watermark(
     Ok(DynamicImage::ImageRgba8(base))
 }
 
-fn optimize_image_data(
+fn optimize_image_data_unconstrained(
     original: Vec<u8>,
     source_extension: String,
     settings: &WatcherSettings,
@@ -2075,6 +2243,93 @@ fn optimize_image_data(
         bytes: candidate,
         extension: output_extension,
     })
+}
+
+fn optimize_image_data(
+    original: Vec<u8>,
+    source_extension: String,
+    settings: &WatcherSettings,
+) -> Result<OptimizedImage, String> {
+    let mut unconstrained = settings.clone();
+    unconstrained.target_size_kb = 0;
+    let initial = optimize_image_data_unconstrained(
+        original.clone(),
+        source_extension.clone(),
+        &unconstrained,
+    )?;
+    let target_bytes = usize::try_from(settings.target_size_kb)
+        .unwrap_or(0)
+        .saturating_mul(1024);
+    if target_bytes == 0
+        || initial.bytes.len() <= target_bytes
+        || source_extension == "gif"
+        || (source_extension == "webp" && is_animated_webp(&original))
+    {
+        return Ok(initial);
+    }
+
+    // A size cap is an explicit request. Start from the user's dimensions,
+    // lower quality first, then reduce dimensions in small steps. Keep the
+    // closest candidate if an unusually detailed image cannot hit the cap.
+    let constrained_format = if settings.format == "keep" && settings.mode != "manual" {
+        Some(match initial.extension.as_str() {
+            "jpg" | "jpeg" | "jfif" => "image/jpeg",
+            "webp" => "image/webp",
+            "png" => "image/png",
+            _ => "keep",
+        })
+    } else {
+        None
+    };
+    let mut best = initial;
+    let mut scales = Vec::new();
+    for factor in [1.0, 0.78, 0.6, 0.46, 0.34, 0.25, 0.18, 0.12] {
+        let scale = (settings.scale * factor).clamp(0.1, 100.0);
+        if scales
+            .last()
+            .is_none_or(|previous: &f64| (previous - scale).abs() > 0.01)
+        {
+            scales.push(scale);
+        }
+    }
+    for scale in scales {
+        let encode_trial = |quality: u8| -> Result<OptimizedImage, String> {
+            let mut trial = unconstrained.clone();
+            trial.mode = "manual".into();
+            trial.prevent_larger = false;
+            trial.scale = scale;
+            trial.quality = quality;
+            if let Some(format) = constrained_format {
+                trial.format = format.into();
+            }
+            optimize_image_data_unconstrained(original.clone(), source_extension.clone(), &trial)
+        };
+        let minimum = encode_trial(8)?;
+        if minimum.bytes.len() < best.bytes.len() {
+            best = minimum.clone();
+        }
+        if minimum.bytes.len() > target_bytes {
+            continue;
+        }
+
+        // This scale can satisfy the cap. Binary-search the highest quality
+        // that still fits instead of encoding every quality step.
+        let mut chosen = minimum;
+        let mut low = 9_u8;
+        let mut high = settings.quality.clamp(9, 100);
+        while low <= high {
+            let quality = low + (high - low) / 2;
+            let candidate = encode_trial(quality)?;
+            if candidate.bytes.len() <= target_bytes {
+                chosen = candidate;
+                low = quality.saturating_add(1);
+            } else {
+                high = quality - 1;
+            }
+        }
+        return Ok(chosen);
+    }
+    Ok(best)
 }
 
 fn optimize_image(path: &Path, settings: &WatcherSettings) -> Result<OptimizedImage, String> {
@@ -2445,6 +2700,7 @@ fn quick_settings(value: &QuickCompressSettings) -> WatcherSettings {
         max_height: u32::MAX,
         strip_metadata: value.strip_metadata,
         prevent_larger: value.prevent_larger,
+        target_size_kb: value.target_size_kb,
     }
 }
 
@@ -4465,8 +4721,7 @@ async fn open_image(path: String) -> Result<(), String> {
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::{
-            UI::Shell::ShellExecuteW,
-            UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            UI::Shell::ShellExecuteW, UI::WindowsAndMessaging::SW_SHOWNORMAL,
         };
 
         // `canonicalize` adds the `\\?\` device prefix on Windows. A file URL
@@ -4491,7 +4746,10 @@ async fn open_image(path: String) -> Result<(), String> {
             )
         };
         if result as isize <= 32 {
-            return Err(format!("无法调用系统默认看图程序（错误代码 {}）", result as isize));
+            return Err(format!(
+                "无法调用系统默认看图程序（错误代码 {}）",
+                result as isize
+            ));
         }
         return Ok(());
     }
@@ -5305,20 +5563,37 @@ async fn validate_watcher(settings: WatcherSettings) -> CommandResult {
 async fn start_watcher(
     app: AppHandle,
     settings: WatcherSettings,
+    scan_existing: Option<bool>,
     state: State<'_, DesktopState>,
 ) -> Result<CommandResult, String> {
     let result = (|| -> Result<(), String> {
+        let initial_scan_root = if scan_existing.unwrap_or(false) {
+            fs::canonicalize(&settings.input_folder).ok()
+        } else {
+            None
+        };
         let rules = validated_watch_rules(&settings)?;
         let app_handle = app.clone();
         let processing = state.processing.clone();
+        let processing_for_callback = processing.clone();
         let rules_for_callback = rules.clone();
         let mut seen = BTreeMap::new();
         let mut watcher = notify::recommended_watcher(
             move |result: notify::Result<notify::Event>| match result {
                 Ok(event) if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) => {
+                    let created = matches!(event.kind, EventKind::Create(_));
                     let paths = event.paths.into_iter().flat_map(|path| {
                         if path.is_dir() {
-                            collect_image_paths(&path)
+                            // Directory metadata changes are emitted for normal
+                            // file writes on Windows and macOS. Recursively
+                            // scanning those events reprocessed arbitrary parts
+                            // of the tree, so only scan a directory when it was
+                            // newly created (for example, a copied folder).
+                            if created {
+                                collect_image_paths(&path)
+                            } else {
+                                Vec::new()
+                            }
                         } else {
                             vec![path]
                         }
@@ -5357,7 +5632,7 @@ async fn start_watcher(
                         let app = app_handle.clone();
                         let mut settings = rule.clone();
                         settings.input_folder = source_root.to_string_lossy().to_string();
-                        let processing = processing.clone();
+                        let processing = processing_for_callback.clone();
                         thread::spawn(move || {
                             process_watched_file(app, path, settings, processing)
                         });
@@ -5383,6 +5658,20 @@ async fn start_watcher(
             .watcher_settings
             .lock()
             .map_err(|_| "监测设置不可用".to_string())? = Some(settings.clone());
+        if scan_existing.unwrap_or(false) {
+            for (source_root, rule) in &rules {
+                if initial_scan_root.as_ref() != Some(source_root) {
+                    continue;
+                }
+                for path in collect_initial_watch_paths(source_root, rule) {
+                    let app = app.clone();
+                    let processing = processing.clone();
+                    let mut settings = rule.clone();
+                    settings.input_folder = source_root.to_string_lossy().to_string();
+                    thread::spawn(move || process_watched_file(app, path, settings, processing));
+                }
+            }
+        }
         emit_event(
             &app,
             watcher_event(
@@ -6227,6 +6516,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
 
         let optimized = optimize_image(&path, &settings).expect("automatic optimisation");
@@ -6273,6 +6563,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
 
         let optimized = optimize_image_data(original, "png".to_string(), &settings)
@@ -6323,6 +6614,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
 
         for extension in ["jpg", "png", "webp"] {
@@ -6395,6 +6687,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
         let lossless = optimize_image_data(
             original.clone(),
@@ -6455,6 +6748,7 @@ mod tests {
             export_suffix: "-piclite".to_string(),
             rename_template: String::new(),
             fixed_folder: None,
+            target_size_kb: 0,
         };
         let settings = quick_settings(&quick);
         assert_eq!(settings.mode, "auto");
@@ -6544,6 +6838,7 @@ mod tests {
             export_suffix: "-piclite".to_string(),
             rename_template: String::new(),
             fixed_folder: None,
+            target_size_kb: 0,
         };
 
         let settings = quick_settings(&quick);
@@ -6583,6 +6878,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
 
         let optimized = optimize_image_data(original.clone(), "jpg".to_string(), &settings)
@@ -6629,6 +6925,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
         let balanced_result = optimize_image_data(original.clone(), "jpg".to_string(), &balanced)
             .expect("balanced native WebP");
@@ -6745,6 +7042,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: false,
+            target_size_kb: 0,
         };
         let optimized = optimize_image_data(original, "webp".to_string(), &settings)
             .expect("compress animated WebP");
@@ -6803,6 +7101,7 @@ mod tests {
             export_suffix: "-piclite".to_string(),
             rename_template: String::new(),
             fixed_folder: None,
+            target_size_kb: 0,
         };
         let output = compress_animation_with_watermark_data(
             original.clone(),
@@ -6907,6 +7206,7 @@ mod tests {
                 export_suffix: "-piclite".to_string(),
                 rename_template: String::new(),
                 fixed_folder: None,
+                target_size_kb: 0,
             },
             NativeAnimationWatermark {
                 kind: "visible".to_string(),
@@ -6969,6 +7269,7 @@ mod tests {
             max_height: u32::MAX,
             strip_metadata: true,
             prevent_larger: false,
+            target_size_kb: 0,
         };
         let error = match optimize_image_data(original.clone(), "webp".to_string(), &settings) {
             Ok(_) => panic!("static PNG output must be rejected"),
@@ -7054,6 +7355,7 @@ mod tests {
             max_height: 2560,
             strip_metadata: true,
             prevent_larger: true,
+            target_size_kb: 0,
         };
 
         let optimized = optimize_bytes(&path, &settings).expect("optimize jpeg");
@@ -7361,6 +7663,9 @@ mod tests {
             first_padding: 2,
             second_padding: 2,
             word_separator: String::new(),
+            preserve_original: false,
+            output_format: "keep".into(),
+            quality: 86,
         };
         let preview = build_batch_rename_plan(&request).expect("build rename preview");
         let names = preview
@@ -7484,6 +7789,9 @@ mod tests {
             first_padding: 2,
             second_padding: 2,
             word_separator: String::new(),
+            preserve_original: false,
+            output_format: "keep".into(),
+            quality: 86,
         };
         assert_eq!(rename_code(&captures, &request), "风景");
     }
@@ -7609,6 +7917,9 @@ mod tests {
             first_padding: 2,
             second_padding: 2,
             word_separator: String::new(),
+            preserve_original: false,
+            output_format: "keep".into(),
+            quality: 86,
         };
         let preview = build_batch_rename_plan(&request).unwrap();
         assert_eq!(preview.entries.len(), 1);
@@ -7652,6 +7963,94 @@ mod tests {
         }
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn initial_watch_scan_is_recursive_and_skips_the_default_output_tree() {
+        let root = std::env::temp_dir().join(format!("piclite-initial-scan-{}", now_ms()));
+        let deep = root.join("A/A1/A11");
+        let output = root.join("PicLite/nested");
+        fs::create_dir_all(&deep).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        fs::write(root.join("root.jpg"), b"source").unwrap();
+        fs::write(deep.join("deep.png"), b"source").unwrap();
+        fs::write(output.join("generated.webp"), b"output").unwrap();
+        let mut settings = watch_test_settings(&root);
+        settings.output_folder.clear();
+        let paths = collect_initial_watch_paths(&root, &settings);
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().any(|path| path.ends_with("root.jpg")));
+        assert!(paths.iter().any(|path| path.ends_with("deep.png")));
+        assert!(!paths
+            .iter()
+            .any(|path| path.starts_with(root.join("PicLite"))));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn target_size_cap_reduces_a_static_image_below_the_requested_limit() {
+        let pixels = image::RgbImage::from_fn(640, 420, |x, y| {
+            let noise = ((x * 29 + y * 43 + (x * y) % 251) % 256) as u8;
+            image::Rgb([
+                noise,
+                noise.wrapping_add(x as u8),
+                noise.wrapping_add(y as u8),
+            ])
+        });
+        let original = encode_static(DynamicImage::ImageRgb8(pixels), "jpg", 96).unwrap();
+        let mut settings = watch_test_settings(Path::new("/tmp"));
+        settings.only_when_needed = false;
+        settings.resize = false;
+        settings.max_width = u32::MAX;
+        settings.max_height = u32::MAX;
+        settings.format = "image/webp".into();
+        settings.quality = 82;
+        settings.target_size_kb = 24;
+        let result = optimize_image_data(original, "jpg".into(), &settings).unwrap();
+        assert!(
+            result.bytes.len() <= 24 * 1024,
+            "{} bytes",
+            result.bytes.len()
+        );
+        assert!(image::load_from_memory(&result.bytes).is_ok());
+    }
+
+    #[test]
+    fn batch_rename_can_preserve_originals_while_converting_format() {
+        let root = std::env::temp_dir().join(format!("piclite-rename-convert-{}", now_ms()));
+        let folder = root.join("【2-3】");
+        fs::create_dir_all(&folder).unwrap();
+        let source = folder.join("Front cover.png");
+        let pixels = image::RgbaImage::from_pixel(48, 32, image::Rgba([30, 90, 150, 255]));
+        fs::write(
+            &source,
+            encode_static(DynamicImage::ImageRgba8(pixels), "png", 100).unwrap(),
+        )
+        .unwrap();
+        let request = BatchRenameRequest {
+            root_folder: root.to_string_lossy().into(),
+            folder_pattern: r"【(\d+)-(\d+)】".into(),
+            rename_template: "{code}_{name}".into(),
+            first_padding: 2,
+            second_padding: 2,
+            word_separator: "-".into(),
+            preserve_original: true,
+            output_format: "image/webp".into(),
+            quality: 82,
+        };
+        let preview = build_batch_rename_plan(&request).unwrap();
+        assert_eq!(preview.entries[0].target_name, "0203_Front-cover.webp");
+        let result = execute_batch_rename(&request).unwrap();
+        let target = folder.join("0203_Front-cover.webp");
+        assert_eq!(result.renamed, 1);
+        assert!(source.exists());
+        assert!(target.exists());
+        assert_eq!(
+            image::guess_format(&fs::read(target).unwrap()).unwrap(),
+            image::ImageFormat::WebP
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn batch_rename_blocks_occupied_chains_and_late_targets() {
         let root = std::env::temp_dir().join(format!("piclite-rename-chain-{}", now_ms()));
@@ -7667,6 +8066,9 @@ mod tests {
             first_padding: 2,
             second_padding: 2,
             word_separator: String::new(),
+            preserve_original: false,
+            output_format: "keep".into(),
+            quality: 86,
         };
         assert_eq!(execute_batch_rename(&request).unwrap().renamed, 0);
         assert_eq!(fs::read(folder.join("photo.jpg")).unwrap(), b"original");

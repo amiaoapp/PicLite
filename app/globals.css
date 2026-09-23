@@ -580,6 +580,8 @@ html[data-theme="dark"] .update-notice { border-color: #304039; background: rgba
 .rename-fields select option { color: #17231d; }
 .rename-fields small { color: #82968b; font-size: 7px; overflow-wrap: anywhere; }
 .rename-pattern, .rename-template { grid-column: 1 / -1; }
+.rename-preserve { grid-column: 1 / -1; }
+.rename-monitor-note { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border: 1px solid rgba(217,255,116,.14); border-radius: 9px; background: rgba(217,255,116,.055); color: #a9baaf; font-size: 8px; line-height: 1.65; }
 .rename-padding { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
 .rename-padding b { color: #8fa398; }
 .rename-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 18px; }

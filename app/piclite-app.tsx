@@ -149,6 +149,9 @@ type BatchRenameRequest = {
   firstPadding: number;
   secondPadding: number;
   wordSeparator: string;
+  preserveOriginal: boolean;
+  outputFormat: OutputFormat;
+  quality: number;
 };
 
 type BatchRenameResult = {
@@ -179,7 +182,7 @@ type NativeBridge = {
   suggestScreenshotFolder: () => Promise<string | null>;
   exportImages: (payload: { mode: Exclude<ExportMode, "download">; suffix: string; fixedFolder?: string; items: NativeExportItem[] }) => Promise<{ ok: boolean; paths?: string[]; error?: string }>;
   validateWatcher: (settings: import("../desktop/clop-types").WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
-  startWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
+  startWatcher: (settings: WatcherSettings, scanExisting?: boolean) => Promise<{ ok: boolean; error?: string }>;
   stopWatcher: () => Promise<{ ok: boolean }>;
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;
   quickCompressPaths: (paths: string[], settings: QuickCompressSettings) => Promise<QuickCompressResult[]>;
@@ -358,6 +361,7 @@ type QuickCompressSettings = {
   exportSuffix: string;
   renameTemplate?: string;
   fixedFolder?: string;
+  targetSizeKb?: number;
 };
 
 type QuickCompressResult = {
@@ -558,6 +562,9 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
     firstPadding: 2,
     secondPadding: 2,
     wordSeparator: "",
+    preserveOriginal: false,
+    outputFormat: "keep",
+    quality: 86,
   });
   const [preview, setPreview] = useState<BatchRenameResult | null>(null);
   const [status, setStatus] = useState("");
@@ -583,7 +590,7 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
     try {
       const result = await bridge.applyBatchRename(request);
       setPreview(result);
-      setStatus(t(`已重命名 ${result.renamed} 张，跳过 ${result.skipped} 张`, `Renamed ${result.renamed}; skipped ${result.skipped}`));
+      setStatus(t(`已处理 ${result.renamed} 张，跳过 ${result.skipped} 张`, `Processed ${result.renamed}; skipped ${result.skipped}`));
     } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
@@ -597,7 +604,7 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
     if (presets[value]) patch(presets[value]);
   };
   return <section className="rename-page">
-    <header className="rename-hero"><span className="section-index">BUILT-IN PLUGIN / RENAME</span><h1>{t("从目录里提取，", "Extract from folders,")}<br /><span>{t("批量命名。", "rename in batches.")}</span></h1><p>{t("向上查找第一个匹配的父目录，先预览，再安全重命名。不会覆盖已有文件，也不会改动其它格式文件。", "Find the first matching parent, preview every change, then rename safely without overwriting other files.")}</p></header>
+    <header className="rename-hero"><span className="section-index">BUILT-IN PLUGIN / RENAME</span><h1>{t("从目录里提取，", "Extract from folders,")}<br /><span>{t("批量命名。", "rename in batches.")}</span></h1><p>{t("向上查找第一个匹配的父目录，先预览，再安全重命名或转换格式。不会覆盖已有文件。", "Find the first matching parent, preview every change, then rename or convert safely without overwriting existing files.")}</p></header>
     <div className="rename-console">
       <div className="rename-console-head"><div><i className={preview ? "active" : ""} /><strong>{busy ? t("处理中", "WORKING") : t("规则编辑器", "RULE EDITOR")}</strong></div><small>{status || t("所有处理都在本机完成", "Everything stays on this device")}</small></div>
       <div className="rename-root"><button type="button" onClick={() => void chooseRoot()}><span>⌑</span><small>{t("扫描根目录", "Root folder")}</small><strong>{request.rootFolder || t("选择包含多级子目录的文件夹", "Choose a folder with nested images")}</strong><b>{t("选择", "Choose")}</b></button></div>
@@ -607,8 +614,12 @@ function BatchRenamePage({ bridge, language }: { bridge?: NativeBridge; language
         <label className="rename-template"><span>{t("新文件名模板", "New filename template")}</span><input value={request.renameTemplate} onChange={(event) => patch({ renameTemplate: event.target.value })} /><small>{"{code} {name} {name:words} {name:initials} {ext} {folder} {match} {1} {2} {1:words} {1:initials} {index:03}"}</small></label>
         <label><span>{t("数字补齐位数", "Numeric padding")}</span><div className="rename-padding"><input aria-label="First padding" type="number" min="1" max="12" value={request.firstPadding} onChange={(event) => patch({ firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /><b>+</b><input aria-label="Second padding" type="number" min="1" max="12" value={request.secondPadding} onChange={(event) => patch({ secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) })} /></div></label>
         <label><span>{t("词语连接符", "Word separator")}</span><input value={request.wordSeparator} maxLength={12} placeholder={t("可填 -、_ 或空格，留空保留原文件名", "Try -, _, or a space; leave empty to keep the original name")} onChange={(event) => patch({ wordSeparator: event.target.value })} /><small>{t("填写后会替换 {name} 中原有的空格、横线、下划线等连接符，也适用于 words 和 initials 占位符", "Replaces spaces, hyphens, underscores and other connectors in {name}; also applies to words and initials placeholders")}</small></label>
+        <label><span>{t("输出格式", "Output format")}</span><select value={request.outputFormat} onChange={(event) => patch({ outputFormat: event.target.value as OutputFormat })}><option value="keep">{t("保持原格式", "Keep original format")}</option><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option><option value="image/png">PNG</option></select><small>{t("可与重命名在同一个任务中完成", "Convert and rename in one task")}</small></label>
+        {request.outputFormat !== "keep" && <label><span>{t("转换质量", "Conversion quality")}</span><input type="number" min="1" max="100" value={request.quality} onChange={(event) => patch({ quality: Math.max(1, Math.min(100, Number(event.target.value) || 1)) })} /></label>}
+        <label className="rename-preserve"><span>{t("原图处理", "Original files")}</span><select value={request.preserveOriginal ? "copy" : "move"} onChange={(event) => patch({ preserveOriginal: event.target.value === "copy" })}><option value="move">{t("移动原图（仅保留处理结果）", "Move originals (keep results only)")}</option><option value="copy">{t("保留原图并生成新文件", "Keep originals and create new files")}</option></select><small>{t("已有目标文件始终跳过，不会覆盖", "Existing destination files are always skipped")}</small></label>
+        <p className="rename-monitor-note">{t("需要持续自动处理时，可在“文件夹监测”中同时设置输出格式和父文件夹命名规则。", "For continuous automation, configure both output format and parent-folder naming in Folder Watch.")}</p>
       </div>
-      <div className="rename-actions"><button type="button" disabled={busy || !request.rootFolder} onClick={() => void scan()}>{busy ? "···" : "⌕"} {t("扫描并预览", "Scan and preview")}</button><button className="primary" type="button" disabled={busy || !preview?.entries.some((entry) => entry.ready)} onClick={() => void apply()}>{t("执行重命名", "Apply rename")}</button></div>
+      <div className="rename-actions"><button type="button" disabled={busy || !request.rootFolder} onClick={() => void scan()}>{busy ? "···" : "⌕"} {t("扫描并预览", "Scan and preview")}</button><button className="primary" type="button" disabled={busy || !preview?.entries.some((entry) => entry.ready)} onClick={() => void apply()}>{t("执行处理", "Apply changes")}</button></div>
       {preview && <div className="rename-preview"><header><strong>{t("重命名预览", "Rename preview")}</strong><span>{t(`${preview.matched} 个匹配 · ${preview.failed} 个冲突`, `${preview.matched} matches · ${preview.failed} conflicts`)}</span></header>{preview.entries.slice(0, 200).map((entry) => <div className={entry.ready ? "ready" : "blocked"} key={entry.source}><span title={entry.source}>{entry.sourceName}</span><b>→</b><span title={entry.target}>{entry.targetName || entry.error}</span><small>{entry.error || entry.code}</small></div>)}</div>}
     </div>
   </section>;
@@ -3529,6 +3540,18 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setWatcherSettings((current) => ({ ...current, [kind === "input" ? "inputFolder" : "outputFolder"]: folder }));
   }, [nativeBridge]);
 
+  const setWatcherOutputPlacement = useCallback(async (placement: "subfolder" | "same-folder" | "fixed-folder") => {
+    if (placement === "same-folder") {
+      setWatcherSettings((current) => ({ ...current, outputFolder: "@same-folder" }));
+      return;
+    }
+    if (placement === "subfolder") {
+      setWatcherSettings((current) => ({ ...current, outputFolder: "" }));
+      return;
+    }
+    await chooseFolder("output");
+  }, [chooseFolder]);
+
   const useSuggestedScreenshotFolder = useCallback(async () => {
     if (!nativeBridge) return;
     try {
@@ -3603,7 +3626,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setSelectedWatchProfileId(id);
     setWatchProfileName(profile.name);
     if (active.length) {
-      const result = await nativeBridge.startWatcher({ ...active[0], profiles: active });
+      const result = await nativeBridge.startWatcher({ ...profile, profiles: active }, !current);
       if (!result.ok) { showToast(result.error || t("无法启动文件夹监测", "Could not start folder watching")); return; }
     }
     showToast(t("监控任务已保存并启用", "Watch task saved and enabled"));
@@ -4073,10 +4096,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               {!nativeBridge && <label className="check-row secondary-check"><input type="checkbox" checked={settings.preventLarger} onChange={(event) => setSettings((current) => ({ ...current, preventLarger: event.target.checked }))} /><span><strong>{t("避免无意义地变大", "Avoid unnecessary size increases")}</strong><small>{t("普通优化会保留更小的原图；明确改格式、尺寸或水印时始终按设置输出", "Keep the smaller original for ordinary optimisation; explicit format, resize, or watermark changes are always honoured")}</small></span></label>}
             </div>
 
-            <div className={`setting-section export-settings ${nativeBridge ? "desktop-hidden-setting" : ""}`}>
+            <div className="setting-section export-settings">
               <label className="setting-label" htmlFor="export-mode">{t("导出位置", "Export location")}</label>
-              <div className="select-wrap"><select id="export-mode" value={exportMode} onChange={(event) => setExportMode(event.target.value as ExportMode)}><option value="download">{t("浏览器下载", "Browser download")}</option><option value="overwrite">{t("覆盖源文件", "Replace original")}</option><option value="same-folder">{t("原文件夹重命名", "Rename in original folder")}</option><option value="fixed-folder">{t("固定文件夹", "Fixed folder")}</option></select></div>
-              {exportMode !== "overwrite" && <label className="suffix-input">{t("文件名后缀", "Filename suffix")}<input value={exportSuffix} onChange={(event) => setExportSuffix(event.target.value)} placeholder="-piclite" /></label>}
+              <div className="select-wrap"><select id="export-mode" value={exportMode} onChange={(event) => { const mode = event.target.value as ExportMode; setExportMode(mode); if (nativeBridge && mode !== "download") setDesktopPreferences((current) => ({ ...current, exportMode: mode })); }}>{!nativeBridge && <option value="download">{t("浏览器下载", "Browser download")}</option>}<option value="overwrite">{t("覆盖源文件", "Replace original")}</option><option value="same-folder">{t("原文件夹重命名", "Rename in original folder")}</option><option value="fixed-folder">{t("固定文件夹", "Fixed folder")}</option></select></div>
+              {exportMode !== "overwrite" && <label className="suffix-input">{t("文件名后缀", "Filename suffix")}<input value={exportSuffix} onChange={(event) => { const value = event.target.value; setExportSuffix(value); if (nativeBridge) setDesktopPreferences((current) => ({ ...current, exportSuffix: value })); }} placeholder="-piclite" /></label>}
               {(exportMode === "fixed-folder" || (!nativeBridge && exportMode === "same-folder")) && <button className="folder-picker-button" type="button" onClick={chooseExportFolder}><span>⌑</span><strong>{exportFolderName || (exportMode === "same-folder" ? t("授权原文件夹", "Authorise original folder") : t("选择固定文件夹", "Choose fixed folder"))}</strong><b>{t("选择", "Choose")}</b></button>}
               <p className={`setting-hint ${exportMode === "overwrite" ? "warning" : ""}`}>{exportMode === "download" && t("使用浏览器下载，不需要文件夹权限。", "Downloads through the browser and requires no folder permission.")}{exportMode === "overwrite" && t("会直接替换原图且无法撤销；仅支持保持原格式，并要求从“添加图片”导入。", "Replaces originals and cannot be undone. This requires keeping the original format and importing with Add images.")}{exportMode === "same-folder" && (nativeBridge ? t("桌面端会在每张源图旁输出重命名文件。", "The desktop app saves a renamed result next to each source image.") : t("网页无法自动获知父文件夹，需要手动授权一次目标文件夹。", "The web app needs one-time permission for the destination folder."))}{exportMode === "fixed-folder" && t("所有处理结果写入指定文件夹。", "All results are written to the selected folder.")}</p>
             </div>
@@ -4113,12 +4136,13 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               </button>
               <div className="route-line"><i /><i /><i /><span>{t("自动优化", "Auto optimise")}</span></div>
               <button type="button" onClick={() => chooseFolder("output")} disabled={!nativeBridge}>
-                <span className="folder-icon output">⌑</span><small>{t("输出文件夹", "Output folder")}</small><strong>{watcherSettings.outputFolder || t("默认：来源/PicLite", "Default: Source/PicLite")}</strong><b>{t("选择", "Choose")}</b>
+                <span className="folder-icon output">⌑</span><small>{t("输出文件夹", "Output folder")}</small><strong>{watcherSettings.outputFolder === "@same-folder" ? t("每张原图所在文件夹", "Each source image folder") : watcherSettings.outputFolder || t("默认：来源/PicLite", "Default: Source/PicLite")}</strong><b>{t("选择", "Choose")}</b>
               </button>
             </div>
 
             <div className="watcher-options">
               <label className="watcher-task-name"><span>{t("任务名称", "Task name")}</span><input type="text" value={watchProfileName} maxLength={40} disabled={!nativeBridge} placeholder={watcherSettings.inputFolder.split(/[\\/]/).filter(Boolean).pop() || t("例如：桌面截图", "For example: Desktop screenshots")} onChange={(event) => setWatchProfileName(event.target.value)} /></label>
+              <label><span>{t("保存位置", "Save results to")}</span><select value={watcherSettings.outputFolder === "@same-folder" ? "same-folder" : watcherSettings.outputFolder ? "fixed-folder" : "subfolder"} disabled={!nativeBridge} onChange={(event) => void setWatcherOutputPlacement(event.target.value as "subfolder" | "same-folder" | "fixed-folder")}><option value="same-folder">{t("每张原图所在文件夹", "Each source image folder")}</option><option value="subfolder">{t("监测根目录下的 PicLite 文件夹", "PicLite folder under the watch root")}</option><option value="fixed-folder">{t("指定固定文件夹", "A fixed folder")}</option></select></label>
               <label><span>{t("压缩方案", "Optimisation mode")}</span><select value={watcherSettings.mode} disabled={!nativeBridge} onChange={(event) => {
                 const mode = event.target.value as CompressionMode;
                 const quality = mode === "lossless" ? 92 : mode === "balanced" ? 82 : 45;
@@ -4146,6 +4170,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   firstPadding: 2,
                   secondPadding: 2,
                   wordSeparator: "",
+                  preserveOriginal: true,
+                  outputFormat: "keep",
+                  quality: 86,
                 } : undefined,
               }))} /><span>{t("按父文件夹内容命名输出图片", "Name outputs from parent-folder content")}</span></label>
               {watcherSettings.folderRename && <div className="watcher-rename-options">
@@ -4153,7 +4180,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <label><span>{t("输出文件名模板", "Output filename template")}</span><input value={watcherSettings.folderRename.renameTemplate} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, renameTemplate: event.target.value } }) : current)} /><small>{"{code} {name} {name:words} {folder} {match} {1} {2} {1:words} {1:initials}"}</small></label>
                 <label><span>{t("词语连接符", "Word separator")}</span><input value={watcherSettings.folderRename.wordSeparator || ""} maxLength={12} placeholder={t("留空、-、_ 或空格", "Empty, -, _, or a space")} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, wordSeparator: event.target.value } }) : current)} /></label>
                 <label className="watcher-padding"><span>{t("数字补齐", "Numeric padding")}</span><div><input aria-label={t("第一组补齐位数", "First capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.firstPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, firstPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /><b>+</b><input aria-label={t("第二组补齐位数", "Second capture padding")} type="number" min="1" max="12" value={watcherSettings.folderRename.secondPadding} disabled={!nativeBridge} onChange={(event) => setWatcherSettings((current) => current.folderRename ? ({ ...current, folderRename: { ...current.folderRename, secondPadding: Math.max(1, Math.min(12, Number(event.target.value) || 1)) } }) : current)} /></div></label>
-                <small>{t("会向上递归到监控根目录，使用第一个匹配的父文件夹。", "Searches upward to the watch root and uses the first matching parent.")}</small>
+                <small>{t("会向上递归到监控根目录，使用第一个匹配的父文件夹；可与上方格式转换在同一个监测任务中同时执行。", "Searches upward to the watch root and uses the first matching parent; output conversion runs in the same watch task.")}</small>
               </div>}
             </div>
 

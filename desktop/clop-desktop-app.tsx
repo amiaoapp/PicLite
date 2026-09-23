@@ -165,6 +165,7 @@ function nativeSettings(settings: DesktopSettings): QuickCompressSettings {
     exportSuffix: settings.outputSuffix,
     renameTemplate: settings.renameTemplate,
     fixedFolder: settings.outputFolder || undefined,
+    targetSizeKb: preset.targetSizeKb,
   };
 }
 
@@ -705,9 +706,17 @@ function BatchOptimiser({ api }: { api: PicLiteBridge }) {
   </main>;
 }
 
-type SettingsSection = "general" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor";
+type SettingsSection = "general" | "workbench" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor";
 
-const SETTINGS_SECTIONS = new Set<SettingsSection>(["general", "clipboard", "files", "images", "dropzone", "zones", "floating", "hosting", "plugins", "shortcuts", "about", "sponsor"]);
+const SETTINGS_SECTIONS = new Set<SettingsSection>(["general", "workbench", "clipboard", "files", "images", "dropzone", "zones", "floating", "hosting", "plugins", "shortcuts", "about", "sponsor"]);
+
+const MAIN_DESKTOP_PREFERENCES_KEY = "piclite.desktopPreferences.v1";
+type WorkbenchFileSettings = { exportMode: "same-folder" | "fixed-folder" | "overwrite"; exportSuffix: string; exportFolder: string; renameTemplate: string; confirmOverwrite: boolean };
+const DEFAULT_WORKBENCH_FILE_SETTINGS: WorkbenchFileSettings = { exportMode: "same-folder", exportSuffix: "-piclite", exportFolder: "", renameTemplate: "{name}{suffix}", confirmOverwrite: true };
+function loadWorkbenchFileSettings(): WorkbenchFileSettings {
+  try { return { ...DEFAULT_WORKBENCH_FILE_SETTINGS, ...JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") }; }
+  catch { return DEFAULT_WORKBENCH_FILE_SETTINGS; }
+}
 
 function requestedSettingsSection(): SettingsSection {
   const requested = localStorage.getItem(REQUESTED_SETTINGS_SECTION_KEY);
@@ -718,13 +727,14 @@ function requestedSettingsSection(): SettingsSection {
 
 const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: string; group?: string }> = [
   { id: "general", icon: "gear", zh: "外观与通用", en: "Appearance & General" },
+  { id: "workbench", icon: "folder", zh: "导出与文件", en: "Export & Files", group: "workbench" },
+  { id: "images", icon: "image", zh: "压缩规则", en: "Compression Rules", group: "floating" },
+  { id: "files", icon: "folder", zh: "文件保存", en: "File Saving" },
   { id: "clipboard", icon: "clipboard", zh: "剪贴板", en: "Clipboard" },
-  { id: "files", icon: "folder", zh: "文件处理", en: "File handling" },
-  { id: "images", icon: "image", zh: "图片", en: "Images", group: "types" },
-  { id: "dropzone", icon: "drop", zh: "拖放区", en: "Drop Zone", group: "results" },
+  { id: "dropzone", icon: "drop", zh: "拖放区", en: "Drop Zone" },
   { id: "zones", icon: "zones", zh: "悬浮按钮", en: "Action Buttons" },
   { id: "floating", icon: "results", zh: "悬浮结果", en: "Floating Results" },
-  { id: "hosting", icon: "upload", zh: "图床上传", en: "Image Hosting" },
+  { id: "hosting", icon: "upload", zh: "图床上传", en: "Image Hosting", group: "tools" },
   { id: "plugins", icon: "zones", zh: "插件", en: "Plugins" },
   { id: "shortcuts", icon: "shortcut", zh: "键盘快捷键", en: "Keyboard Shortcuts", group: "automation" },
   { id: "about", icon: "info", zh: "更新与关于", en: "Updates & About", group: "support" },
@@ -760,6 +770,7 @@ function SettingsCard({ title, note, children }: { title?: React.ReactNode; note
 
 function Preferences({ api }: { api: PicLiteBridge }) {
   const [settings, setSettings] = useDesktopSettings();
+  const [workbenchFiles, setWorkbenchFiles] = useState<WorkbenchFileSettings>(loadWorkbenchFileSettings);
   const [section, setSection] = useState<SettingsSection>(requestedSettingsSection);
   const [updateText, setUpdateText] = useState("");
   const [recordingShortcut, setRecordingShortcut] = useState<"shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent" | null>(null);
@@ -777,6 +788,12 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const language = settings.language;
   const patch = <K extends keyof DesktopSettings>(key: K, value: DesktopSettings[K]) => setSettings((current) => ({ ...current, [key]: value }));
   const patchPreset = (value: Partial<DesktopSettings["preset"]>) => setSettings((current) => ({ ...current, preset: { ...current.preset, ...value } }));
+  const patchWorkbenchFiles = (value: Partial<WorkbenchFileSettings>) => setWorkbenchFiles((current) => {
+    const next = { ...current, ...value };
+    const existing = (() => { try { return JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}"); } catch { return {}; } })();
+    localStorage.setItem(MAIN_DESKTOP_PREFERENCES_KEY, JSON.stringify({ ...existing, ...next }));
+    return next;
+  });
   useEffect(() => { void isAutostartEnabled().then((value) => patch("launchAtLogin", value)).catch(() => undefined); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     void api.setWindowTheme(settings.appearance);
@@ -842,6 +859,10 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const chooseOutput = async () => {
     const path = await api.selectFolder("export");
     if (path) patch("outputFolder", path);
+  };
+  const chooseWorkbenchOutput = async () => {
+    const path = await api.selectFolder("export");
+    if (path) patchWorkbenchFiles({ exportFolder: path, exportMode: "fixed-folder" });
   };
   const captureShortcut = useCallback((event: ShortcutKeyEvent & { preventDefault: () => void; stopPropagation: () => void }, key: "shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent") => {
     event.preventDefault();
@@ -958,7 +979,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
     <input ref={pluginInputRef} className="visually-hidden" type="file" accept=".html,.htm,.js,.json,text/html,text/javascript,application/json" onChange={(event) => void importPlugin(event)} />
     <aside className="settings-sidebar"><Brand />
       <nav>{settingsNav.map((item) => {
-        const marker = item.group ? <span className="nav-group" key={`${item.group}-label`}>{item.group === "types" ? tr(language, "文件类型", "File types") : item.group === "results" ? tr(language, "拖放与结果", "Drops & Results") : item.group === "automation" ? tr(language, "快捷键与自动化", "Shortcuts & Automation") : tr(language, "支持", "Support")}</span> : null;
+        const marker = item.group ? <span className="nav-group" key={`${item.group}-label`}>{item.group === "workbench" ? tr(language, "工作台设置", "Workbench Settings") : item.group === "floating" ? tr(language, "悬浮窗设置", "Floating Window Settings") : item.group === "tools" ? tr(language, "扩展功能", "Extensions") : item.group === "automation" ? tr(language, "快捷键与自动化", "Shortcuts & Automation") : tr(language, "支持", "Support")}</span> : null;
         return <span className="nav-entry" key={item.id}>{marker}<button className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon name={item.icon} /><span>{tr(language, item.zh, item.en)}</span></button></span>;
       })}</nav>
     </aside>
@@ -985,13 +1006,20 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="避免优化后变大" en="Never make files larger" />}><Switch label="larger" checked={settings.preset.preventLarger} onChange={(value) => patchPreset({ preventLarger: value })} /></SettingsRow>
         </SettingsCard>
       </>}
+      {section === "workbench" && <SettingsCard title={<T language={language} zh="工作台导出与文件" en="Workbench export and files" />} note={<T language={language} zh="只控制主窗口工作台的“导出”按钮，不影响悬浮窗和文件夹监测" en="Controls the main workbench Export button only; floating results and folder watch use their own rules" />}>
+        <SettingsRow title={<T language={language} zh="导出位置" en="Export location" />}><Select label="workbench export placement" value={workbenchFiles.exportMode} onChange={(value) => patchWorkbenchFiles({ exportMode: value })}><option value="same-folder">{tr(language, "原文件夹重命名", "Rename in original folder")}</option><option value="fixed-folder">{tr(language, "固定文件夹", "Fixed folder")}</option><option value="overwrite">{tr(language, "覆盖源文件", "Replace original")}</option></Select></SettingsRow>
+        {workbenchFiles.exportMode !== "overwrite" && <SettingsRow title={<T language={language} zh="文件名后缀" en="Filename suffix" />}><input value={workbenchFiles.exportSuffix} onChange={(event) => patchWorkbenchFiles({ exportSuffix: event.target.value })} placeholder="-piclite" /></SettingsRow>}
+        {workbenchFiles.exportMode !== "overwrite" && <SettingsRow title={<T language={language} zh="重命名模板" en="Rename template" />} note={<T language={language} zh="支持 {name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" en="Supports {name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" />}><input value={workbenchFiles.renameTemplate} onChange={(event) => patchWorkbenchFiles({ renameTemplate: event.target.value })} /></SettingsRow>}
+        {workbenchFiles.exportMode === "fixed-folder" && <SettingsRow title={<T language={language} zh="固定输出文件夹" en="Fixed output folder" />}><button className="path-button" onClick={() => void chooseWorkbenchOutput()}>{workbenchFiles.exportFolder || tr(language, "选择文件夹…", "Choose folder…")}</button></SettingsRow>}
+        {workbenchFiles.exportMode === "overwrite" && <SettingsRow title={<T language={language} zh="覆盖前再次确认" en="Confirm before replacing" />} note={<T language={language} zh="覆盖操作无法撤销" en="Replacing a file cannot be undone" />}><Switch label="confirm overwrite" checked={workbenchFiles.confirmOverwrite} onChange={(value) => patchWorkbenchFiles({ confirmOverwrite: value })} /></SettingsRow>}
+      </SettingsCard>}
       {section === "clipboard" && <SettingsCard title={<T language={language} zh="剪贴板" en="Clipboard" />} note={<T language={language} zh="自动监测复制的图片并优化" en="Watch copied images and optimise them automatically" />}>
         <SettingsRow title={<T language={language} zh="启用剪贴板优化器" en="Enable clipboard optimiser" />}><Switch label="clipboard" checked={settings.clipboardOptimiser} onChange={(value) => patch("clipboardOptimiser", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="图片数据" en="Image data" />} note={<T language={language} zh="截图和从应用中复制的像素数据" en="Screenshots and pixels copied from applications" />}><Switch label="image data" checked={settings.clipboardImageData} onChange={(value) => patch("clipboardImageData", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="图片文件" en="Image files" />} note={<T language={language} zh="从文件管理器复制的图片路径" en="Image paths copied from the file manager" />}><Switch label="files" checked={settings.clipboardImageFiles} onChange={(value) => patch("clipboardImageFiles", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="保留所有剪贴板结果" en="Keep all clipboard results" />} note={<T language={language} zh="每次复制生成独立结果，不替换上一次" en="Append each result instead of replacing the previous one" />}><Switch label="keep" checked={settings.keepClipboardResults} onChange={(value) => patch("keepClipboardResults", value)} /></SettingsRow>
       </SettingsCard>}
-      {section === "files" && <><SettingsCard title={<T language={language} zh="图片文件处理" en="Image file handling" />}>
+      {section === "files" && <><SettingsCard title={<T language={language} zh="悬浮窗文件保存" en="Floating window file saving" />} note={<T language={language} zh="只控制剪贴板、拖放区和悬浮结果生成的文件" en="Controls files created by clipboard, drop zone and floating results only" />}>
         <SettingsRow title={<T language={language} zh="优化文件位置" en="Optimised file placement" />} note={<T language={language} zh="原图保留不变，优化结果写入所选位置" en="Keep originals and write optimised results to the selected location" />}><Select label="placement" value={settings.filePlacement} onChange={(value) => patch("filePlacement", value)}><option value="same-folder">{tr(language, "原文件夹", "Same folder as original")}</option><option value="fixed-folder">{tr(language, "指定文件夹", "Specific folder")}</option></Select></SettingsRow>
         <SettingsRow title={<T language={language} zh="文件名后缀" en="Filename suffix" />}><input value={settings.outputSuffix} onChange={(event) => patch("outputSuffix", event.target.value)} placeholder="-piclite" /></SettingsRow>
         <SettingsRow title={<T language={language} zh="重命名模板" en="Rename template" />} note={<T language={language} zh="可用：{name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" en="Variables: {name} {suffix} {date} {time} {datetime} {size} {width} {height} {ext}" />}><input value={settings.renameTemplate} onChange={(event) => patch("renameTemplate", event.target.value)} placeholder="{name}{suffix}" /></SettingsRow>
@@ -1006,6 +1034,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="压缩质量" en="Compression quality" />} note={settings.preset.mode === "auto" ? tr(language, "自动", "Automatic") : `${settings.preset.quality}%`}><input disabled={settings.preset.mode === "auto"} type="range" min="5" max="100" value={settings.preset.quality} onChange={(event) => patchPreset({ mode: "manual", quality: Number(event.target.value) })} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="缩放" en="Downscale" />} note={settings.preset.mode === "auto" ? "100%" : `${settings.preset.scale}%`}><input disabled={settings.preset.mode === "auto"} type="range" min="5" max="100" value={settings.preset.scale} onChange={(event) => patchPreset({ mode: "manual", scale: Number(event.target.value) })} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="输出格式" en="Output format" />}><Select label="format" disabled={settings.preset.mode === "auto"} value={settings.preset.mode === "auto" ? "keep" : settings.preset.format} onChange={(value) => patchPreset({ format: value })}><option value="keep">{tr(language, settings.preset.mode === "auto" ? "自动择优（JPEG / WebP / PNG）" : "保持原格式", settings.preset.mode === "auto" ? "Auto-select (JPEG / WebP / PNG)" : "Keep original format")}</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="png">PNG</option></Select></SettingsRow>
+          <SettingsRow title={<T language={language} zh="目标文件大小" en="Target file size" />} note={<T language={language} zh="设为 0 表示不限；启用后会继续降低画质和尺寸直至尽量满足上限" en="0 means unlimited; PicLite lowers quality and dimensions further to approach the limit" />}><span className="number-field"><input type="number" min="0" max="102400" value={settings.preset.targetSizeKb} onChange={(event) => patchPreset({ targetSizeKb: Math.max(0, Math.min(102400, Number(event.target.value) || 0)) })} /> KB</span></SettingsRow>
         </SettingsCard>
       </>}
       {section === "dropzone" && <SettingsCard title={<T language={language} zh="拖放区" en="Drop zone" />} note={<T language={language} zh="把图片拖入悬浮结果窗口即可优化" en="Drop images into the floating results window to optimise them" />}>

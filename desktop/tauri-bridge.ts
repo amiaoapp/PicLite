@@ -105,7 +105,7 @@ if ("__TAURI_INTERNALS__" in window) {
       },
     }),
     validateWatcher: (settings) => invoke("validate_watcher", { settings }),
-    startWatcher: (settings) => invoke("start_watcher", { settings }),
+    startWatcher: (settings, scanExisting = false) => invoke("start_watcher", { settings, scanExisting }),
     stopWatcher: () => invoke("stop_watcher"),
     getWatcherState: () => invoke("get_watcher_state"),
     quickCompressPaths: (paths, settings) => invoke("quick_compress_paths", { paths, settings }),

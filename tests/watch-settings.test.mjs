@@ -43,7 +43,7 @@ test('Windows clipboard repair re-enables old disabled monitor settings once', (
 });
 
 test('smart compression uses multi-format defaults while custom compression keeps its settings', () => {
-  const shared = { stripMetadata: true, preventLarger: true };
+  const shared = { stripMetadata: true, preventLarger: true, targetSizeKb: 120 };
   assert.deepEqual(
     resolveOptimisationPreset({ mode: 'auto', quality: 35, scale: 45, format: 'jpeg', ...shared }),
     { mode: 'auto', quality: 86, scale: 100, format: 'keep', ...shared },
@@ -52,6 +52,18 @@ test('smart compression uses multi-format defaults while custom compression keep
     resolveOptimisationPreset({ mode: 'manual', quality: 35, scale: 45, format: 'jpeg', ...shared }),
     { mode: 'manual', quality: 35, scale: 45, format: 'jpeg', ...shared },
   );
+});
+
+test('floating filename settings do not overwrite workbench export settings', () => {
+  values.clear();
+  values.set('piclite.desktopPreferences.v1', JSON.stringify({ renameTemplate: '{name}-workbench', exportMode: 'fixed-folder', exportFolder: 'W' }));
+  const floating = { ...loadSettings(), renameTemplate: '{name}-floating', outputFolder: 'F' };
+  saveSettings(floating);
+  const workbench = JSON.parse(values.get('piclite.desktopPreferences.v1'));
+  assert.equal(workbench.renameTemplate, '{name}-workbench');
+  assert.equal(workbench.exportMode, 'fixed-folder');
+  assert.equal(workbench.exportFolder, 'W');
+  assert.equal(loadSettings().renameTemplate, '{name}-floating');
 });
 
 test('Windows preview paths match canonical device paths and ordinary output paths', () => {

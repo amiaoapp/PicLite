@@ -44,6 +44,7 @@ export type OptimisationPreset = {
   format: ImageFormat;
   stripMetadata: boolean;
   preventLarger: boolean;
+  targetSizeKb: number;
 };
 
 export type DesktopSettings = {
@@ -110,6 +111,7 @@ export type QuickCompressSettings = {
   exportSuffix: string;
   renameTemplate?: string;
   fixedFolder?: string;
+  targetSizeKb?: number;
 };
 
 export type QuickCompressResult = {
@@ -130,6 +132,9 @@ export type BatchRenameRequest = {
   firstPadding: number;
   secondPadding: number;
   wordSeparator: string;
+  preserveOriginal: boolean;
+  outputFormat: string;
+  quality: number;
 };
 
 export type BatchRenameEntry = {
@@ -220,7 +225,7 @@ export type PicLiteBridge = {
   readImagesFromPaths: (paths: string[]) => Promise<NativeImage[]>;
   selectFolder: (kind: "input" | "output" | "export") => Promise<string | null>;
   validateWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
-  startWatcher: (settings: WatcherSettings) => Promise<{ ok: boolean; error?: string }>;
+  startWatcher: (settings: WatcherSettings, scanExisting?: boolean) => Promise<{ ok: boolean; error?: string }>;
   stopWatcher: () => Promise<{ ok: boolean }>;
   getWatcherState: () => Promise<{ active: boolean; settings?: WatcherSettings }>;
   quickCompressPaths: (paths: string[], settings: QuickCompressSettings) => Promise<QuickCompressResult[]>;
