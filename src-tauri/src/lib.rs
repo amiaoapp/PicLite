@@ -1,3 +1,5 @@
+mod animation_size;
+
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashSet},
@@ -2497,6 +2499,12 @@ fn optimize_image_data(
     source_extension: String,
     settings: &WatcherSettings,
 ) -> Result<OptimizedImage, String> {
+    let is_animation =
+        source_extension == "gif" || (source_extension == "webp" && is_animated_webp(&original));
+    let animation_target = animation_size::target_bytes(settings);
+    if is_animation && animation_target > 0 {
+        return animation_size::optimize(&original, &source_extension, settings, animation_target);
+    }
     let mut unconstrained = settings.clone();
     unconstrained.target_size_kb = 0;
     let initial = optimize_image_data_unconstrained(
@@ -3113,19 +3121,24 @@ async fn compress_animation_data(
         .unwrap_or("")
         .to_ascii_lowercase();
     let compression = quick_settings(&settings);
-    let (source_width, source_height) = match extension.as_str() {
+    let _source_dimensions = match extension.as_str() {
         "gif" => GifDecoder::new(BufReader::new(Cursor::new(&data)))
             .map_err(|error| error.to_string())?
             .dimensions(),
-        "webp" if is_animated_webp(&data) => {
-            let animation = decode_webp_animation(&data)?;
-            (animation.width, animation.height)
-        }
+        "webp" if is_animated_webp(&data) => image::ImageReader::new(Cursor::new(&data))
+            .with_guessed_format()
+            .map_err(|e| e.to_string())?
+            .into_dimensions()
+            .map_err(|e| e.to_string())?,
         "webp" => return Err("该 WebP 不包含多个动画帧".to_string()),
         _ => return Err("当前原生动画编码仅接受 GIF 或动态 WebP".to_string()),
     };
-    let (width, height) = target_dimensions(source_width, source_height, &compression);
     let optimized = optimize_image_data(data.clone(), extension.clone(), &compression)?;
+    let (width, height) = image::ImageReader::new(Cursor::new(&optimized.bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .into_dimensions()
+        .map_err(|e| e.to_string())?;
     let mime_type = if optimized.extension == "webp" {
         "image/webp"
     } else {
@@ -8335,7 +8348,7 @@ mod tests {
         fs::remove_dir_all(root).expect("remove batch rename test folder");
     }
 
-    fn watch_test_settings(root: &Path) -> WatcherSettings {
+    pub(super) fn watch_test_settings(root: &Path) -> WatcherSettings {
         serde_json::from_value(serde_json::json!({
             "inputFolder": root.to_string_lossy(), "outputFolder": "@same-folder",
             "mode": "manual", "quality": 85, "scale": 100, "format": "image/jpeg",
