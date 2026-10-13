@@ -229,15 +229,13 @@ fn encode_gif(
     let mut previous: Option<Vec<u8>> = None;
     for (i, (pixels, start)) in frames.iter().enumerate() {
         let mut indices = Vec::with_capacity((width * height) as usize);
-        const BAYER: [[i32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
-        for (x, y, pixel) in pixels.enumerate_pixels() {
+        for pixel in pixels.pixels() {
             if pixel.0[3] < 128 {
                 indices.push(transparent);
                 continue;
             }
-            let dither = (BAYER[y as usize % 4][x as usize % 4] as f32 - 7.5) / 16.0;
             let channels: [usize; 3] = std::array::from_fn(|c| {
-                (pixel.0[c] as f32 * (levels - 1) as f32 / 255.0 + dither)
+                (pixel.0[c] as f32 * (levels - 1) as f32 / 255.0)
                     .round()
                     .clamp(0.0, (levels - 1) as f32) as usize
             });
@@ -427,6 +425,36 @@ mod tests {
         assert_eq!(target_bytes(&settings("auto", "keep", 50)), 50 * 1024);
         assert_eq!(target_bytes(&settings("lossless", "keep", 0)), 0);
     }
+    #[test]
+    fn gif_solid_colors_remain_solid_without_added_dot_patterns() {
+        let animation = SizedAnimation {
+            frames: vec![
+                (
+                    image::RgbaImage::from_pixel(32, 24, image::Rgba([128, 128, 128, 255])),
+                    0,
+                ),
+                (
+                    image::RgbaImage::from_pixel(32, 24, image::Rgba([85, 85, 85, 255])),
+                    100,
+                ),
+            ],
+            duration: 200,
+            loop_count: 0,
+            background: [0; 4],
+        };
+        let bytes = encode_gif(&animation.frames, &animation, 72).unwrap();
+        let frames = GifDecoder::new(Cursor::new(bytes))
+            .unwrap()
+            .into_frames()
+            .collect_frames()
+            .unwrap();
+        assert_eq!(frames.len(), 2);
+        for frame in frames {
+            let first = frame.buffer().get_pixel(0, 0);
+            assert!(frame.buffer().pixels().all(|pixel| pixel == first));
+        }
+    }
+
     #[test]
     fn gif_target_reduces_size_preserving_time_loop_and_transparency() {
         let (original, _) = fixture();
