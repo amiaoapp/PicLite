@@ -309,7 +309,7 @@ pub(super) fn target_bytes(settings: &WatcherSettings) -> usize {
         return settings.target_size_kb as usize * 1024;
     }
     if matches!(settings.mode.as_str(), "auto" | "balanced" | "small") {
-        200 * 1024
+        500 * 1024
     } else {
         0
     }
@@ -421,8 +421,8 @@ mod tests {
         s
     }
     #[test]
-    fn smart_animation_defaults_to_200kb_and_manual_retains_no_limit() {
-        assert_eq!(target_bytes(&settings("auto", "keep", 0)), 200 * 1024);
+    fn smart_animation_defaults_to_500kb_and_manual_retains_no_limit() {
+        assert_eq!(target_bytes(&settings("auto", "keep", 0)), 500 * 1024);
         assert_eq!(target_bytes(&settings("manual", "keep", 0)), 0);
         assert_eq!(target_bytes(&settings("auto", "keep", 50)), 50 * 1024);
         assert_eq!(target_bytes(&settings("lossless", "keep", 0)), 0);

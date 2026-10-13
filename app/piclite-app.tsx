@@ -4104,7 +4104,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 {[0, 200, 100, 50].map((size) => <button className={settings.targetSizeKb === size ? "active" : ""} type="button" key={size} onClick={() => setSettings((current) => ({ ...current, targetSizeKb: size }))}>{size ? `${size} KB` : t("不限", "Unlimited")}</button>)}
               </div>
               <label className="target-size-custom" htmlFor="target-size-input"><span>{t("自定义上限", "Custom limit")}</span><input id="target-size-input" type="number" inputMode="numeric" min="1" max="102400" step="1" value={settings.targetSizeKb || ""} placeholder={t("输入大小", "Enter size")} onChange={(event) => setSettings((current) => ({ ...current, targetSizeKb: event.target.value ? Math.max(1, Math.min(102400, Math.round(Number(event.target.value)))) : 0 }))} /><b>KB</b></label>
-              <p className="setting-hint"><i /> {t("静态图按实际体积调整画质和尺寸。智能动图默认目标 200 KB，可降低画质、等比缩小和抽帧，并保持播放时长；指定上限优先生效。", "Static images adjust quality and dimensions. Smart animations target 200 KB through lower quality, proportional resizing and frame thinning while preserving duration; a custom limit takes priority.")}</p>
+              <p className="setting-hint"><i /> {t("静态图按实际体积调整画质和尺寸。智能动图默认目标 500 KB，可降低画质、等比缩小和抽帧，并保持播放时长；指定上限优先生效。", "Static images adjust quality and dimensions. Smart animations target 500 KB through lower quality, proportional resizing and frame thinning while preserving duration; a custom limit takes priority.")}</p>
             </div>
 
             <div className="setting-section slider-section">
