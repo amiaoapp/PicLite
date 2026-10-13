@@ -1,7 +1,7 @@
 {
   "name": "piclite",
-  "version": "1.8.9",
-  "releaseDate": "2026-10-02",
+  "version": "1.9.0",
+  "releaseDate": "2026-10-13",
   "description": "本地优先、可自托管的跨平台图片与 GIF 压缩工作台",
   "author": {
     "name": "PicLite contributors",

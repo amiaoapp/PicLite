@@ -229,13 +229,15 @@ fn encode_gif(
     let mut previous: Option<Vec<u8>> = None;
     for (i, (pixels, start)) in frames.iter().enumerate() {
         let mut indices = Vec::with_capacity((width * height) as usize);
-        for pixel in pixels.pixels() {
+        const BAYER: [[i32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+        for (x, y, pixel) in pixels.enumerate_pixels() {
             if pixel.0[3] < 128 {
                 indices.push(transparent);
                 continue;
             }
+            let dither = (BAYER[y as usize % 4][x as usize % 4] as f32 - 7.5) / 16.0;
             let channels: [usize; 3] = std::array::from_fn(|c| {
-                (pixel.0[c] as f32 * (levels - 1) as f32 / 255.0)
+                (pixel.0[c] as f32 * (levels - 1) as f32 / 255.0 + dither)
                     .round()
                     .clamp(0.0, (levels - 1) as f32) as usize
             });
@@ -426,7 +428,7 @@ mod tests {
         assert_eq!(target_bytes(&settings("lossless", "keep", 0)), 0);
     }
     #[test]
-    fn gif_solid_colors_remain_solid_without_added_dot_patterns() {
+    fn gif_uses_ordered_dots_to_reduce_palette_banding() {
         let animation = SizedAnimation {
             frames: vec![
                 (
@@ -449,10 +451,16 @@ mod tests {
             .collect_frames()
             .unwrap();
         assert_eq!(frames.len(), 2);
-        for frame in frames {
-            let first = frame.buffer().get_pixel(0, 0);
-            assert!(frame.buffer().pixels().all(|pixel| pixel == first));
-        }
+        let colors = frames[0]
+            .buffer()
+            .pixels()
+            .map(|pixel| pixel.0)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(colors.len() > 1, "mid-tones should use ordered dithering");
+        assert!(
+            colors.len() <= 8,
+            "dithering uses only neighboring palette colors"
+        );
     }
 
     #[test]
