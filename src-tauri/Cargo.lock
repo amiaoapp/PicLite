@@ -3167,6 +3167,7 @@ dependencies = [
  "chrono",
  "color_quant",
  "fast_image_resize",
+ "gif",
  "hmac",
  "image",
  "notify",

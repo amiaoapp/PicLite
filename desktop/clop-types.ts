@@ -78,6 +78,7 @@ export type DesktopSettings = {
   floatingLayout: ResultLayout;
   floatingDisplayMode: ResultDisplayMode;
   floatingMaxResults: number;
+  floatingClickThrough: boolean;
   floatingCorner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   floatingWidth: number;
   floatingHeight: number;
@@ -260,6 +261,7 @@ export type PicLiteBridge = {
   showGalleryWindow: () => Promise<void>;
   showPreferencesWindow: (section?: "general" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor") => Promise<void>;
   showDropzoneWindow: () => Promise<void>;
+  configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;

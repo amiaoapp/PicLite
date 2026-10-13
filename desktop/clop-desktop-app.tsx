@@ -489,6 +489,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   };
 
   useEffect(() => { void api.configureDropzoneWindow(settings.floatingWidth, settings.floatingHeight); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => { void api.setContentProtected(!settings.allowFloatingCapture).catch(() => undefined); }, [api, settings.allowFloatingCapture]);
   useEffect(() => { void ensureFontLoaded(api, settings.floatingWatermark.fontFamily).catch(() => undefined); }, [api, settings.floatingWatermark.fontFamily]);
   useEffect(() => api.onWindowResized((size) => {
@@ -816,6 +817,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       clipboardWatcherEnabled: settings.clipboardOptimiser,
     });
   }, [api, settings.appearance, settings.clipboardOptimiser, settings.showInTaskbarDock]);
+  useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyAppearance = () => {
@@ -1083,6 +1085,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </div>
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
+        <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后点击会传递给下方窗口；可在此关闭以恢复悬浮窗操作" en="Clicks reach the window below. Disable here to interact with floating results again." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>

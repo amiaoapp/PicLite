@@ -218,6 +218,7 @@ type NativeBridge = {
   showDropzoneWindow: () => Promise<void>;
   submitCornerDrop: (paths: string[]) => Promise<void>;
   takePendingCornerDrop: () => Promise<string[]>;
+  configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;
   setAlwaysOnTop: (enabled: boolean) => Promise<void>;

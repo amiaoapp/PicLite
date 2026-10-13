@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingLayout: "compact",
   floatingDisplayMode: "stack",
   floatingMaxResults: 5,
+  floatingClickThrough: false,
   floatingCorner: "bottom-right",
   floatingWidth: 320,
   floatingHeight: 230,

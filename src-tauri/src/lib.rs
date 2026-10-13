@@ -90,6 +90,7 @@ struct DesktopState {
     shortcut_config_lock: Mutex<()>,
     /// The drop window is placed in its initial corner exactly once. Later
     /// show/resize calls preserve the position selected by dragging it.
+    floating_corner: Mutex<String>,
     dropzone_positioned: AtomicBool,
 }
 
@@ -110,6 +111,7 @@ impl Default for DesktopState {
             clipboard_monitor_enabled: AtomicBool::new(false),
             clipboard_ignore_until_ms: AtomicU64::new(0),
             shortcut_config_lock: Mutex::new(()),
+            floating_corner: Mutex::new("bottom-right".to_string()),
             dropzone_positioned: AtomicBool::new(false),
         }
     }
@@ -1383,30 +1385,150 @@ fn has_meaningful_savings(original: usize, candidate: usize) -> bool {
     saved >= minimum_bytes && candidate.saturating_mul(100) <= original.saturating_mul(98)
 }
 
-fn encode_gif(original: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
-    let decoder = GifDecoder::new(BufReader::new(Cursor::new(original)))
-        .map_err(|error| error.to_string())?;
-    let frames = decoder
-        .into_frames()
-        .collect_frames()
-        .map_err(|error| error.to_string())?;
-    let mut encoded = Vec::new();
+fn encode_indexed_gif(original: &[u8], quality: u8) -> Result<Vec<u8>, String> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::Indexed);
+    let mut decoder = options
+        .read_info(Cursor::new(original))
+        .map_err(|e| e.to_string())?;
+    let global = decoder.global_palette().map(|p| p.to_vec());
+    let (width, height) = (decoder.width(), decoder.height());
+    let mut output = Vec::new();
     {
-        let speed = (31_u8.saturating_sub((quality as u16 * 30 / 100) as u8)).clamp(1, 30) as i32;
-        let mut encoder = GifEncoder::new_with_speed(&mut encoded, speed);
-        encoder
-            .set_repeat(Repeat::Infinite)
-            .map_err(|error| error.to_string())?;
-        for frame in frames {
-            let delay = frame.delay();
-            let mut buffer = frame.into_buffer();
-            if buffer.width() != width || buffer.height() != height {
-                buffer = image::imageops::resize(&buffer, width, height, FilterType::Lanczos3);
+        let mut encoder =
+            gif::Encoder::new(&mut output, width, height, &[]).map_err(|e| e.to_string())?;
+        let mut first = true;
+        while let Some(frame) = decoder.read_next_frame().map_err(|e| e.to_string())? {
+            let mut frame = frame.clone();
+            if first {
+                encoder
+                    .set_repeat(decoder.repeat())
+                    .map_err(|e| e.to_string())?;
+                first = false;
             }
-            quantize_rgba(&mut buffer, quality);
-            encoder
-                .encode_frame(Frame::from_parts(buffer, 0, 0, delay))
-                .map_err(|error| error.to_string())?;
+            let palette = frame
+                .palette
+                .as_ref()
+                .or(global.as_ref())
+                .ok_or("GIF 缺少调色板")?;
+            let levels = if quality >= 100 {
+                256
+            } else if quality >= 65 {
+                4
+            } else {
+                3
+            };
+            let mut colors: Vec<[u8; 3]> = Vec::new();
+            let mut remap = vec![0u8; palette.len() / 3];
+            // Reserve a distinct transparent index so opaque black stays opaque.
+            if frame.transparent.is_some() {
+                colors.push([0, 0, 0]);
+            }
+            for (i, color) in palette.chunks_exact(3).enumerate() {
+                if frame.transparent == Some(i as u8) {
+                    remap[i] = 0;
+                    continue;
+                }
+                let rgb = std::array::from_fn(|c| {
+                    let value = color[c] as u32;
+                    (((value * (levels - 1) + 127) / 255) * 255 / (levels - 1)) as u8
+                });
+                let skip = usize::from(frame.transparent.is_some());
+                let index = colors
+                    .iter()
+                    .enumerate()
+                    .skip(skip)
+                    .find(|(_, v)| **v == rgb)
+                    .map(|(i, _)| i)
+                    .unwrap_or_else(|| {
+                        colors.push(rgb);
+                        colors.len() - 1
+                    });
+                remap[i] = index as u8;
+            }
+            let indices = frame
+                .buffer
+                .iter()
+                .map(|v| remap[*v as usize])
+                .collect::<Vec<_>>();
+            frame.buffer = Cow::Owned(indices);
+            frame.palette = Some(colors.into_iter().flatten().collect());
+            frame.transparent = frame.transparent.map(|_| 0);
+            encoder.write_frame(&frame).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(output)
+}
+
+fn encode_gif(original: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
+    let decoder =
+        GifDecoder::new(BufReader::new(Cursor::new(original))).map_err(|e| e.to_string())?;
+    if decoder.dimensions() == (width, height) {
+        return encode_indexed_gif(original, quality);
+    }
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::Indexed);
+    let mut metadata = options
+        .read_info(Cursor::new(original))
+        .map_err(|e| e.to_string())?;
+    metadata.next_frame_info().map_err(|e| e.to_string())?;
+    let repeat = metadata.repeat();
+    let mut encoded = Vec::new();
+    let mut previous: Option<image::RgbaImage> = None;
+    {
+        let mut encoder = gif::Encoder::new(&mut encoded, width as u16, height as u16, &[])
+            .map_err(|e| e.to_string())?;
+        encoder.set_repeat(repeat).map_err(|e| e.to_string())?;
+        for frame in decoder.into_frames() {
+            let frame = frame.map_err(|e| e.to_string())?;
+            let delay = frame.delay();
+            let mut pixels = frame.into_buffer();
+            if pixels.dimensions() != (width, height) {
+                pixels = image::imageops::resize(&pixels, width, height, FilterType::Triangle);
+            }
+            quantize_rgba(&mut pixels, quality);
+            let opaque = pixels.pixels().all(|p| p.0[3] == 255);
+            let mut bounds = (0, 0, width, height);
+            if opaque {
+                if let Some(old) = previous
+                    .as_ref()
+                    .filter(|v| v.pixels().all(|p| p.0[3] == 255))
+                {
+                    let (mut left, mut top, mut right, mut bottom) = (width, height, 0, 0);
+                    for y in 0..height {
+                        for x in 0..width {
+                            if pixels.get_pixel(x, y) != old.get_pixel(x, y) {
+                                left = left.min(x);
+                                top = top.min(y);
+                                right = right.max(x + 1);
+                                bottom = bottom.max(y + 1);
+                            }
+                        }
+                    }
+                    bounds = if right == 0 {
+                        (0, 0, 1, 1)
+                    } else {
+                        (left, top, right - left, bottom - top)
+                    };
+                }
+            }
+            let (left, top, w, h) = bounds;
+            let mut cropped = image::imageops::crop_imm(&pixels, left, top, w, h)
+                .to_image()
+                .into_raw();
+            // Fast NeuQuant sampling avoids expensive palette searches across
+            // every full screenshot frame. Encode only the changed rectangle.
+            let mut output = gif::Frame::from_rgba_speed(w as u16, h as u16, &mut cropped, 30);
+            output.left = left as u16;
+            output.top = top as u16;
+            output.delay = (gif_delay_ms(delay) / 10).max(1).min(u16::MAX as i32) as u16;
+            output.dispose = if opaque {
+                gif::DisposalMethod::Keep
+            } else {
+                gif::DisposalMethod::Background
+            };
+            encoder.write_frame(&output).map_err(|e| e.to_string())?;
+            previous = Some(pixels);
         }
     }
     Ok(encoded)
@@ -1837,16 +1959,19 @@ fn optimize_gif_animation(
     let (width, height) = decoder.dimensions();
     let (target_width, target_height) = target_dimensions(width, height, settings);
 
-    // GIF is already an indexed lossless format. Re-quantising an unchanged GIF
-    // cannot improve fidelity and may introduce banding, so an honest lossless
-    // preset keeps the source bytes verbatim.
+    // Lossless GIF optimisation keeps indexed colors and local frame geometry.
     if settings.mode == "lossless"
         && settings.format == "keep"
         && target_width == width
         && target_height == height
     {
+        let candidate = encode_indexed_gif(original, 100)?;
         return Ok(OptimizedImage {
-            bytes: original.to_vec(),
+            bytes: if candidate.len() < original.len() {
+                candidate
+            } else {
+                original.to_vec()
+            },
             extension: "gif".to_string(),
         });
     }
@@ -1866,6 +1991,12 @@ fn optimize_gif_animation(
             settings.quality.min(58).max(1)
         };
         let gif = encode_gif(original, target_width, target_height, quality)?;
+        if has_meaningful_savings(original.len(), gif.len()) {
+            return Ok(OptimizedImage {
+                bytes: gif,
+                extension: "gif".to_string(),
+            });
+        }
         let webp = encode_animated_webp(original, target_width, target_height, quality)?;
         let mut best = if webp.len() < gif.len() {
             OptimizedImage {
@@ -2695,8 +2826,22 @@ fn position_dropzone(window: &tauri::WebviewWindow, logical_width: f64, logical_
     let height = (logical_height * scale).round() as i32;
     let position = monitor.position();
     let size = monitor.size();
-    let x = position.x + size.width as i32 - width - margin;
-    let y = position.y + size.height as i32 - height - margin;
+    let corner = window
+        .state::<DesktopState>()
+        .floating_corner
+        .lock()
+        .map(|v| v.clone())
+        .unwrap_or_else(|_| "bottom-right".to_string());
+    let x = if corner.ends_with("left") {
+        position.x + margin
+    } else {
+        position.x + size.width as i32 - width - margin
+    };
+    let y = if corner.starts_with("top") {
+        position.y + margin
+    } else {
+        position.y + size.height as i32 - height - margin
+    };
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
@@ -3530,6 +3675,39 @@ async fn show_dropzone_window(
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
     show_dropzone_ready(&app, &state)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn configure_floating_behavior(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+    corner: String,
+    click_through: bool,
+) -> Result<(), String> {
+    if !matches!(
+        corner.as_str(),
+        "top-left" | "top-right" | "bottom-left" | "bottom-right"
+    ) {
+        return Err("无效的屏幕位置".to_string());
+    }
+    let changed = {
+        let mut saved = state.floating_corner.lock().map_err(|e| e.to_string())?;
+        let changed = *saved != corner;
+        *saved = corner;
+        changed
+    };
+    if let Some(window) = app.get_webview_window("dropzone") {
+        window
+            .set_ignore_cursor_events(click_through)
+            .map_err(|e| e.to_string())?;
+        if changed {
+            if let (Ok(size), Ok(Some(monitor))) = (window.outer_size(), window.current_monitor()) {
+                let logical = size.to_logical::<f64>(monitor.scale_factor());
+                position_dropzone(&window, logical.width, logical.height);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -6535,6 +6713,7 @@ pub fn run() {
             take_pending_clipboard,
             show_preferences_window,
             show_dropzone_window,
+            configure_floating_behavior,
             configure_dropzone_window,
             resize_dropzone_window,
             hide_current_window,
@@ -7279,6 +7458,92 @@ mod tests {
                 .width()
                 < 640
         );
+    }
+
+    #[test]
+    fn gif_delta_encoding_keeps_frames_delays_and_loop_count() {
+        let mut original = Vec::new();
+        {
+            let mut encoder = gif::Encoder::new(&mut original, 64, 64, &[]).unwrap();
+            encoder.set_repeat(gif::Repeat::Finite(3)).unwrap();
+            for i in 0..5 {
+                let mut pixels =
+                    image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]));
+                pixels.put_pixel(i, 10, image::Rgba([0, 0, 0, 255]));
+                let mut bytes = pixels.into_raw();
+                let mut frame = gif::Frame::from_rgba_speed(64, 64, &mut bytes, 30);
+                frame.delay = 5;
+                frame.dispose = gif::DisposalMethod::Keep;
+                encoder.write_frame(&frame).unwrap();
+            }
+        }
+        let result = encode_gif(&original, 64, 64, 82).unwrap();
+        assert!(result.len() <= original.len());
+        let mut decoder = gif::DecodeOptions::new()
+            .read_info(Cursor::new(&result))
+            .unwrap();
+        let mut count = 0;
+        while let Some(frame) = decoder.read_next_frame().unwrap() {
+            assert_eq!(frame.delay, 5);
+            count += 1;
+        }
+        assert_eq!(count, 5);
+        assert_eq!(decoder.repeat(), gif::Repeat::Finite(3));
+        let frames = GifDecoder::new(Cursor::new(&result))
+            .unwrap()
+            .into_frames()
+            .collect_frames()
+            .unwrap();
+        for (i, frame) in frames.iter().enumerate() {
+            assert_eq!(frame.buffer().get_pixel(i as u32, 10).0, [0, 0, 0, 255]);
+            if i > 0 {
+                assert_eq!(
+                    frame.buffer().get_pixel(i as u32 - 1, 10).0,
+                    [255, 255, 255, 255]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn large_gif_sample_compresses_with_animation_preserved() {
+        let Ok(path) = std::env::var("PICLITE_GIF_FIXTURE") else {
+            return;
+        };
+        let original = fs::read(path).expect("read GIF fixture");
+        let decoder = GifDecoder::new(Cursor::new(&original)).unwrap();
+        let dimensions = decoder.dimensions();
+        let start = std::time::Instant::now();
+        let result = encode_gif(&original, dimensions.0, dimensions.1, 82).unwrap();
+        eprintln!(
+            "GIF fixture: {} -> {} bytes, {:?}",
+            original.len(),
+            result.len(),
+            start.elapsed()
+        );
+        assert!(result.len() < original.len());
+        if let Ok(output) = std::env::var("PICLITE_GIF_OUTPUT") {
+            fs::write(output, &result).unwrap();
+        }
+        let metadata = |bytes: &[u8]| {
+            let mut decoder = gif::DecodeOptions::new()
+                .read_info(Cursor::new(bytes))
+                .unwrap();
+            let dimensions = (decoder.width(), decoder.height());
+            let mut frames = Vec::new();
+            while let Some(frame) = decoder.read_next_frame().unwrap() {
+                frames.push((
+                    frame.left,
+                    frame.top,
+                    frame.width,
+                    frame.height,
+                    frame.delay,
+                    frame.dispose,
+                ));
+            }
+            (dimensions, decoder.repeat(), frames)
+        };
+        assert_eq!(metadata(&original), metadata(&result));
     }
 
     #[test]
