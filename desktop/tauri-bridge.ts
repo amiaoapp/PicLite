@@ -4,7 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import packageManifest from "../package.json";
 
-type EncodedImage = { name: string; type: string; path: string; data: string };
+type EncodedImage = { name: string; type: string; path: string; data: string; previewData?: string; previewType?: string; width?: number; height?: number };
 type EncodedImageEntry = {
   name: string;
   type: string;
@@ -39,7 +39,7 @@ function platformName() {
   return "linux";
 }
 
-const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga)$/i;
+const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga|heic|heif)$/i;
 
 function imagePathsOnly(paths: string[]) {
   return paths.filter((path) => SUPPORTED_IMAGE_PATH.test(path.split(/[\\/]/).pop() || path));
@@ -69,7 +69,7 @@ if ("__TAURI_INTERNALS__" in window) {
     copyText: (text) => invoke("copy_text", { text }),
     selectImages: async () => {
       const images = await invoke<EncodedImage[]>("select_images");
-      return images.map((image) => ({ ...image, data: decodeBase64(image.data) }));
+      return images.map((image) => ({ ...image, data: decodeBase64(image.data), previewData: image.previewData ? decodeBase64(image.previewData) : undefined }));
     },
     selectImageEntries: async () => {
       const images = await invoke<EncodedImageEntry[]>("select_image_entries");
@@ -87,7 +87,7 @@ if ("__TAURI_INTERNALS__" in window) {
     },
     readImagesFromPaths: async (paths) => {
       const images = await invoke<EncodedImage[]>("read_images_from_paths", { paths });
-      return images.map((image) => ({ ...image, data: decodeBase64(image.data) }));
+      return images.map((image) => ({ ...image, data: decodeBase64(image.data), previewData: image.previewData ? decodeBase64(image.previewData) : undefined }));
     },
     readImageEntriesFromPaths: async (paths) => {
       const images = await invoke<EncodedImageEntry[]>("read_image_entries_from_paths", { paths });
@@ -168,6 +168,7 @@ if ("__TAURI_INTERNALS__" in window) {
     showDropzoneWindow: () => invoke("show_dropzone_window"),
     submitCornerDrop: (paths) => invoke("submit_corner_drop", { paths }),
     takePendingCornerDrop: () => invoke<string[]>("take_pending_corner_drop"),
+    setFloatingToggleRegion: (region) => invoke("set_floating_toggle_region", { region }),
     configureFloatingBehavior: (corner, clickThrough) => invoke("configure_floating_behavior", { corner, clickThrough }),
     configureDropzoneWindow: (width, height) => invoke("configure_dropzone_window", { width, height }),
     resizeDropzoneWindow: (width, height) => invoke("resize_dropzone_window", { width, height }),
@@ -344,6 +345,7 @@ if ("__TAURI_INTERNALS__" in window) {
     showDropzoneWindow: noop,
     submitCornerDrop: noop,
     takePendingCornerDrop: async () => [],
+    setFloatingToggleRegion: noop,
     configureFloatingBehavior: noop,
     configureDropzoneWindow: noop,
     resizeDropzoneWindow: noop,

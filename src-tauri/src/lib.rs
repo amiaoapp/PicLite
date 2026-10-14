@@ -1,4 +1,6 @@
 mod animation_size;
+mod click_through;
+mod heic_input;
 
 use std::{
     borrow::Cow,
@@ -61,6 +63,7 @@ use webp::{Encoder as LossyWebPEncoder, WebPConfig};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "jfif", "png", "webp", "gif", "avif", "bmp", "tif", "tiff", "ico", "qoi", "tga",
+    "heic", "heif",
 ];
 
 #[derive(Default)]
@@ -93,6 +96,9 @@ struct DesktopState {
     /// The drop window is placed in its initial corner exactly once. Later
     /// show/resize calls preserve the position selected by dragging it.
     floating_corner: Mutex<String>,
+    floating_click_through: AtomicBool,
+    floating_toggle_region: Mutex<Option<click_through::ToggleRegion>>,
+    floating_cursor_ignored: Mutex<Option<bool>>,
     dropzone_positioned: AtomicBool,
 }
 
@@ -114,6 +120,9 @@ impl Default for DesktopState {
             clipboard_ignore_until_ms: AtomicU64::new(0),
             shortcut_config_lock: Mutex::new(()),
             floating_corner: Mutex::new("bottom-right".to_string()),
+            floating_click_through: AtomicBool::new(false),
+            floating_toggle_region: Mutex::new(None),
+            floating_cursor_ignored: Mutex::new(None),
             dropzone_positioned: AtomicBool::new(false),
         }
     }
@@ -389,6 +398,14 @@ struct NativeImage {
     mime_type: String,
     path: String,
     data: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    height: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -1188,6 +1205,8 @@ fn mime_for(path: &Path) -> &'static str {
         "webp" => "image/webp",
         "gif" => "image/gif",
         "avif" => "image/avif",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
         "bmp" => "image/bmp",
         "tif" | "tiff" => "image/tiff",
         "ico" => "image/x-icon",
@@ -2196,11 +2215,23 @@ struct OptimizedImage {
     extension: String,
 }
 
-/// Decode static images with their embedded EXIF orientation applied exactly
-/// once. WebKit applies that orientation to the source preview automatically;
-/// the native encoder previously ignored it, which made portrait JPEG results
-/// appear rotated/sliced when overlaid with their originals.
+/// Read encoded dimensions without a second full pixel decode after encoding.
+fn encoded_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
+    if heic_input::is_heic(data) {
+        return heic_input::dimensions(data);
+    }
+    image::ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .into_dimensions()
+        .map_err(|e| e.to_string())
+}
+
+/// Apply embedded orientation exactly once, matching the browser preview.
 fn decode_static_oriented(data: &[u8]) -> Result<DynamicImage, String> {
+    if heic_input::is_heic(data) {
+        return heic_input::decode(data);
+    }
     let reader = image::ImageReader::new(Cursor::new(data))
         .with_guessed_format()
         .map_err(|error| error.to_string())?;
@@ -2448,7 +2479,11 @@ fn optimize_image_data_unconstrained(
     let (target_width, target_height) = target_dimensions(width, height, settings);
     let resized = resize_dynamic_fast(decoded, target_width, target_height)?;
     let output_extension = if settings.format == "keep" {
-        source_extension.clone()
+        if matches!(source_extension.as_str(), "heic" | "heif") {
+            "webp".to_string()
+        } else {
+            source_extension.clone()
+        }
     } else {
         extension_for(Path::new("image.png"), &settings.format)
     };
@@ -2615,6 +2650,7 @@ fn native_images_from_paths(
         let canonical = fs::canonicalize(&path).unwrap_or(path);
         let data = fs::read(&canonical).map_err(|error| error.to_string())?;
         authorized.insert(canonical.clone());
+        let preview = heic_input::preview(&data)?;
         images.push(NativeImage {
             name: canonical
                 .file_name()
@@ -2624,6 +2660,10 @@ fn native_images_from_paths(
             mime_type: mime_for(&canonical).to_string(),
             path: canonical.to_string_lossy().to_string(),
             data: BASE64.encode(data),
+            preview_data: preview.as_ref().map(|(data, _, _)| BASE64.encode(data)),
+            preview_type: preview.as_ref().map(|_| "image/png".to_string()),
+            width: preview.as_ref().map(|(_, w, _)| *w),
+            height: preview.as_ref().map(|(_, _, h)| *h),
         });
     }
     Ok(images)
@@ -2649,24 +2689,38 @@ fn native_image_entries_from_paths_with_progress(
         }
         let canonical = fs::canonicalize(&requested).unwrap_or(requested);
         let metadata = fs::metadata(&canonical).map_err(|error| error.to_string())?;
-        let reader = image::ImageReader::open(&canonical)
-            .map_err(|error| error.to_string())?
-            .with_guessed_format()
-            .map_err(|error| error.to_string())?;
-        let mut decoder = reader.into_decoder().map_err(|error| error.to_string())?;
-        let orientation = decoder.orientation().map_err(|error| error.to_string())?;
-        let (raw_width, raw_height) = decoder.dimensions();
-        let swaps_axes = matches!(
-            orientation,
-            image::metadata::Orientation::Rotate90
-                | image::metadata::Orientation::Rotate270
-                | image::metadata::Orientation::Rotate90FlipH
-                | image::metadata::Orientation::Rotate270FlipH
-        );
-        let (width, height) = if swaps_axes {
-            (raw_height, raw_width)
+        let (width, height) = if matches!(
+            canonical
+                .extension()
+                .and_then(|v| v.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str(),
+            "heic" | "heif"
+        ) {
+            heic_input::dimensions(&fs::read(&canonical).map_err(|e| e.to_string())?)?
         } else {
-            (raw_width, raw_height)
+            let reader = image::ImageReader::open(&canonical)
+                .map_err(|error| error.to_string())?
+                .with_guessed_format()
+                .map_err(|error| error.to_string())?;
+            let mut decoder = reader.into_decoder().map_err(|error| error.to_string())?;
+            let orientation = decoder.orientation().map_err(|error| error.to_string())?;
+            let (raw_width, raw_height) = decoder.dimensions();
+            let swaps_axes = matches!(
+                orientation,
+                image::metadata::Orientation::Rotate90
+                    | image::metadata::Orientation::Rotate270
+                    | image::metadata::Orientation::Rotate90FlipH
+                    | image::metadata::Orientation::Rotate270FlipH
+            );
+            let (width, height) = if swaps_axes {
+                (raw_height, raw_width)
+            } else {
+                (raw_width, raw_height)
+            };
+
+            (width, height)
         };
 
         // Only decode thumbnails that can be visible in the initial queue.
@@ -3046,8 +3100,7 @@ async fn quick_compress_paths(
                         .ok_or_else(|| "无法定位源文件夹".to_string())?
                 };
                 // 悬浮压缩坞始终生成新文件，避免一次拖放意外覆盖源图。
-                let (width, height) = image::load_from_memory(&optimized.bytes)
-                    .map(|image| image.dimensions())
+                let (width, height) = encoded_dimensions(&optimized.bytes)
                     .or_else(|_| image::image_dimensions(&source))
                     .unwrap_or((0, 0));
                 let output_name = render_output_name(
@@ -3242,7 +3295,7 @@ async fn compress_image_data(
         .to_ascii_lowercase();
     let source_extension = match named_extension.as_str() {
         "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
-        "png" | "webp" | "gif" => named_extension,
+        "png" | "webp" | "gif" | "heic" | "heif" => named_extension,
         _ => match image::guess_format(&data).map_err(|error| error.to_string())? {
             image::ImageFormat::Jpeg => "jpg".to_string(),
             image::ImageFormat::Png => "png".to_string(),
@@ -3253,18 +3306,18 @@ async fn compress_image_data(
     };
     let compression = quick_settings(&settings);
     let optimized = optimize_image_data(data.clone(), source_extension.clone(), &compression)?;
-    let (width, height) = image::load_from_memory(&optimized.bytes)
-        .map(|image| image.dimensions())
-        .unwrap_or_else(|_| {
-            image::load_from_memory(&data)
-                .map(|image| target_dimensions(image.width(), image.height(), &compression))
-                .unwrap_or((0, 0))
-        });
+    let (width, height) = encoded_dimensions(&optimized.bytes).unwrap_or_else(|_| {
+        encoded_dimensions(&data)
+            .map(|(w, h)| target_dimensions(w, h, &compression))
+            .unwrap_or((0, 0))
+    });
     let mime_type = match optimized.extension.as_str() {
         "jpg" | "jpeg" | "jfif" => "image/jpeg",
         "png" => "image/png",
         "webp" => "image/webp",
         "gif" => "image/gif",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
         _ => "application/octet-stream",
     };
     let kept_original = optimized.extension == source_extension && optimized.bytes == data;
@@ -3310,7 +3363,7 @@ async fn compress_image_with_watermark_base64(
         .to_ascii_lowercase();
     let source_extension = match named_extension.as_str() {
         "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
-        "png" | "webp" => named_extension,
+        "png" | "webp" | "heic" | "heif" => named_extension,
         _ => match image::guess_format(&original).map_err(|error| error.to_string())? {
             image::ImageFormat::Jpeg => "jpg".to_string(),
             image::ImageFormat::Png => "png".to_string(),
@@ -3328,7 +3381,11 @@ async fn compress_image_with_watermark_base64(
     let resized = resize_dynamic_fast(decoded, width, height)?;
     let watermarked = apply_native_image_watermark(resized, &watermark)?;
     let extension = if compression.format == "keep" {
-        source_extension
+        if matches!(source_extension.as_str(), "heic" | "heif") {
+            "webp".into()
+        } else {
+            source_extension
+        }
     } else {
         extension_for(Path::new("image.png"), &compression.format)
     };
@@ -3710,10 +3767,11 @@ async fn configure_floating_behavior(
         *saved = corner;
         changed
     };
+    state
+        .floating_click_through
+        .store(click_through, Ordering::Relaxed);
     if let Some(window) = app.get_webview_window("dropzone") {
-        window
-            .set_ignore_cursor_events(click_through)
-            .map_err(|e| e.to_string())?;
+        click_through::apply(&window, &state)?;
         if changed {
             if let (Ok(size), Ok(Some(monitor))) = (window.outer_size(), window.current_monitor()) {
                 let logical = size.to_logical::<f64>(monitor.scale_factor());
@@ -3722,6 +3780,22 @@ async fn configure_floating_behavior(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn set_floating_toggle_region(
+    window: tauri::WebviewWindow,
+    state: State<'_, DesktopState>,
+    region: click_through::ToggleRegion,
+) -> Result<(), String> {
+    if window.label() != "dropzone" || !region.valid() {
+        return Err("无效的穿透开关区域".into());
+    }
+    *state
+        .floating_toggle_region
+        .lock()
+        .map_err(|e| e.to_string())? = Some(region);
+    click_through::apply(&window, &state)
 }
 
 #[tauri::command]
@@ -3830,8 +3904,7 @@ fn process_watched_file(
         };
         let optimized = optimize_image(&canonical, &settings)?;
         let extension = optimized.extension;
-        let (width, height) = image::load_from_memory(&optimized.bytes)
-            .map(|image| image.dimensions())
+        let (width, height) = encoded_dimensions(&optimized.bytes)
             .or_else(|_| image::image_dimensions(&canonical))
             .unwrap_or((0, 0));
         let output_name = watched_output_name(
@@ -3993,6 +4066,7 @@ async fn select_images(
             .lock()
             .map_err(|_| "文件授权状态不可用".to_string())?
             .insert(canonical.clone());
+        let preview = heic_input::preview(&data)?;
         images.push(NativeImage {
             name: canonical
                 .file_name()
@@ -4002,6 +4076,10 @@ async fn select_images(
             mime_type: mime_for(&canonical).to_string(),
             path: canonical.to_string_lossy().to_string(),
             data: BASE64.encode(data),
+            preview_data: preview.as_ref().map(|(data, _, _)| BASE64.encode(data)),
+            preview_type: preview.as_ref().map(|_| "image/png".to_string()),
+            width: preview.as_ref().map(|(_, w, _)| *w),
+            height: preview.as_ref().map(|(_, _, h)| *h),
         });
     }
     Ok(images)
@@ -4390,7 +4468,7 @@ async fn read_clipboard_paths() -> Result<Vec<String>, String> {
 
 fn write_clipboard_image(data: &[u8]) -> Result<(), String> {
     let decoded =
-        image::load_from_memory(data).map_err(|error| format!("无法读取结果图：{error}"))?;
+        decode_static_oriented(data).map_err(|error| format!("无法读取结果图：{error}"))?;
     let rgba = decoded.to_rgba8();
     let (width, height) = rgba.dimensions();
     let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
@@ -4612,7 +4690,7 @@ async fn cache_image_data(
         if data.is_empty() || data.len() > 128 * 1024 * 1024 {
             return Err("剪贴板图片无效或超过 128 MB".to_string());
         }
-        image::load_from_memory(&data).map_err(|error| format!("无法读取剪贴板图片：{error}"))?;
+        decode_static_oriented(&data).map_err(|error| format!("无法读取剪贴板图片：{error}"))?;
         let path = clipboard_cache_path(&app, &file_name)?;
         fs::write(&path, &data).map_err(|error| format!("无法缓存剪贴板图片：{error}"))?;
         Ok(path.to_string_lossy().to_string())
@@ -6622,6 +6700,7 @@ pub fn run() {
                 .set_activation_policy(tauri::ActivationPolicy::Regular)?;
 
             start_clipboard_monitor(app.handle().clone());
+            click_through::start(app.handle().clone());
             if std::env::args().any(|argument| argument == "--minimized") {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
@@ -6727,6 +6806,7 @@ pub fn run() {
             show_preferences_window,
             show_dropzone_window,
             configure_floating_behavior,
+            set_floating_toggle_region,
             configure_dropzone_window,
             resize_dropzone_window,
             hide_current_window,

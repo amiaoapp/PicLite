@@ -199,11 +199,11 @@ svg { width: 18px; height: 18px; }
 .result-actions button:disabled { opacity: .35; transform: none; cursor: default; }
 .result-actions svg { width: 17px; height: 17px; }
 .floating-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 4px 22px 4px 10px; border-top: 1px solid var(--line); }
-.floating-footer > div { display: flex; }
+.floating-footer > div { display: flex; flex-shrink: 0; }
 .floating-footer button { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; }
 .floating-footer button:hover { background: var(--card); }
 .floating-footer svg { width: 14px; height: 14px; }
-.floating-footer .automatic-badge { width: auto; max-width: calc(100% - 112px); display: flex; grid-template-columns: none; align-items: center; justify-content: flex-start; gap: 5px; padding: 0 4px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.floating-footer .automatic-badge { width: auto; max-width: calc(100% - 140px); display: flex; grid-template-columns: none; align-items: center; justify-content: flex-start; gap: 5px; padding: 0 4px; color: var(--muted); font-size: 9px; font-weight: 700; }
 .floating-footer .automatic-badge:not([aria-disabled="true"]) { cursor: pointer; }
 .floating-footer .automatic-badge[aria-disabled="true"] { cursor: default; }
 .floating-footer .automatic-badge[aria-disabled="true"]:hover { background: transparent; }
@@ -348,3 +348,8 @@ html[data-theme="dark"] .settings-sidebar nav button.active { color: #18211c; }
   .result-actions { grid-template-columns: repeat(3, 38px); gap: 7px 9px; }
   .result-actions button { width: 38px; height: 38px; }
 }
+
+.floating-footer .click-through-toggle.active, .floating-empty-footer .click-through-toggle.active { color: var(--accent); background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.floating-empty-footer > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floating-empty-footer > div { flex-shrink: 0; }

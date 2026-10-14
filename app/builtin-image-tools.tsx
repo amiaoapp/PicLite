@@ -215,7 +215,7 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
     queue.setBusy(false);
   };
   return <section className="builtin-tool-page">
-    <header className="tool-hero"><div><span>BUILT-IN PLUGIN / CONVERT</span><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("批量转换常用图片格式，并可直接套用工作台的压缩方案。", "Convert batches across common image formats with the same optimisation modes as the workbench.")}</p></div><b>01</b></header>
+    <header className="tool-hero"><div><span>BUILT-IN PLUGIN / CONVERT</span><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("支持 HEIC／HEIF 苹果照片导入，批量转换为常用图片格式，并可套用工作台压缩方案。", "Import Apple HEIC/HEIF photos and convert to common image formats using workbench optimisation modes.")}</p></div><b>01</b></header>
     <div className="tool-layout"><ToolQueue items={queue.items} remove={queue.remove} clear={queue.clear} language={language} />
       <div className="tool-console"><div className="tool-import-actions"><button type="button" onClick={() => void queue.choose(false)}>＋ {queue.t("添加图片", "Add images")}</button><button type="button" onClick={() => void queue.choose(true)}>⌑ {queue.t("导入文件夹", "Import folder")}</button></div>
         <div className="tool-fields">

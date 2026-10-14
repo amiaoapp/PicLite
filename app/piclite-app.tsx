@@ -66,7 +66,7 @@ type DirectoryHandleLike = {
   getFileHandle: (name: string, options: { create: boolean }) => Promise<FileHandleLike>;
 };
 
-type NativeImage = { name: string; type: string; path: string; data: Uint8Array };
+type NativeImage = { name: string; type: string; path: string; data: Uint8Array; previewData?: Uint8Array; previewType?: string; width?: number; height?: number };
 type NativeImageEntry = {
   name: string;
   type: string;
@@ -218,6 +218,7 @@ type NativeBridge = {
   showDropzoneWindow: () => Promise<void>;
   submitCornerDrop: (paths: string[]) => Promise<void>;
   takePendingCornerDrop: () => Promise<string[]>;
+  setFloatingToggleRegion: (region: { x: number; y: number; width: number; height: number }) => Promise<void>;
   configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;
@@ -391,6 +392,7 @@ type GalleryRecord = {
   height: number;
   mimeType: string;
   blob: Blob;
+  previewBlob?: Blob;
   sourcePath?: string;
   outputPath?: string;
   remoteUrl?: string;
@@ -1005,6 +1007,8 @@ function mimeFromName(name: string) {
   if (extension === "png") return "image/png";
   if (extension === "webp") return "image/webp";
   if (extension === "avif") return "image/avif";
+  if (extension === "heic") return "image/heic";
+  if (extension === "heif") return "image/heif";
   if (extension === "gif") return "image/gif";
   return "application/octet-stream";
 }
@@ -1351,7 +1355,10 @@ async function animatedGifCompress(item: ImageItem, settings: CompressionSetting
 }
 
 async function canvasCompress(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge) {
-  const bitmap = await createImageBitmap(item.file);
+  const bitmapFile = nativeBridge && /\.hei[cf]$/i.test(item.name)
+    ? await nativeBridge.compressImageData(new Uint8Array(await item.file.arrayBuffer()), item.name, { mode: "manual", quality: 100, scale: 100, format: "image/png", stripMetadata: false, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" }).then((result) => new Blob([new Uint8Array(result.data)], { type: result.mimeType }))
+    : item.file;
+  const bitmap = await createImageBitmap(bitmapFile);
   const { width, height } = getTargetDimensions(item, settings);
 
   const sameSize = width === item.width && height === item.height;
@@ -1370,6 +1377,7 @@ async function canvasCompress(item: ImageItem, settings: CompressionSettings, na
   context.imageSmoothingQuality = "high";
 
   let outputType = settings.format === "keep" ? item.type : settings.format;
+  if (/^image\/hei[cf]$/i.test(outputType)) outputType = "image/webp";
   if (!["image/jpeg", "image/png", "image/webp"].includes(outputType)) outputType = "image/png";
   if (outputType === "image/jpeg") {
     context.fillStyle = "#ffffff";
@@ -1727,7 +1735,7 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
     // watermark changes can then re-encode immediately without reopening the
     // same file through the native bridge every time.
     item.thumbnailUrl = item.sourceUrl;
-    item.sourceUrl = URL.createObjectURL(file);
+    item.sourceUrl = source.previewData ? URL.createObjectURL(new Blob([new Uint8Array(source.previewData)], { type: source.previewType || "image/webp" })) : URL.createObjectURL(file);
     item.file = file;
     item.sourceIsThumbnail = false;
     return compressImage(item, settings, nativeBridge);
@@ -1839,7 +1847,7 @@ function fileNameFromPath(path: string) {
   return path.split(/[\\/]/).pop() || path;
 }
 
-const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga)$/i;
+const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga|heic|heif)$/i;
 
 function supportedImagePaths(paths: string[]) {
   return [...new Set(paths.filter((path) => SUPPORTED_IMAGE_PATH.test(fileNameFromPath(path))))];
@@ -1928,8 +1936,9 @@ function TrayDropDock({ bridge }: { bridge: NativeBridge }) {
       for (const image of images) {
         const result = completed.find((candidate) => candidate.output === image.path);
         const blob = new Blob([new Uint8Array(image.data)], { type: image.type || mimeFromName(image.name) });
-        if (result) nextPreviews[result.source] = URL.createObjectURL(blob);
-        const dimensions = await getDimensions(new File([blob], image.name, { type: blob.type }));
+        const previewBlob = image.previewData ? new Blob([new Uint8Array(image.previewData)], { type: image.previewType || "image/webp" }) : undefined;
+        if (result) nextPreviews[result.source] = URL.createObjectURL(previewBlob || blob);
+        const dimensions = image.width && image.height ? { width: image.width, height: image.height } : await getDimensions(new File([blob], image.name, { type: blob.type }));
         await galleryPut({
           id: `dock:${result?.source || image.path}`,
           name: image.name,
@@ -1940,6 +1949,7 @@ function TrayDropDock({ bridge }: { bridge: NativeBridge }) {
           height: dimensions.height,
           mimeType: blob.type,
           blob,
+          previewBlob,
           sourcePath: result?.source,
           outputPath: image.path,
         });
@@ -2553,7 +2563,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     try {
       const records = await galleryList();
       galleryUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      const next = records.map((record) => ({ ...record, previewUrl: URL.createObjectURL(record.blob) }));
+      const next = records.map((record) => ({ ...record, previewUrl: URL.createObjectURL(record.previewBlob || record.blob) }));
       galleryUrlsRef.current = next.map((record) => record.previewUrl);
       setGalleryItems(next);
     } catch {
@@ -2635,6 +2645,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [uploadSecret, uploadSettings]);
 
   const saveItemToGallery = useCallback(async (item: ImageItem, blob: Blob, outputPath?: string, remoteUrl?: string) => {
+    const previewBlob = /^image\/hei[cf]$/i.test(blob.type)
+      ? await fetch(item.sourceUrl).then((response) => response.blob())
+      : undefined;
     await galleryPut({
       id: item.id,
       name: outputName(item, cleanSuffix(exportSuffix), desktopPreferences.renameTemplate),
@@ -2645,6 +2658,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       height: item.outputHeight || item.height,
       mimeType: blob.type || item.type,
       blob,
+      previewBlob,
       sourcePath: item.sourcePath,
       outputPath,
       remoteUrl,
@@ -2653,7 +2667,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [desktopPreferences.renameTemplate, exportSuffix]);
 
   const addSources = useCallback(async (sources: ImageSourceInput[], onProgress?: (current: number, total: number) => void) => {
-    const imageSources = sources.filter(({ file }) => file.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif)$/i.test(file.name));
+    const imageSources = sources.filter(({ file }) => file.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif|heic|heif)$/i.test(file.name));
     if (!imageSources.length) {
       showToast(t("没有找到可处理的图片", "No supported images were found"));
       return;
@@ -2668,8 +2682,12 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         const { file: sourceFile, fileHandle, sourcePath } = imageSources[index];
         const file = /\.jfif$/i.test(sourceFile.name) ? new File([sourceFile], sourceFile.name, { type: "image/jpeg", lastModified: sourceFile.lastModified }) : sourceFile;
         try {
-          const dimensions = await getDimensions(file);
-          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(file), status: "ready", fileHandle, sourcePath };
+          const decoded = nativeBridge && /\.hei[cf]$/i.test(file.name)
+            ? await nativeBridge.compressImageData(new Uint8Array(await file.arrayBuffer()), file.name, { mode: "manual", quality: 100, scale: 100, format: "image/png", stripMetadata: false, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite" })
+            : undefined;
+          const dimensions = decoded ? { width: decoded.width, height: decoded.height } : await getDimensions(file);
+          const previewFile = decoded ? new Blob([new Uint8Array(decoded.data)], { type: decoded.mimeType }) : file;
+          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(previewFile), status: "ready", fileHandle, sourcePath };
         } catch {
           nextItems[index] = null;
         } finally {
@@ -2683,10 +2701,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setItems((current) => [...current, ...validItems]);
     if (!selectedId && validItems[0]) setSelectedId(validItems[0].id);
     showToast(t(`已加入 ${validItems.length} 张图片`, `Added ${validItems.length} images`));
-  }, [selectedId, showToast, t]);
+  }, [nativeBridge, selectedId, showToast, t]);
 
   const addNativeEntries = useCallback((entries: NativeImageEntry[]) => {
-    const validEntries = entries.filter((entry) => entry.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif)$/i.test(entry.name));
+    const validEntries = entries.filter((entry) => entry.type.startsWith("image/") || /\.(?:jpe?g|jfif|png|webp|avif|gif|heic|heif)$/i.test(entry.name));
     if (!validEntries.length) {
       showToast(t("没有找到可处理的图片", "No supported images were found"));
       return;
@@ -2952,7 +2970,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         void nativeBridge.readImagesFromPaths([event.output]).then(async ([image]) => {
           if (!image) return;
           const blob = new Blob([new Uint8Array(image.data)], { type: image.type || mimeFromName(image.name) });
-          const dimensions = await getDimensions(new File([blob], image.name, { type: blob.type }));
+          const previewBlob = image.previewData ? new Blob([new Uint8Array(image.previewData)], { type: image.previewType || "image/webp" }) : undefined;
+          const dimensions = image.width && image.height ? { width: image.width, height: image.height } : await getDimensions(new File([blob], image.name, { type: blob.type }));
           await galleryPut({
             id: `watcher:${event.output}`,
             name: image.name,
@@ -2963,6 +2982,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             height: dimensions.height,
             mimeType: blob.type,
             blob,
+            previewBlob,
             outputPath: event.output,
           });
           setGalleryRevision((current) => current + 1);
@@ -3409,7 +3429,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (window.showOpenFilePicker) {
         const handles = await window.showOpenFilePicker({
           multiple: true,
-          types: [{ description: "图片", accept: { "image/*": [".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif"] } }],
+          types: [{ description: "图片", accept: { "image/*": [".jpg", ".jpeg", ".jfif", ".png", ".webp", ".gif", ".avif", ".heic", ".heif"] } }],
         });
         await runImport(async (onProgress) => {
           onProgress(0, handles.length);
@@ -3864,8 +3884,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={onDrop}
     >
-      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFilesSelected} />
-      <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*,.jfif" multiple onChange={onFolderFilesSelected} />
+      <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.jfif,.heic,.heif" multiple onChange={onFilesSelected} />
+      <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*,.jfif,.heic,.heif" multiple onChange={onFolderFilesSelected} />
       <input ref={fontInputRef} className="visually-hidden" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={onFontSelected} />
       <input ref={watermarkImageInputRef} className="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={onWatermarkImageSelected} />
       <input ref={pluginInputRef} className="visually-hidden" type="file" accept=".html,.htm,.js,.json,text/html,text/javascript,application/json" onChange={importPlugin} />

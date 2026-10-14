@@ -215,7 +215,7 @@ export type WatcherSettings = {
   preventLarger: boolean;
 };
 
-export type NativeImage = { name: string; type: string; path: string; data: Uint8Array };
+export type NativeImage = { name: string; type: string; path: string; data: Uint8Array; previewData?: Uint8Array; previewType?: string; width?: number; height?: number };
 
 export type PicLiteBridge = {
   platform: string;
@@ -261,6 +261,7 @@ export type PicLiteBridge = {
   showGalleryWindow: () => Promise<void>;
   showPreferencesWindow: (section?: "general" | "clipboard" | "files" | "images" | "dropzone" | "zones" | "floating" | "hosting" | "plugins" | "shortcuts" | "about" | "sponsor") => Promise<void>;
   showDropzoneWindow: () => Promise<void>;
+  setFloatingToggleRegion: (region: { x: number; y: number; width: number; height: number }) => Promise<void>;
   configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;

@@ -190,13 +190,13 @@ async function attachPreviews(items: ResultItem[], api: PicLiteBridge) {
     return await Promise.all(items.map(async (item) => {
       const image = item.output ? byPath.get(nativePathIdentity(item.output, api.platform)) : undefined;
       if (!image) return item;
-      const blob = new Blob([image.data.slice().buffer as ArrayBuffer], { type: image.type });
+      const blob = new Blob([(image.previewData || image.data).slice().buffer as ArrayBuffer], { type: image.previewType || image.type });
       const preview = URL.createObjectURL(blob);
       try {
         // Decode directly from the blob. Fetching the freshly-created object
         // URL made a second full image copy and caused large transient spikes.
         const bitmap = await createImageBitmap(blob);
-        const detailed = { ...item, preview, width: bitmap.width, height: bitmap.height };
+        const detailed = { ...item, preview, width: image.width ?? bitmap.width, height: image.height ?? bitmap.height };
         bitmap.close();
         return detailed;
       } catch {
@@ -325,6 +325,24 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
   }), []);
 
   return { results, setResults, optimise, reoptimise, remove, clear, working };
+}
+
+function FloatingClickThroughToggle({ api, language, enabled, toggle }: { api: PicLiteBridge; language: Language; enabled: boolean; toggle: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const syncRegion = () => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (rect) void api.setFloatingToggleRegion({ x: rect.left, y: rect.top, width: rect.width, height: rect.height }).catch(() => undefined);
+    };
+    syncRegion();
+    const observer = new ResizeObserver(syncRegion);
+    observer.observe(document.documentElement);
+    if (ref.current) observer.observe(ref.current);
+    window.addEventListener("resize", syncRegion);
+    return () => { observer.disconnect(); window.removeEventListener("resize", syncRegion); };
+  });
+  const label = tr(language, enabled ? "关闭鼠标穿透" : "开启鼠标穿透", enabled ? "Disable click through" : "Enable click through");
+  return <button ref={ref} className={`click-through-toggle ${enabled ? "active" : ""}`} aria-label={label} title={label} aria-pressed={enabled} onPointerDown={(event) => event.stopPropagation()} onClick={toggle}><Icon name="pointer-through" /></button>;
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
@@ -662,12 +680,21 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       preset: { ...current.preset, mode: current.preset.mode === "auto" ? "manual" : "auto" },
     }));
   };
+  const toggleClickThrough = async () => {
+    const enabled = !settings.floatingClickThrough;
+    try {
+      await api.configureFloatingBehavior(settings.floatingCorner, enabled);
+      setSettings((current) => ({ ...current, floatingClickThrough: enabled }));
+    } catch (error) { showOperationNotice(error instanceof Error ? error.message : String(error), "error"); }
+  };
+  const clickThroughToggle = <FloatingClickThroughToggle api={api} language={settings.language} enabled={settings.floatingClickThrough} toggle={() => void toggleClickThrough()} />;
   return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
         <span><T language={settings.language} zh="拖动空白区域可移动悬浮窗" en="Drag the empty area to move this window" /></span>
         <div>
+          {clickThroughToggle}
           <button title={tr(settings.language, "选择本地图片", "Choose local images")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void chooseLocalImages()}><Icon name="plus" /></button>
           <button title={tr(settings.language, "打开工作台", "Open workbench")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.showMainWindow()}><Icon name="external" /></button>
           <button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button>
@@ -680,7 +707,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{clickThroughToggle}<button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -1085,7 +1112,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </div>
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
-        <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后点击会传递给下方窗口；可在此关闭以恢复悬浮窗操作" en="Clicks reach the window below. Disable here to interact with floating results again." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
+        <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后图片区域的点击会传递给下方窗口；悬浮窗底栏的穿透按钮始终可点击" en="Clicks reach the window below; the toggle in the floating footer remains clickable." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>
