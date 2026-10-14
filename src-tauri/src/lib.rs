@@ -1,3 +1,7 @@
+mod mcp;
+pub fn run_mcp() {
+    mcp::run();
+}
 mod animation_size;
 mod click_through;
 mod floating_collapse;

@@ -78,6 +78,12 @@ jobs:
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: ${{ matrix.artifact }}-[bundle]
 
+      - name: MCP protocol integration tests
+        shell: bash
+        env:
+          PICLITE_BINARY: ${{ github.workspace }}/src-tauri/target/${{ matrix.target }}/release/piclite${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: node tests/mcp-smoke.mjs
+
       - name: Package Windows portable
         if: runner.os == 'Windows'
         shell: pwsh

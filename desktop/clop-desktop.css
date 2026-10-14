@@ -363,3 +363,20 @@ html[data-theme="dark"] .settings-sidebar nav button.active { color: #18211c; }
 
 .floating-empty-footer > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .floating-empty-footer > div { flex-shrink: 0; }
+
+/* Empty docks must shrink their content with the native window. */
+.floating-results.is-empty { grid-template-rows: minmax(0, 1fr); }
+.floating-empty { min-width: 0; min-height: 0; }
+.floating-empty .drop-surface { min-width: 0; min-height: 0; overflow: hidden; gap: clamp(2px, 2vh, 7px); }
+.floating-empty .drop-surface strong { font-size: clamp(12px, 5cqw, 19px); }
+.floating-empty .drop-surface small { font-size: clamp(9px, 3cqw, 12px); }
+.floating-empty .drop-rings { width: clamp(26px, 18vh, 44px); height: clamp(26px, 18vh, 44px); flex-shrink: 0; margin-bottom: 0; }
+.floating-empty-footer .floating-collapse-button { opacity: 1; pointer-events: auto; transform: none; }
+.floating-results.is-click-through { opacity: .32; backdrop-filter: none; transition: opacity .15s; }
+@container (max-width: 260px) {
+  .floating-empty { padding: 6px; gap: 4px; }
+  .floating-empty-footer { flex-wrap: wrap; gap: 2px; }
+  .floating-empty-footer > span { flex-basis: 100%; font-size: 8px; }
+  .floating-empty-footer > div { width: 100%; justify-content: space-between; }
+  .floating-empty-footer button { width: 26px; height: 26px; }
+}

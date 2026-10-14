@@ -1,6 +1,6 @@
 {
   "name": "piclite",
-  "version": "1.9.1",
+  "version": "2.0.0",
   "releaseDate": "2026-10-14",
   "description": "本地优先、可自托管的跨平台图片与 GIF 压缩工作台",
   "author": {
@@ -36,11 +36,13 @@
     "desktop:build:mac:arm64": "tauri build --target aarch64-apple-darwin",
     "desktop:build:mac:x64": "tauri build --target x86_64-apple-darwin",
     "desktop:build:linux:arm64": "tauri build --target aarch64-unknown-linux-gnu",
-    "desktop:build:linux:x64": "tauri build --target x86_64-unknown-linux-gnu"
+    "desktop:build:linux:x64": "tauri build --target x86_64-unknown-linux-gnu",
+    "mcp:http": "node scripts/mcp-http.mjs"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@eslint/js": "9.39.4",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@tailwindcss/postcss": "4.2.1",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.0",

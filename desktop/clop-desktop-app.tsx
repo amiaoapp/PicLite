@@ -477,6 +477,15 @@ async function makeWatermarkedImage(api: PicLiteBridge, item: ResultItem, waterm
   watermarkContext.translate(canvas.width / 2, canvas.height / 2); watermarkContext.rotate(watermark.rotation * Math.PI / 180);
   for (let y = -canvas.height * 1.5; y <= canvas.height * 1.5; y += gap) for (let x = -canvas.width * 1.5; x <= canvas.width * 1.5; x += gap) watermarkContext.fillText(watermark.text, x, y);
   watermarkContext.restore();
+  const bytes = image.data;
+  const animated = image.type === "image/gif" || /\.gif$/i.test(source) || (image.type === "image/webp" && bytes.some((_, index) => index >= 12 && bytes[index] === 65 && bytes[index + 1] === 78 && bytes[index + 2] === 73 && bytes[index + 3] === 77));
+  if (animated) {
+    const layer = await new Promise<Blob>((resolve, reject) => watermarkLayer.toBlob((value) => value ? resolve(value) : reject(new Error("Watermark encoding failed")), "image/png"));
+    const result = await api.compressAnimationWithWatermarkData(bytes, source.split(/[\\/]/).pop() || "animation.gif", {
+      mode: "manual", quality: 100, scale: 100, format: "keep", stripMetadata: false, preventLarger: false, exportMode: "same-folder", exportSuffix: "-piclite",
+    }, { kind: "visible", data: new Uint8Array(await layer.arrayBuffer()), opacity: watermark.opacity, text: "", blindStrength: 1 });
+    return api.cacheImageData(result.data, `watermark-${Date.now()}.${result.extension}`);
+  }
   context.save();
   context.globalAlpha = Math.max(0.01, Math.min(1, watermark.opacity / 100));
   context.drawImage(watermarkLayer, 0, 0);
@@ -777,7 +786,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
+  return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : ""} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
     {results.length > 0 && <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />

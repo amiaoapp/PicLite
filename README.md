@@ -93,7 +93,7 @@ docker compose logs -f piclite
 ```dotenv
 PICLITE_BIND=0.0.0.0
 PICLITE_PORT=3456
-PICLITE_TAG=1.9.1
+PICLITE_TAG=2.0.0
 ```
 
 如需从当前源码本地构建：
@@ -197,3 +197,7 @@ PicLite 插件不再用 `iframe` 嵌入。桌面端会读取 HTML/CSS/JavaScript
 图片压缩默认在浏览器或桌面客户端本地完成；只有主动使用图床上传时，文件才会发送到你配置的服务。
 
 PicLite 使用 [GPL-3.0-or-later](LICENSE)。桌面自动化工作流借鉴并改编自 GPL 项目 [FuzzyIdeas/Clop](https://github.com/FuzzyIdeas/Clop)，PicLite 不使用 Clop 商标；详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 智能体调用
+
+2.0 内置 MCP：启动 `piclite --mcp` 即可让支持 MCP 的智能体直接检查、压缩和缩放本地图片及动图。[配置与 ChatGPT 接入](docs/MCP.md)。
