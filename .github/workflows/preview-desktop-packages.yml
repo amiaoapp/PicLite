@@ -42,7 +42,7 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run desktop:renderer
-          node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs
+          node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs tests/floating-window-state.test.mjs
           cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Build installers
         uses: tauri-apps/tauri-action@v1

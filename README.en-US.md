@@ -8,7 +8,7 @@ A local-first image optimiser for content creators and developers, available on 
 
 ## Highlights
 
-- Import, convert, optimise, and proportionally resize JPEG / JFIF, PNG, WebP, and GIF files
+- Import, convert, optimise, and proportionally resize JPEG / JFIF, PNG, WebP, and GIF files; desktop apps also accept HEIC / HEIF photos
 - Automatically compare candidate formats and choose a smaller result with limited visual loss
 - Before/after preview, actual output size, continuous quality and scale controls, and text watermarks
 - Limit output to 200 KB, 100 KB, 50 KB, or a custom size using measured quality and dimension adjustments
@@ -28,11 +28,13 @@ Batch rename lives on its own plugin page. It extracts regex captures from ances
 
 ### Built-in plugins: Convert and resize
 
-The converter batches JPEG, WebP, or PNG output with the same high-quality, balanced, smaller, and manual modes as the workbench. The resize plugin uses SIMD-accelerated Lanczos3 scaling for percentages, a fixed width or height, bounding boxes, and exact dimensions. Either plugin can copy its settings into a new watched-folder task.
+The converter accepts HEIC / HEIF photos and batches JPEG, WebP, PNG, AVIF, GIF, BMP, TIFF, ICO, QOI, or TGA output with the same high-quality, balanced, smaller, and manual modes as the workbench. HEIC / HEIF is supported as input for desktop compression, previews, and folder monitoring; HEIC output is not provided. The resize plugin uses SIMD-accelerated Lanczos3 scaling for percentages, a fixed width or height, bounding boxes, and exact dimensions. Either plugin can copy its settings into a new watched-folder task.
 
 ### Floating-window workflow
 
 The desktop app can open its floating window from a global shortcut, copied image, dropped file, or the local image picker, without opening the full workbench first. Smart compression can stay enabled for every imported image, or you can switch to your custom compression settings from the floating window footer. Hover over the preview to copy, preview, reveal, undo, downscale again, switch formats, add a watermark, or upload. Floating results are draggable and resizable, support cycling stacks and expanded lists, result limits and automatic dismissal, and let you choose up to six action buttons in Settings.
+
+The floating footer includes a click-through toggle that remains clickable when enabled. Collapse the window to a draggable PicLite icon and click it to expand, keeping its results and previous size at the moved location. The collapse button appears on hover with a tooltip: beside the click-through toggle when empty, or in the upper-right corner when displaying results.
 
 ### Multi-task folder monitoring
 
