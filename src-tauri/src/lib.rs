@@ -1,10 +1,11 @@
 mod animation_size;
 mod click_through;
+mod floating_collapse;
 mod heic_input;
 
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Cursor, Write},
     net::{Shutdown, TcpStream},
@@ -97,8 +98,10 @@ struct DesktopState {
     /// show/resize calls preserve the position selected by dragging it.
     floating_corner: Mutex<String>,
     floating_click_through: AtomicBool,
-    floating_toggle_region: Mutex<Option<click_through::ToggleRegion>>,
+    floating_toggle_regions: Mutex<HashMap<String, click_through::ToggleRegion>>,
     floating_cursor_ignored: Mutex<Option<bool>>,
+    floating_collapsed: AtomicBool,
+    floating_expanded_geometry: Mutex<Option<floating_collapse::ExpandedGeometry>>,
     dropzone_positioned: AtomicBool,
 }
 
@@ -121,8 +124,10 @@ impl Default for DesktopState {
             shortcut_config_lock: Mutex::new(()),
             floating_corner: Mutex::new("bottom-right".to_string()),
             floating_click_through: AtomicBool::new(false),
-            floating_toggle_region: Mutex::new(None),
+            floating_toggle_regions: Mutex::new(HashMap::new()),
             floating_cursor_ignored: Mutex::new(None),
+            floating_collapsed: AtomicBool::new(false),
+            floating_expanded_geometry: Mutex::new(None),
             dropzone_positioned: AtomicBool::new(false),
         }
     }
@@ -2943,6 +2948,9 @@ fn keep_dropzone_on_screen(window: &tauri::WebviewWindow) {
 }
 
 fn configure_dropzone_dimensions(app: &AppHandle, state: &DesktopState, width: f64, height: f64) {
+    if state.floating_collapsed.load(Ordering::Relaxed) {
+        return;
+    }
     let width = width.clamp(190.0, 520.0);
     let height = height.clamp(140.0, 420.0);
     if !state.dropzone_positioned.swap(true, Ordering::Relaxed) {
@@ -2968,6 +2976,13 @@ fn ensure_dropzone_positioned(app: &AppHandle, state: &DesktopState) {
 }
 
 fn resize_dropzone_around_center(app: &AppHandle, width: f64, height: f64) {
+    if app
+        .state::<DesktopState>()
+        .floating_collapsed
+        .load(Ordering::Relaxed)
+    {
+        return;
+    }
     if let Some(window) = app.get_webview_window("dropzone") {
         let width = width.clamp(190.0, 520.0);
         let height = height.clamp(140.0, 420.0);
@@ -3786,16 +3801,42 @@ async fn configure_floating_behavior(
 async fn set_floating_toggle_region(
     window: tauri::WebviewWindow,
     state: State<'_, DesktopState>,
-    region: click_through::ToggleRegion,
+    region: Option<click_through::ToggleRegion>,
+    control: Option<String>,
 ) -> Result<(), String> {
-    if window.label() != "dropzone" || !region.valid() {
+    let control = control.unwrap_or_else(|| "click-through".into());
+    if window.label() != "dropzone"
+        || region.as_ref().is_some_and(|r| !r.valid())
+        || !matches!(control.as_str(), "click-through" | "collapse")
+    {
         return Err("无效的穿透开关区域".into());
     }
-    *state
-        .floating_toggle_region
-        .lock()
-        .map_err(|e| e.to_string())? = Some(region);
+    {
+        let mut regions = state
+            .floating_toggle_regions
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if let Some(region) = region {
+            regions.insert(control, region);
+        } else {
+            regions.remove(&control);
+        }
+    }
     click_through::apply(&window, &state)
+}
+
+#[tauri::command]
+async fn set_floating_collapsed(
+    window: tauri::WebviewWindow,
+    state: State<'_, DesktopState>,
+    collapsed: bool,
+) -> Result<(), String> {
+    floating_collapse::set(&window, &state, collapsed)
+}
+
+#[tauri::command]
+fn get_floating_collapsed(state: State<'_, DesktopState>) -> bool {
+    state.floating_collapsed.load(Ordering::Relaxed)
 }
 
 #[tauri::command]
@@ -6807,6 +6848,8 @@ pub fn run() {
             show_dropzone_window,
             configure_floating_behavior,
             set_floating_toggle_region,
+            set_floating_collapsed,
+            get_floating_collapsed,
             configure_dropzone_window,
             resize_dropzone_window,
             hide_current_window,
@@ -6843,6 +6886,43 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Run with both `cargo test` and `cargo test --release`. Measures the real
+    // import/encoder path and makes an accidentally unoptimised preview obvious.
+    #[test]
+    #[ignore = "manual comparison of debug and release image processing"]
+    fn preview_image_processing_timings() {
+        let root = std::env::temp_dir().join(format!("piclite-timing-{}", now_ms()));
+        fs::create_dir_all(&root).unwrap();
+        let original = include_bytes!("../../public/og.png");
+        let path = root.join("artwork.png");
+        fs::write(&path, original).unwrap();
+        let state = DesktopState::default();
+        let start = std::time::Instant::now();
+        let entries =
+            native_image_entries_from_paths_with_progress(vec![path], &state, |_, _| {}).unwrap();
+        let import_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!((entries[0].width, entries[0].height), (1731, 909));
+        let mut settings = watch_test_settings(&root);
+        settings.resize = false;
+        settings.mode = "auto".into();
+        settings.format = "keep".into();
+        settings.scale = 100.0;
+        settings.quality = 86;
+        let start = std::time::Instant::now();
+        let smart = optimize_image_data(original.to_vec(), "png".into(), &settings).unwrap();
+        let smart_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert!(smart.bytes.len() < original.len());
+        settings.mode = "manual".into();
+        settings.format = "image/webp".into();
+        settings.quality = 82;
+        let start = std::time::Instant::now();
+        let manual = optimize_image_data(original.to_vec(), "png".into(), &settings).unwrap();
+        let manual_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(manual.extension, "webp");
+        eprintln!("TIMING debug={} import_ms={import_ms:.1} smart_ms={smart_ms:.1} manual_ms={manual_ms:.1} original_bytes={} smart_bytes={} manual_bytes={}", cfg!(debug_assertions), original.len(), smart.bytes.len(), manual.bytes.len());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn native_static_decode_applies_exif_orientation_once() {

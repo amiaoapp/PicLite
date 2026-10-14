@@ -4,6 +4,7 @@ import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
+import { rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
 import packageManifest from "../package.json";
@@ -327,22 +328,34 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
   return { results, setResults, optimise, reoptimise, remove, clear, working };
 }
 
-function FloatingClickThroughToggle({ api, language, enabled, toggle }: { api: PicLiteBridge; language: Language; enabled: boolean; toggle: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const syncRegion = () => {
+function useFloatingControlRegion(api: PicLiteBridge, ref: React.RefObject<HTMLButtonElement | null>, control: "click-through" | "collapse") {
+  const syncRegion = useCallback(() => {
       const rect = ref.current?.getBoundingClientRect();
-      if (rect) void api.setFloatingToggleRegion({ x: rect.left, y: rect.top, width: rect.width, height: rect.height }).catch(() => undefined);
-    };
+      if (rect) void api.setFloatingToggleRegion({ x: rect.left, y: rect.top, width: rect.width, height: rect.height }, control).catch(() => undefined);
+  }, [api, control, ref]);
+  useEffect(syncRegion);
+  useEffect(() => {
     syncRegion();
     const observer = new ResizeObserver(syncRegion);
     observer.observe(document.documentElement);
     if (ref.current) observer.observe(ref.current);
     window.addEventListener("resize", syncRegion);
-    return () => { observer.disconnect(); window.removeEventListener("resize", syncRegion); };
-  });
+    return () => { observer.disconnect(); window.removeEventListener("resize", syncRegion); void api.setFloatingToggleRegion(null, control).catch(() => undefined); };
+  }, [api, control, ref, syncRegion]);
+}
+
+function FloatingClickThroughToggle({ api, language, enabled, toggle }: { api: PicLiteBridge; language: Language; enabled: boolean; toggle: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useFloatingControlRegion(api, ref, "click-through");
   const label = tr(language, enabled ? "关闭鼠标穿透" : "开启鼠标穿透", enabled ? "Disable click through" : "Enable click through");
   return <button ref={ref} className={`click-through-toggle ${enabled ? "active" : ""}`} aria-label={label} title={label} aria-pressed={enabled} onPointerDown={(event) => event.stopPropagation()} onClick={toggle}><Icon name="pointer-through" /></button>;
+}
+
+function FloatingCollapseButton({ api, language, busy, collapse }: { api: PicLiteBridge; language: Language; busy: boolean; collapse: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useFloatingControlRegion(api, ref, "collapse");
+  const label = tr(language, "折叠悬浮窗", "Collapse floating window");
+  return <button ref={ref} className="floating-collapse-button" title={label} aria-label={label} disabled={busy} onPointerDown={(event) => event.stopPropagation()} onClick={collapse}><Icon name="minus" /></button>;
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
@@ -467,6 +480,10 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   const [settings, setSettings] = useDesktopSettings();
   const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings);
   const [dragging, setDragging] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [collapseBusy, setCollapseBusy] = useState(false);
+  const collapsedRef = useRef(false);
+  const collapseTransition = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [updateNotice, setUpdateNotice] = useState<{ text: string; url?: string } | null>(null);
   const [operationNotice, setOperationNotice] = useState<{ text: string; tone: OperationFeedbackTone } | null>(null);
@@ -506,16 +523,23 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     if (images.length) await optimise(images.map((image) => image.path));
   };
 
-  useEffect(() => { void api.configureDropzoneWindow(settings.floatingWidth, settings.floatingHeight); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let disposed = false;
+    void api.getFloatingCollapsed().then((value) => {
+      if (disposed) return;
+      collapsedRef.current = value;
+      setCollapsed(value);
+      if (!value) void api.configureDropzoneWindow(settings.floatingWidth, settings.floatingHeight);
+    });
+    return () => { disposed = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => { void api.setContentProtected(!settings.allowFloatingCapture).catch(() => undefined); }, [api, settings.allowFloatingCapture]);
   useEffect(() => { void ensureFontLoaded(api, settings.floatingWatermark.fontFamily).catch(() => undefined); }, [api, settings.floatingWatermark.fontFamily]);
   useEffect(() => api.onWindowResized((size) => {
     if (resizeTimer.current) window.clearTimeout(resizeTimer.current);
-    resizeTimer.current = window.setTimeout(() => setSettings((current) => {
-      const width = Math.max(280, size.width); const height = Math.max(220, size.height);
-      return current.floatingWidth === width && current.floatingHeight === height ? current : { ...current, floatingWidth: width, floatingHeight: height };
-    }), 220);
+    if (collapsedRef.current || collapseTransition.current) return;
+    resizeTimer.current = window.setTimeout(() => setSettings((current) => rememberFloatingSize(current, size, collapsedRef.current || collapseTransition.current)), 220);
   }), [api, setSettings]);
   useEffect(() => {
     if (!settings.autoCleanupEnabled || settings.filePlacement !== "fixed-folder" || !settings.outputFolder) return;
@@ -626,11 +650,11 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     });
   }), [api, checkUpdates, optimise, results, selectedId, setSettings, settings.preset.scale, uploadResult]);
   useEffect(() => {
-    if (!settings.autoHideResults || !results.length || working) return;
+    if (collapsed || !settings.autoHideResults || !results.length || working) return;
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => void api.hideCurrentWindow(), Math.max(1, settings.autoHideSeconds) * 1000);
     return () => { if (timer.current) window.clearTimeout(timer.current); };
-  }, [api, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
+  }, [api, collapsed, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
 
   const updateFormat = async (item: ResultItem, format: ImageFormat) => {
     const smartCompression = format === "keep";
@@ -688,7 +712,27 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     } catch (error) { showOperationNotice(error instanceof Error ? error.message : String(error), "error"); }
   };
   const clickThroughToggle = <FloatingClickThroughToggle api={api} language={settings.language} enabled={settings.floatingClickThrough} toggle={() => void toggleClickThrough()} />;
+  const changeCollapsed = async (value: boolean) => {
+    if (collapseTransition.current) return;
+    collapseTransition.current = true;
+    collapsedRef.current = value;
+    setCollapseBusy(true);
+    if (timer.current) window.clearTimeout(timer.current);
+    if (resizeTimer.current) window.clearTimeout(resizeTimer.current);
+    try {
+      await api.setFloatingCollapsed(value);
+      setCollapsed(value);
+    } catch (error) {
+      collapsedRef.current = collapsed;
+      showOperationNotice(error instanceof Error ? error.message : String(error), "error");
+    } finally { collapseTransition.current = false; setCollapseBusy(false); }
+  };
+  if (collapsed) {
+    const label = tr(settings.language, "展开悬浮窗", "Expand floating window");
+    return <main className="floating-results is-collapsed"><button className="floating-collapsed-logo" title={label} aria-label={label} disabled={collapseBusy} onClick={() => void changeCollapsed(false)}><span aria-hidden="true"><Brand compact /></span></button></main>;
+  }
   return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
+    <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">

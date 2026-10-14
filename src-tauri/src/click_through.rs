@@ -23,22 +23,25 @@ impl ToggleRegion {
 }
 
 pub(super) fn ignore_at_cursor(window: &tauri::WebviewWindow, state: &DesktopState) -> bool {
-    if !state.floating_click_through.load(Ordering::Relaxed) {
+    if !state.floating_click_through.load(Ordering::Relaxed)
+        || state.floating_collapsed.load(Ordering::Relaxed)
+    {
         return false;
     }
-    let region = state.floating_toggle_region.lock().ok().and_then(|v| *v);
-    let (Some(region), Ok(cursor), Ok(origin), Ok(scale)) = (
-        region,
+    let (Ok(regions), Ok(cursor), Ok(origin), Ok(scale)) = (
+        state.floating_toggle_regions.lock(),
         window.cursor_position(),
         window.inner_position(),
         window.scale_factor(),
     ) else {
         return true;
     };
-    !region.contains(
-        (cursor.x - origin.x as f64) / scale,
-        (cursor.y - origin.y as f64) / scale,
-    )
+    !regions.values().any(|region| {
+        region.contains(
+            (cursor.x - origin.x as f64) / scale,
+            (cursor.y - origin.y as f64) / scale,
+        )
+    })
 }
 
 pub(super) fn start(app: AppHandle) {

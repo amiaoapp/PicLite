@@ -140,6 +140,13 @@ svg { width: 18px; height: 18px; }
 .batch-status button { border: 0; border-radius: 8px; padding: 7px 11px; background: var(--card); }
 
 /* Floating results */
+.floating-collapse-button { position: absolute; z-index: 40; right: 12px; top: 11px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); color: #24362e; backdrop-filter: blur(8px); box-shadow: 0 1px 6px rgba(0,0,0,.1); }
+.floating-collapse-button:hover { background: #fff; }
+.floating-collapse-button svg { width: 16px; height: 16px; stroke-width: 3; }
+.floating-results.is-collapsed { border: 0; border-radius: 0; background: transparent; backdrop-filter: none; clip-path: none; grid-template-rows: 1fr; }
+.floating-collapsed-logo { width: 64px; height: 64px; padding: 8px; display: grid; place-items: center; border: 0; border-radius: 16px; background: transparent; cursor: pointer; }
+.floating-collapsed-logo:hover, .floating-collapsed-logo:focus-visible { background: color-mix(in srgb, var(--surface) 75%, transparent); }
+.floating-collapsed-logo .piclite-symbol { width: 46px; height: 46px; }
 .floating-results { position: relative; container-type: inline-size; height: 100%; overflow: hidden; border: 1px solid rgba(120,130,140,.2); border-radius: 20px; background: color-mix(in srgb, var(--surface) 88%, transparent); background-clip: padding-box; backdrop-filter: blur(38px) saturate(1.7); box-shadow: none; clip-path: inset(0 round 20px); display: grid; grid-template-rows: minmax(0, 1fr) auto; }
 .floating-empty { display: grid; grid-template-rows: minmax(0,1fr) auto; gap: 8px; width: 100%; height: 100%; padding: 12px; border: 0; background: transparent; cursor: grab; }
 .floating-empty:active { cursor: grabbing; }

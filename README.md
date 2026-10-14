@@ -37,6 +37,8 @@ PicLite 图轻：开源跨平台本地图片动图压缩工具，智能择优压
 
 空窗和结果窗底栏均有鼠标穿透开关。开启后其他区域的点击传递给下方窗口，开关本身仍可点击以关闭穿透。
 
+右上角的减号可将悬浮窗折叠为 PicLite 小图标，点击图标展开。折叠保留当前结果及原来的窗口尺寸、位置；开启穿透时也能点击图标展开。
+
 ### 多任务文件夹监控
 
 在“文件夹监测”主页面添加并保存任务。A、B、C 等互不重叠的目录可同时启用，每个任务独立配置目标格式、质量、缩放、最大宽高、输出位置、命名规则、完成通知和悬浮结果。保存后立即生效，软件重启后自动恢复；软件需保持运行（可最小化到托盘）。
@@ -135,6 +137,15 @@ npm run desktop:dev
 ```bash
 npm test
 npm run desktop:build
+```
+
+macOS 本地测试包使用 `npm run desktop:preview:mac`，采用与正式版相同的 Release 优化，自动匹配 Mac 的 ARM64／Intel 架构，并使用独立的预览应用标识。首次构建前需用 `rustup target add aarch64-apple-darwin` 或 `rustup target add x86_64-apple-darwin` 安装对应标准库。Debug 构建仅用于代码调试，不用于判断导入和压缩速度。
+
+导入与压缩的手动计时对比：
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml preview_image_processing_timings -- --ignored --nocapture
+cargo test --release --manifest-path src-tauri/Cargo.toml preview_image_processing_timings -- --ignored --nocapture
 ```
 
 ## 创建工作台插件
