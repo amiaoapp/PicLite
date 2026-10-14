@@ -129,9 +129,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .main-nav button.active { border-bottom-color: var(--deep); color: var(--ink); }
 .live-dot { width: 7px; height: 7px; background: #48ba76; border-radius: 50%; display: inline-block; margin-left: 7px; box-shadow: 0 0 0 4px rgba(72,186,118,.13); }
 .topbar-quick-controls { display: flex; align-items: center; gap: 6px; }
-.topbar-quick-controls button { width: 34px; height: 34px; border: 1px solid rgba(59,88,70,.13); border-radius: 10px; background: rgba(255,255,255,.58); color: #3e5648; font-size: 11px; font-weight: 850; cursor: pointer; box-shadow: inset 0 1px rgba(255,255,255,.92), 0 4px 14px rgba(34,57,45,.05); }
+.topbar-quick-controls button { display: grid; place-items: center; flex: 0 0 34px; padding: 0; line-height: 1; width: 34px; height: 34px; border: 1px solid rgba(59,88,70,.13); border-radius: 10px; background: rgba(255,255,255,.58); color: #3e5648; font-size: 11px; font-weight: 850; cursor: pointer; box-shadow: inset 0 1px rgba(255,255,255,.92), 0 4px 14px rgba(34,57,45,.05); }
 .topbar-quick-controls button:hover { border-color: rgba(72,124,88,.42); background: rgba(255,255,255,.84); transform: translateY(-1px); }
-.topbar-quick-controls .settings-entry-button { font-size: 18px; line-height: 1; }
+.topbar-quick-controls svg { display: block; width: 16px; height: 16px; }
+.topbar-quick-controls .language-entry-button { font-size: 11px; letter-spacing: .02em; }
 .topbar-quick-controls .sponsor-entry-button { color: #9a7652; font-size: 14px; line-height: 1; }
 .topbar-quick-controls .floating-entry-button { color: #174936; font-size: 15px; }
 

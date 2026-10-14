@@ -373,10 +373,12 @@ html[data-theme="dark"] .settings-sidebar nav button.active { color: #18211c; }
 .floating-empty .drop-rings { width: clamp(26px, 18vh, 44px); height: clamp(26px, 18vh, 44px); flex-shrink: 0; margin-bottom: 0; }
 .floating-empty-footer .floating-collapse-button { opacity: 1; pointer-events: auto; transform: none; }
 .floating-results.is-click-through { opacity: .32; backdrop-filter: none; transition: opacity .15s; }
+/* Keep the original single-row toolbar, scaling its controls together. */
+.floating-empty-footer { min-height: clamp(22px, 11cqw, 34px); gap: clamp(3px, 2cqw, 8px); }
+.floating-empty-footer > div { gap: clamp(1px, .9cqw, 3px); }
+.floating-empty-footer button { width: clamp(18px, 9cqw, 29px); height: clamp(18px, 9cqw, 29px); border-radius: clamp(6px, 2.8cqw, 9px); flex: 0 0 auto; }
+.floating-empty-footer svg { width: clamp(10px, 4.4cqw, 14px); height: clamp(10px, 4.4cqw, 14px); }
+.floating-empty-footer > span { font-size: clamp(6px, 3.1cqw, 10px); }
 @container (max-width: 260px) {
   .floating-empty { padding: 6px; gap: 4px; }
-  .floating-empty-footer { flex-wrap: wrap; gap: 2px; }
-  .floating-empty-footer > span { flex-basis: 100%; font-size: 8px; }
-  .floating-empty-footer > div { width: 100%; justify-content: space-between; }
-  .floating-empty-footer button { width: 26px; height: 26px; }
 }
