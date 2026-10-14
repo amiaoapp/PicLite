@@ -2,6 +2,7 @@ mod animation_size;
 mod click_through;
 mod floating_collapse;
 mod heic_input;
+mod png_candidate;
 
 use std::{
     borrow::Cow,
@@ -2426,7 +2427,9 @@ fn optimize_image_data_unconstrained(
             }
         }
 
-        let encode_candidate = |extension: &str| {
+        let pixel_count = u64::from(resized.width()) * u64::from(resized.height());
+        let best_size = std::sync::atomic::AtomicUsize::new(usize::MAX);
+        let encode_candidate = |extension: &str| -> Result<Option<OptimizedImage>, String> {
             // PNG has no perceptual quality control. In the high-quality preset
             // retain its true-colour pixels; WebP/JPEG still provide the useful
             // visually-lossless size reduction users expect from this option.
@@ -2435,14 +2438,20 @@ fn optimize_image_data_unconstrained(
             } else {
                 quality
             };
-            encode_static_ref(&resized, extension, candidate_quality).map(|bytes| OptimizedImage {
+            if extension == "png" && (4_000_000..=24_000_000).contains(&pixel_count) {
+                if png_candidate::stream(&resized, candidate_quality, &best_size)?.is_none() {
+                    return Ok(None);
+                }
+            }
+            let bytes = encode_static_ref(&resized, extension, candidate_quality)?;
+            best_size.fetch_min(bytes.len(), Ordering::Relaxed);
+            Ok(Some(OptimizedImage {
                 bytes,
                 extension: extension.to_string(),
-            })
+            }))
         };
-        let pixel_count = u64::from(resized.width()) * u64::from(resized.height());
         let candidates = if pixel_count <= 24_000_000 && formats.len() > 1 {
-            thread::scope(|scope| -> Result<Vec<OptimizedImage>, String> {
+            thread::scope(|scope| -> Result<Vec<Option<OptimizedImage>>, String> {
                 let handles = formats
                     .iter()
                     .map(|extension| scope.spawn(|| encode_candidate(extension)))
@@ -2464,6 +2473,7 @@ fn optimize_image_data_unconstrained(
         };
         let best = candidates
             .into_iter()
+            .flatten()
             .min_by_key(|candidate| candidate.bytes.len())
             .ok_or_else(|| "没有生成可用的智能优化结果".to_string())?;
         let worthwhile = if settings.mode == "auto" {
@@ -3837,6 +3847,32 @@ async fn set_floating_collapsed(
 #[tauri::command]
 fn get_floating_collapsed(state: State<'_, DesktopState>) -> bool {
     state.floating_collapsed.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+async fn move_floating_icon(
+    window: tauri::WebviewWindow,
+    state: State<'_, DesktopState>,
+    delta_x: f64,
+    delta_y: f64,
+) -> Result<(), String> {
+    if window.label() != "dropzone"
+        || !state.floating_collapsed.load(Ordering::Relaxed)
+        || !delta_x.is_finite()
+        || !delta_y.is_finite()
+        || delta_x.abs() > 8192.0
+        || delta_y.abs() > 8192.0
+    {
+        return Err("无效的悬浮图标移动操作".into());
+    }
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    window
+        .set_position(PhysicalPosition::new(
+            position.x.saturating_add((delta_x * scale).round() as i32),
+            position.y.saturating_add((delta_y * scale).round() as i32),
+        ))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -6850,6 +6886,7 @@ pub fn run() {
             set_floating_toggle_region,
             set_floating_collapsed,
             get_floating_collapsed,
+            move_floating_icon,
             configure_dropzone_window,
             resize_dropzone_window,
             hide_current_window,
@@ -6887,40 +6924,107 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    // Run with both `cargo test` and `cargo test --release`. Measures the real
-    // import/encoder path and makes an accidentally unoptimised preview obvious.
+    // Opt-in benchmark: never commit the user's source image or local path.
     #[test]
-    #[ignore = "manual comparison of debug and release image processing"]
+    #[ignore = "manual comparison of release import and compression phases"]
     fn preview_image_processing_timings() {
         let root = std::env::temp_dir().join(format!("piclite-timing-{}", now_ms()));
         fs::create_dir_all(&root).unwrap();
-        let original = include_bytes!("../../public/og.png");
-        let path = root.join("artwork.png");
-        fs::write(&path, original).unwrap();
+        let (original, extension) = match std::env::var("PICLITE_TIMING_INPUT") {
+            Ok(path) => (
+                fs::read(&path).unwrap(),
+                Path::new(&path)
+                    .extension()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_ascii_lowercase(),
+            ),
+            Err(_) => (
+                include_bytes!("../../public/og.png").to_vec(),
+                "png".to_string(),
+            ),
+        };
+        let path = root.join(format!("artwork.{extension}"));
+        fs::write(&path, &original).unwrap();
         let state = DesktopState::default();
         let start = std::time::Instant::now();
         let entries =
             native_image_entries_from_paths_with_progress(vec![path], &state, |_, _| {}).unwrap();
-        let import_ms = start.elapsed().as_secs_f64() * 1000.0;
-        assert_eq!((entries[0].width, entries[0].height), (1731, 909));
+        eprintln!(
+            "TIMING import_ms={:.1} dimensions={}x{} original_bytes={}",
+            start.elapsed().as_secs_f64() * 1000.0,
+            entries[0].width,
+            entries[0].height,
+            original.len()
+        );
+        let start = std::time::Instant::now();
+        let decoded = decode_static_oriented(&original).unwrap();
+        eprintln!(
+            "TIMING decode_ms={:.1}",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        for format in ["jpg", "webp", "png"] {
+            let start = std::time::Instant::now();
+            let encoded = encode_static_ref(&decoded, format, 86).unwrap();
+            eprintln!(
+                "TIMING format={format} encode_ms={:.1} bytes={}",
+                start.elapsed().as_secs_f64() * 1000.0,
+                encoded.len()
+            );
+        }
         let mut settings = watch_test_settings(&root);
         settings.resize = false;
-        settings.mode = "auto".into();
         settings.format = "keep".into();
         settings.scale = 100.0;
-        settings.quality = 86;
-        let start = std::time::Instant::now();
-        let smart = optimize_image_data(original.to_vec(), "png".into(), &settings).unwrap();
-        let smart_ms = start.elapsed().as_secs_f64() * 1000.0;
-        assert!(smart.bytes.len() < original.len());
-        settings.mode = "manual".into();
-        settings.format = "image/webp".into();
-        settings.quality = 82;
-        let start = std::time::Instant::now();
-        let manual = optimize_image_data(original.to_vec(), "png".into(), &settings).unwrap();
-        let manual_ms = start.elapsed().as_secs_f64() * 1000.0;
-        assert_eq!(manual.extension, "webp");
-        eprintln!("TIMING debug={} import_ms={import_ms:.1} smart_ms={smart_ms:.1} manual_ms={manual_ms:.1} original_bytes={} smart_bytes={} manual_bytes={}", cfg!(debug_assertions), original.len(), smart.bytes.len(), manual.bytes.len());
+        for mode in ["auto", "lossless", "balanced", "small"] {
+            settings.mode = mode.into();
+            settings.quality = match mode {
+                "lossless" => 92,
+                "small" => 48,
+                _ => 86,
+            };
+            let start = std::time::Instant::now();
+            let result =
+                optimize_image_data(original.clone(), extension.clone(), &settings).unwrap();
+            eprintln!(
+                "TIMING mode={mode} total_ms={:.1} format={} bytes={} sha256={:x}",
+                start.elapsed().as_secs_f64() * 1000.0,
+                result.extension,
+                result.bytes.len(),
+                Sha256::digest(&result.bytes)
+            );
+            // Verify the early-stop optimisation against fully encoding every
+            // format, using this supplied image and the identical parameters.
+            let (w, h) = target_dimensions(decoded.width(), decoded.height(), &settings);
+            let resized = resize_dynamic_fast(decoded.clone(), w, h).unwrap();
+            let quality = match mode {
+                "lossless" => 92,
+                "balanced" => 82,
+                "small" => 48,
+                _ => 86,
+            };
+            let expected = ["jpg", "webp", "png"]
+                .into_iter()
+                .map(|format| {
+                    encode_static_ref(
+                        &resized,
+                        format,
+                        if mode == "lossless" && format == "png" {
+                            100
+                        } else {
+                            quality
+                        },
+                    )
+                    .unwrap()
+                })
+                .min_by_key(Vec::len)
+                .unwrap();
+            assert!(
+                result.bytes == expected,
+                "{mode}: pruning must preserve the exact winning file"
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

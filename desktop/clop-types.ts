@@ -264,6 +264,7 @@ export type PicLiteBridge = {
   setFloatingToggleRegion: (region: { x: number; y: number; width: number; height: number } | null, control?: "click-through" | "collapse") => Promise<void>;
   setFloatingCollapsed: (collapsed: boolean) => Promise<void>;
   getFloatingCollapsed: () => Promise<boolean>;
+  moveFloatingIcon: (deltaX: number, deltaY: number) => Promise<void>;
   configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;
   resizeDropzoneWindow: (width: number, height: number) => Promise<void>;

@@ -4,7 +4,7 @@ import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
-import { rememberFloatingSize } from "./floating-window-state";
+import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
 import packageManifest from "../package.json";
@@ -354,8 +354,55 @@ function FloatingClickThroughToggle({ api, language, enabled, toggle }: { api: P
 function FloatingCollapseButton({ api, language, busy, collapse }: { api: PicLiteBridge; language: Language; busy: boolean; collapse: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useFloatingControlRegion(api, ref, "collapse");
-  const label = tr(language, "折叠悬浮窗", "Collapse floating window");
+  const label = tr(language, "折叠为小图标", "Collapse to a small icon");
   return <button ref={ref} className="floating-collapse-button" title={label} aria-label={label} disabled={busy} onPointerDown={(event) => event.stopPropagation()} onClick={collapse}><Icon name="minus" /></button>;
+}
+
+function FloatingCollapsedLogo({ api, language, busy, expand }: { api: PicLiteBridge; language: Language; busy: boolean; expand: () => void }) {
+  const press = useRef<FloatingIconDrag | null>(null);
+  const pending = useRef({ x: 0, y: 0 });
+  const moving = useRef(false);
+  const move = (delta: { x: number; y: number } | null) => {
+    if (!delta) return;
+    pending.current.x += delta.x;
+    pending.current.y += delta.y;
+    if (moving.current) return;
+    moving.current = true;
+    void (async () => {
+      try {
+        while (pending.current.x || pending.current.y) {
+          const next = pending.current;
+          pending.current = { x: 0, y: 0 };
+          await api.moveFloatingIcon(next.x, next.y);
+        }
+      } catch (error) {
+        pending.current = { x: 0, y: 0 };
+        console.error("Could not move the floating icon", error);
+      } finally { moving.current = false; }
+    })();
+  };
+  const label = tr(language, "展开悬浮窗", "Expand floating window");
+  return <button className="floating-collapsed-logo" aria-label={label} title={tr(language, "点击展开，拖动图标可移动", "Click to expand; drag to move")} disabled={busy}
+    onPointerDown={(event) => {
+      if (event.button !== 0 || !event.isPrimary) return;
+      press.current = new FloatingIconDrag(event.screenX, event.screenY);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }}
+    onPointerMove={(event) => {
+      if (press.current && (event.buttons & 1)) move(press.current.move(event.screenX, event.screenY));
+    }}
+    onPointerUp={(event) => {
+      // Also inspect the release point: some native input paths deliver only
+      // a down/up pair. A moved release still must not count as an expand click.
+      if (press.current) move(press.current.move(event.screenX, event.screenY));
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }}
+    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") press.current = null; }}
+    onClick={(event) => {
+      const dragged = press.current?.dragged;
+      press.current = null;
+      if (!dragged) expand();
+    }}><span aria-hidden="true"><Brand compact /></span></button>;
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
@@ -728,17 +775,17 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     } finally { collapseTransition.current = false; setCollapseBusy(false); }
   };
   if (collapsed) {
-    const label = tr(settings.language, "展开悬浮窗", "Expand floating window");
-    return <main className="floating-results is-collapsed"><button className="floating-collapsed-logo" title={label} aria-label={label} disabled={collapseBusy} onClick={() => void changeCollapsed(false)}><span aria-hidden="true"><Brand compact /></span></button></main>;
+    return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
   return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
-    <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />
+    {results.length > 0 && <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
         <span><T language={settings.language} zh="拖动空白区域可移动悬浮窗" en="Drag the empty area to move this window" /></span>
         <div>
           {clickThroughToggle}
+          <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />
           <button title={tr(settings.language, "选择本地图片", "Choose local images")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void chooseLocalImages()}><Icon name="plus" /></button>
           <button title={tr(settings.language, "打开工作台", "Open workbench")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.showMainWindow()}><Icon name="external" /></button>
           <button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button>
