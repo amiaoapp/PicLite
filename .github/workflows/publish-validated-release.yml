@@ -23,6 +23,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RUN_ID: ${{ inputs.run_id }}
@@ -32,6 +33,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      - name: Wait for the source build to succeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 60
       - name: Verify successful source run and exact release version
         id: source
         shell: bash
