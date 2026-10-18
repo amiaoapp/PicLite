@@ -106,4 +106,6 @@ jobs:
           mapfile -d '' files < <(find artifacts -type f -print0)
           gh release create "v$VERSION" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" \
-            --title "PicLite 图轻 v$VERSION" --notes-file "docs/RELEASE-$VERSION.md" --latest
+            --title "PicLite 图轻 v$VERSION" --notes-file "docs/RELEASE-$VERSION.md" --draft
+          test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" = 13
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
