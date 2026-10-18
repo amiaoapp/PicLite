@@ -2149,6 +2149,12 @@ fn encode_static_ref(
             }
         }
         "webp" => {
+            // libwebp rejects zero-sized and >16383px edges. Its convenience
+            // Encoder::encode unwraps these errors and aborts a release process,
+            // including tray-only background jobs on both macOS and Windows.
+            if image.width() == 0 || image.height() == 0 || image.width() > 16383 || image.height() > 16383 {
+                return Err("WebP 每条边必须为 1–16383 像素，请缩小尺寸或选择 PNG/JPEG".into());
+            }
             let rgba = image.to_rgba8();
             if quality >= 100 {
                 WebPEncoder::new_lossless(&mut encoded)
@@ -2162,8 +2168,11 @@ fn encode_static_ref(
             } else {
                 // Below 100%, use libwebp so the quality slider changes the real
                 // encoded output. The 100% path above is genuinely pixel-lossless.
+                let mut config = WebPConfig::new().map_err(|_| "无法初始化 WebP 编码器".to_string())?;
+                config.quality = quality.clamp(1, 99) as f32;
                 let webp = LossyWebPEncoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height())
-                    .encode(quality.clamp(1, 99) as f32);
+                    .encode_advanced(&config)
+                    .map_err(|error| format!("WebP 编码失败：{error:?}"))?;
                 encoded.extend_from_slice(webp.as_ref());
             }
         }
@@ -2447,7 +2456,10 @@ fn optimize_image_data_unconstrained(
                     return Ok(None);
                 }
             }
-            let bytes = encode_static_ref(&resized, extension, candidate_quality)?;
+            let bytes = match encode_static_ref(&resized, extension, candidate_quality) {
+                Ok(bytes) => bytes,
+                Err(_) => return Ok(None), // An optional format must not cancel all candidates.
+            };
             best_size.fetch_min(bytes.len(), Ordering::Relaxed);
             Ok(Some(OptimizedImage {
                 bytes,
@@ -6927,6 +6939,34 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webp_rejects_invalid_dimensions_without_terminating_process() {
+        for (width, height) in [(0, 1), (1, 0), (16384, 1), (1, 16384)] {
+            for quality in [80, 100] {
+                let error = encode_static_ref(&DynamicImage::new_rgba8(width, height), "webp", quality)
+                    .expect_err("invalid WebP dimensions must return an error");
+                assert!(error.contains("16383"));
+            }
+        }
+        let encoded = encode_static_ref(&DynamicImage::new_rgba8(2, 2), "webp", 80)
+            .expect("the next job must still succeed");
+        assert_eq!(image::load_from_memory(&encoded).unwrap().dimensions(), (2, 2));
+    }
+
+    #[test]
+    fn automatic_compression_skips_unavailable_webp_candidate_for_long_images() {
+        let source = DynamicImage::new_rgba8(1, 16384);
+        let original = encode_static_ref(&source, "png", 100).unwrap();
+        let mut settings = watch_test_settings(Path::new("."));
+        settings.mode = "auto".into();
+        settings.format = "keep".into();
+        settings.scale = 100.0;
+        settings.resize = false;
+        let result = optimize_image_data(original, "png".into(), &settings).unwrap();
+        assert_ne!(result.extension, "webp");
+        assert_eq!(image::load_from_memory(&result.bytes).unwrap().dimensions(), (1, 16384));
+    }
 
     // Opt-in benchmark: never commit the user's source image or local path.
     #[test]

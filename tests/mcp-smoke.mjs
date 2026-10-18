@@ -15,10 +15,15 @@ gif.finish();
 const source=join(directory,'animation.gif');
 await writeFile(source,gif.bytes());
 const original=await readFile(source);
+const longSource=join(directory,'long-edge.png');
+await writeFile(longSource,await readFile(new URL('./fixtures/long-edge.png',import.meta.url)));
 async function verify(client) {
   const list=await client.listTools(); assert.equal(list.tools.length,2);
   const inspect=await client.callTool({name:'piclite_inspect',arguments:{path:source}});
   assert.equal(inspect.isError,false); assert.equal(inspect.structuredContent.result.frames,4);
+  const rejected=await client.callTool({name:'piclite_compress',arguments:{paths:[longSource],format:'image/webp'}});
+  assert.match(rejected.structuredContent.result[0].error,/16383/);
+  assert.equal((await client.callTool({name:'piclite_inspect',arguments:{path:source}})).isError,false,'process survives rejected WebP encode');
   const result=await client.callTool({name:'piclite_compress',arguments:{paths:[source],scale:50,format:'image/webp'}});
   assert.equal(result.isError,false);
   const [output]=result.structuredContent.result;
@@ -38,5 +43,5 @@ try {
  await new Promise((res,rej)=>{bridge.stderr.on('data',data=>{if(data.toString().includes('PicLite MCP:'))res();});bridge.on('exit',code=>rej(new Error(`bridge exit ${code}`)));setTimeout(()=>rej(new Error('bridge timeout')),10000).unref();});
  const http=new Client({name:'piclite-http-smoke',version:'1.0.0'});
  await http.connect(new StreamableHTTPClientTransport(new URL('http://127.0.0.1:3219/mcp')));await verify(http);await http.close();
- console.log('PASS: SDK stdio + HTTP handshake, tools, animated compression, dimensions, source preserved, validation');
+ console.log('PASS: SDK stdio + HTTP handshake, tools, animated compression, dimensions, source preserved, invalid WebP recovery, validation');
 } finally {await stdio.close();bridge?.kill();await rm(directory,{recursive:true,force:true});}
