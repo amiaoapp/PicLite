@@ -13,6 +13,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { InterfaceStyleSwitch, useInterfaceStyle } from "./interface-style";
+import { StudioWelcome, StudioStatus } from "./studio-ui";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
@@ -2344,6 +2346,7 @@ export function PicLiteApp() {
 
 function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standalonePreferences = false }: { nativeBridge?: NativeBridge; initialView?: ViewName; standalonePreferences?: boolean }) {
   const [view, setView] = useState<ViewName>(initialView);
+  const [interfaceStyle, setInterfaceStyle] = useInterfaceStyle();
   const [items, setItems] = useState<ImageItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settings, setSettings] = useState<CompressionSettings>(loadStoredSettings);
@@ -3882,7 +3885,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   return (
     <main
-      className={`app-shell ${nativeBridge ? "desktop-app" : "web-app"} ${standalonePreferences ? "preferences-window" : ""}`}
+      className={`app-shell ${interfaceStyle === "studio" ? "studio-shell" : "classic-shell"} ${nativeBridge ? "desktop-app" : "web-app"} ${standalonePreferences ? "preferences-window" : ""}`}
       onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
@@ -3912,6 +3915,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
         </nav>}
         <div className="topbar-actions">
+          {!standalonePreferences && <InterfaceStyleSwitch value={interfaceStyle} onChange={setInterfaceStyle} language={desktopPreferences.language} />}
           {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{nativeBridge && <button type="button" className="sponsor-entry-button" title={t("赞助支持", "Support PicLite")} aria-label={t("打开赞助支持", "Open support options")} onClick={() => void nativeBridge.showPreferencesWindow("sponsor")}><HeaderIcon name="heart" /></button>}{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><HeaderIcon name="gear" /></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><HeaderIcon name="floating" /></button>}<button type="button" title={t("切换浅色 / 深色主题", "Toggle light / dark theme")} aria-label={t("切换主题", "Toggle theme")} onClick={toggleHeaderTheme}><HeaderIcon name={resolveTheme(desktopPreferences.theme) === "dark" ? "sun" : "moon"} /></button><button className="language-entry-button" type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
         </div>
       </header>
@@ -4037,6 +4041,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                     {selected.status === "processing" && <div className="processing-overlay"><i /><strong>{t("正在计算真实输出体积", "Calculating actual output size")}</strong></div>}
                   </div>
                 )
+              ) : interfaceStyle === "studio" ? (
+                <StudioWelcome language={desktopPreferences.language} choose={importImages} sample={() => void addDemo()} />
               ) : (
                 <button className="hero-dropzone" type="button" onClick={importImages}>
                   <span className="drop-visual" aria-hidden="true"><i className="drop-card one" /><i className="drop-card two" /><i className="drop-card three" /><b>＋</b></span>
@@ -4546,6 +4552,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         </section>
       )}
 
+      {interfaceStyle === "studio" && <StudioStatus count={items.length} saving={selected?.outputBytes ? formatBytes(selected.outputBytes) : t("等待图片", "Waiting for images")} language={desktopPreferences.language} />}
       {presetDialogOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPresetDialogOpen(false); }}><form className="preset-dialog" onSubmit={(event) => { event.preventDefault(); saveCustomPreset(); }}><span className="eyebrow">SAVE PRESET</span><h2>{t("保存当前压缩参数", "Save current compression settings")}</h2><p>{t("目标大小、画质、尺寸、格式、元数据和水印会一起保存，下次启动仍然可用。", "Target size, quality, dimensions, format, metadata and watermark settings are saved for future launches.")}</p><input autoFocus value={presetName} maxLength={24} placeholder={t("例如：报名照 200 KB", "For example: application photo 200 KB")} onChange={(event) => setPresetName(event.target.value)} /><div><button type="button" onClick={() => setPresetDialogOpen(false)}>{t("取消", "Cancel")}</button><button className="primary" type="submit" disabled={!presetName.trim()}>{t("保存预设", "Save preset")}</button></div></form></div>}
       {galleryPreview && <div className="gallery-lightbox" role="dialog" aria-modal="true" aria-label={`预览 ${galleryPreview.name}`} onMouseDown={(event) => { if (event.target === event.currentTarget) setGalleryPreviewId(null); }}>
         <header><div><span>QUICK LOOK</span><strong title={galleryPreview.name}>{galleryPreview.name}</strong></div><button type="button" aria-label={t("关闭预览", "Close preview")} title={t("关闭（Esc）", "Close (Esc)")} onClick={() => setGalleryPreviewId(null)}>×</button></header>

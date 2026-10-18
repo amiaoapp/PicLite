@@ -21,6 +21,7 @@ async function mount() {
     import("../app/piclite-app"),
     import("../app/globals.css"),
   ]);
+  await import("../app/studio.css");
   createRoot(root!).render(<PicLiteApp />);
 }
 

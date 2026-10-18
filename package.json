@@ -68,7 +68,9 @@
     "typescript-eslint": "8.59.3",
     "vinext": "0.0.50",
     "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "wrangler": "4.92.0",
+    "motion": "^14.3.0",
+    "@phosphor-icons/react": "^2.1.10"
   },
   "type": "module"
 }

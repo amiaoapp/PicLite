@@ -2015,6 +2015,8 @@ html[data-palette="violet"][data-theme="dark"] {
   --palette-bg-a: #1c1520; --palette-bg-b: #120f15; --palette-panel: rgba(42,34,46,.90);
 }
 html[data-palette="green"][data-theme="dark"] {
+  --ink: #edf5f0; --muted: #99ada1; --line: #2c3a32; --paper: #111714;
+  --surface: #18211c; --deep: #a8c293; --accent: #c4f57b; --accent-strong: #d8ff99;
   --palette-glow-a: rgba(180,232,73,.10); --palette-glow-b: rgba(79,121,91,.10);
   --palette-bg-a: #111714; --palette-bg-b: #0d1210; --palette-panel: rgba(41,45,42,.86);
 }

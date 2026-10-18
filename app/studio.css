@@ -1,0 +1,306 @@
+/* PicLite Studio: a photographic workbench. Layers: header 30, dialogs 45. */
+.app-shell.studio-shell {
+  --studio-paper: var(--palette-bg-b, var(--paper)); --studio-surface: var(--surface);
+  --studio-canvas: color-mix(in srgb, var(--palette-bg-b, var(--paper)) 92%, var(--deep) 8%);
+  --studio-ink: var(--ink); --studio-muted: var(--muted); --studio-line: var(--line);
+  --studio-header: 76px; --studio-footer: 28px;
+  min-height: 100dvh; background: var(--studio-paper); color: var(--studio-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-feature-settings: "ss01", "cv11"; letter-spacing: -.015em;
+}
+
+html .app-shell.studio-shell .topbar {
+  width: 100%; min-width: 0; height: var(--studio-header); margin: 0; padding: 0 24px; border: 0; border-bottom: 1px solid var(--studio-line); border-radius: 0;
+  display: grid; grid-template-columns: 180px minmax(0,1fr) auto; gap: 20px;
+  background: var(--studio-surface); box-shadow: none; backdrop-filter: none;
+}
+.studio-shell .brand strong { font-size: 21px; font-weight: 730; letter-spacing: -.9px; }
+.studio-shell .brand small { color: var(--studio-muted); font-size: 11px; font-weight: 500; }
+.studio-shell .brand-mark { width: 30px; height: 30px; }
+.studio-shell .brand-version { background: none; border: 0; box-shadow: none; color: var(--studio-muted); font: 10px ui-monospace, monospace; }
+html .app-shell.studio-shell .main-nav { min-width: 0; align-items: center; justify-content: center; height: 100%; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+html .app-shell.studio-shell .main-nav button { white-space: nowrap; border: 0; border-radius: 7px; height: 34px; padding: 0 13px; font-size: 12px; font-weight: 550; color: var(--studio-muted); background: none; transition: background .2s, color .2s; }
+html .app-shell.studio-shell .main-nav button.active { color: var(--studio-ink); background: color-mix(in srgb, var(--studio-ink) 7%, transparent); }
+.studio-shell .main-nav button:hover { color: var(--studio-ink); }
+.studio-shell .topbar-actions { gap: 14px; }
+.studio-shell .privacy-badge { padding: 0; border: 0; background: none; box-shadow: none; color: var(--studio-muted); font-size: 10px; white-space: nowrap; }
+.studio-shell .privacy-badge i { display: none; }
+html .app-shell.studio-shell .topbar-quick-controls { gap: 5px; }
+html .app-shell.studio-shell .topbar-quick-controls button { width: 32px; height: 32px; flex-basis: 32px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; color: var(--studio-muted); font-size: 10px; }
+html .app-shell.studio-shell .topbar-quick-controls button:hover { background: color-mix(in srgb, var(--studio-ink) 7%, transparent); color: var(--studio-ink); transform: none; }
+.studio-shell .studio-scene { min-width: 0; }
+html .app-shell.studio-shell.studio-shell .workspace { width: 100%; max-width: none; height: calc(100dvh - var(--studio-header) - var(--studio-footer)); min-height: 0; margin: 0; padding: 0; gap: 0; grid-template-columns: 208px minmax(0,1fr) 306px; }
+html .app-shell.studio-shell.studio-shell .queue-panel,
+html .app-shell.studio-shell.studio-shell .settings-panel,
+html .app-shell.studio-shell.studio-shell .preview-panel { min-width: 0; min-height: 0; border: 0; border-radius: 0; background: var(--studio-surface); box-shadow: none; backdrop-filter: none; }
+html .app-shell.studio-shell.studio-shell .queue-panel { border-right: 1px solid var(--studio-line); display: flex; flex-direction: column; }
+html .app-shell.studio-shell.studio-shell .settings-panel { border-left: 1px solid var(--studio-line); position: static; height: 100%; padding: 0 0 16px; overflow-y: auto; display: flex; flex-direction: column; grid-column: auto; }
+html .app-shell.studio-shell .settings-panel > * { flex-shrink: 0; }
+html .app-shell.studio-shell .settings-panel > .panel-heading { margin-inline: 0; }
+@media (min-width: 801px) {
+  html .app-shell.studio-shell.studio-shell .workspace { grid-template-rows: minmax(0,1fr); }
+}
+html .app-shell.studio-shell.studio-shell .preview-panel { grid-template-rows: 66px minmax(0,1fr) 76px; background: var(--studio-canvas); }
+html .app-shell.studio-shell .panel-heading { min-height: 66px; padding: 16px 20px; background: none; border-bottom: 1px solid var(--studio-line); backdrop-filter: none; }
+.studio-shell .panel-heading strong { font-size: 13px; font-weight: 600; line-height: 1.6; }
+.studio-shell .eyebrow { font-size: 10px; font-weight: 500; color: var(--studio-muted); letter-spacing: .04em; }
+html .app-shell.studio-shell .import-actions { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 16px 16px 10px; }
+html .app-shell.studio-shell .import-actions button { min-height: 34px; border-radius: 6px; box-shadow: none; font-size: 11px; border: 1px solid var(--studio-line); background: var(--studio-surface); color: var(--studio-ink); }
+html .app-shell.studio-shell .import-actions .import-button { background: var(--studio-ink); color: var(--studio-surface); border-color: var(--studio-ink); }
+.studio-shell .queue-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+html .app-shell.studio-shell .queue-empty { min-height: 160px; height: 100%; padding: 20px 10px; gap: 8px; opacity: 1; }
+.studio-shell .queue-empty > span { display: none; }
+.studio-shell .queue-empty strong { font-size: 12px; font-weight: 500; }
+.studio-shell .queue-empty p { font-size: 10px; line-height: 1.8; max-width: 145px; color: var(--studio-muted); }
+.studio-shell .queue-empty button { margin-top: 6px; font-size: 10px; color: var(--studio-ink); text-underline-offset: 4px; }
+html .app-shell.studio-shell .queue-item { border: 1px solid transparent; border-radius: 7px; min-height: 72px; padding: 8px; gap: 9px; grid-template-columns: 40px minmax(0,1fr) 14px; transition: background .2s, border-color .2s; }
+html .app-shell.studio-shell .queue-item.selected { border-color: var(--studio-line); background: color-mix(in srgb, var(--studio-ink) 5%, var(--studio-surface)); box-shadow: none; }
+.studio-shell .queue-item > img { width: 40px; height: 48px; border-radius: 4px; object-fit: cover; }
+.studio-shell .queue-copy > strong { font-size: 10px; font-weight: 600; }
+.studio-shell .queue-copy small, .studio-shell .item-status { font-size: 9px; }
+html .app-shell.studio-shell .queue-footer { padding: 14px 16px; border-top: 1px solid var(--studio-line); background: none; }
+.studio-shell .queue-footer .paste-button { height: 32px; background: none; border: 1px solid var(--studio-line); border-radius: 6px; box-shadow: none; font-size: 10px; color: var(--studio-ink); }
+.studio-shell .queue-footer small { font-size: 9px; color: var(--studio-muted); }
+html .app-shell.studio-shell .preview-toolbar { padding: 13px 24px; grid-template-columns: minmax(0,1fr) auto auto; border: 0; border-bottom: 1px solid var(--studio-line); background: transparent; gap: 8px; }
+.studio-shell .preview-toolbar strong { max-width: 230px; font-size: 12px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html .app-shell.studio-shell.studio-shell .preview-stage { min-height: 0; padding: 20px 28px; overflow: hidden; background: var(--studio-canvas); }
+.studio-shell .studio-welcome { width: min(100%, 560px); margin: auto; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center; }
+.studio-welcome-heading h1 { margin: 0; color: var(--studio-ink); font-size: clamp(32px, 3.4vw, 52px); font-weight: 580; letter-spacing: -.07em; line-height: 1.2; }
+.studio-welcome-heading h1 br { display: none; }
+.studio-welcome-heading h1 span { color: var(--studio-muted); }
+.studio-welcome-heading p { margin: 12px 0 0; font-size: 12px; letter-spacing: .03em; color: var(--studio-muted); }
+.studio-photo-button { width: min(100%, 350px); padding: 0; border: 0; background: transparent; cursor: pointer; perspective: 900px; }
+.studio-photo-button figure { margin: 0; padding: 8px 8px 0; border-radius: 3px; background: #fcfdfb; box-shadow: 0 12px 30px #0000001a, 0 1px 2px #00000014; transform: rotate(-3deg); }
+.studio-photo-button img { display: block; width: 100%; height: auto; aspect-ratio: 1.5; object-fit: cover; border-radius: 1px; }
+.studio-photo-button figcaption { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 6px; color: #49544e; font-size: 10px; }
+.studio-import { display: grid; justify-items: center; gap: 12px; }
+.studio-import > button { min-width: 180px; height: 43px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 0 18px; border: 1px solid transparent; border-radius: 6px; background: var(--studio-ink); color: var(--studio-surface); cursor: pointer; transition: transform .2s, box-shadow .2s; font-size: 12px; font-weight: 550; }
+.studio-import > button:hover { transform: translateY(-2px); box-shadow: 0 6px 18px #00000016; }
+.studio-import > button:active { transform: translateY(0) scale(.98); }
+.studio-import small { font-size: 10px; color: var(--studio-muted); }
+.studio-formats { display: flex; align-items: center; gap: 16px; font: 9px ui-monospace, monospace; color: var(--studio-muted); letter-spacing: .04em; }
+html .app-shell.studio-shell .result-strip { display: grid; grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr) minmax(0,.7fr) 36px 110px; padding: 12px 22px; gap: 10px; border-top: 1px solid var(--studio-line); background: var(--studio-surface); }
+.studio-shell .result-strip > div span { font-size: 9px; letter-spacing: .02em; color: var(--studio-muted); }
+.studio-shell .result-strip > div strong { font: 13px ui-monospace, monospace; color: var(--studio-ink); }
+.studio-shell .result-strip .export-button { width: 110px; min-width: 110px; max-width: 110px; height: 36px; padding: 0 10px; white-space: nowrap; justify-self: end; border-radius: 5px; background: var(--accent); color: #162019; box-shadow: none; font-size: 11px; }
+.studio-shell .result-strip .export-button:disabled { opacity: .4; }
+.studio-shell .result-strip .savings-pill { color: var(--studio-ink); background: color-mix(in srgb, var(--accent) 20%, transparent); border: 0; border-radius: 4px; padding: 5px 8px; }
+html .app-shell.studio-shell .setting-section { padding: 18px 20px; border: 0; border-bottom: 1px solid var(--studio-line); }
+.studio-shell .setting-label { font-size: 11px; font-weight: 600; color: var(--studio-ink); }
+.studio-shell .setting-section .setting-hint { font-size: 10px; line-height: 1.7; color: var(--studio-muted); }
+.studio-shell .setting-section .setting-hint:empty { display: none; }
+html .app-shell.studio-shell .mode-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
+html .app-shell.studio-shell .mode-grid button { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; text-align: left; min-height: 38px; padding: 7px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; box-shadow: none; }
+html .app-shell.studio-shell .mode-grid button.active { border-color: var(--studio-line); background: color-mix(in srgb, var(--studio-ink) 5%, var(--studio-surface)); }
+.studio-shell .mode-grid button strong { font-size: 11px; font-weight: 500; }
+.studio-shell .mode-grid button small { font-size: 9px; color: var(--studio-muted); }
+.studio-shell .mode-grid button > span { font-size: 15px; }
+html .app-shell.studio-shell .select-wrap select, html .app-shell.studio-shell .suffix-input input, html .app-shell.studio-shell .dimension-grid input, html .app-shell.studio-shell .watermark-text-input { min-height: 34px; border: 1px solid var(--studio-line); border-radius: 5px; background: transparent; color: var(--studio-ink); box-shadow: none; font-size: 11px; }
+.studio-shell input[type="range"] { accent-color: var(--accent); }
+html .app-shell.studio-shell .live-size-card { padding: 10px 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.studio-shell .live-size-card > strong { color: var(--studio-ink); font: 17px ui-monospace, monospace; }
+.studio-shell .range-labels, .studio-shell .live-size-card > small, .studio-shell .check-row small { color: var(--studio-muted); font-size: 9px; }
+.studio-shell .preset-toolbar > button, .studio-shell .scale-presets button, .studio-shell .target-size-presets button { border-radius: 4px; background: transparent; box-shadow: none; font-size: 10px; }
+.studio-shell .studio-status { height: var(--studio-footer); padding: 0 20px; display: flex; align-items: center; gap: 24px; border-top: 1px solid var(--studio-line); background: var(--studio-surface); color: var(--studio-muted); font-size: 9px; }
+.studio-status > span { display: flex; align-items: center; gap: 6px; }
+.studio-status > span:last-child { margin-left: auto; font-family: ui-monospace, monospace; }
+.studio-shell .desktop-download-guide { display: none; }
+/* Built-in tools share the workbench material and typographic hierarchy. */
+html .app-shell.studio-shell .builtin-tool-page, html .app-shell.studio-shell .rename-page, html .app-shell.studio-shell .gallery-page { min-height: calc(100dvh - var(--studio-header) - var(--studio-footer)); height: auto; padding: 36px clamp(24px, 5vw, 80px); background: var(--studio-paper); color: var(--studio-ink); }
+html .app-shell.studio-shell .tool-hero, html .app-shell.studio-shell .rename-hero { margin-bottom: 28px; padding: 0; }
+.studio-shell .tool-hero > b, .studio-shell .tool-hero > div > span, .studio-shell .rename-hero > .section-index { display: none; }
+html .app-shell.studio-shell .tool-hero h1, html .app-shell.studio-shell .rename-hero h1 { margin: 0 0 12px; color: var(--studio-ink); font-size: 30px; font-weight: 600; letter-spacing: -.04em; line-height: 1.2; }
+.studio-shell .rename-hero h1 br { display: none; }
+html .app-shell.studio-shell .tool-hero p, html .app-shell.studio-shell .rename-hero p { max-width: 650px; margin: 0; color: var(--studio-muted); font-size: 12px; line-height: 1.8; }
+html .app-shell.studio-shell .tool-layout { grid-template-columns: minmax(240px,.8fr) minmax(350px,1.2fr); gap: 24px; }
+html .app-shell.studio-shell .tool-queue, html .app-shell.studio-shell .tool-console, html .app-shell.studio-shell .rename-console { background: var(--studio-surface); border: 1px solid var(--studio-line); border-radius: 8px; box-shadow: none; color: var(--studio-ink); }
+html .app-shell.studio-shell .tool-fields input, html .app-shell.studio-shell .tool-fields select, html .app-shell.studio-shell .rename-fields input, html .app-shell.studio-shell .rename-fields select { background: var(--studio-paper); color: var(--studio-ink); border: 1px solid var(--studio-line); border-radius: 5px; min-height: 38px; }
+html .app-shell.studio-shell .tool-fields label > span, html .app-shell.studio-shell .rename-fields label > span, html .app-shell.studio-shell .rename-console-head strong { color: var(--studio-ink); font-size: 11px; }
+.studio-shell .tool-local-note, html .app-shell.studio-shell .rename-monitor-note { background: none; border: 0; padding: 0; color: var(--studio-muted); font-size: 11px; line-height: 1.7; }
+html .app-shell.studio-shell .tool-queue-list article, html .app-shell.studio-shell .rename-preview > div { border-color: var(--studio-line); background: none; }
+html .app-shell.studio-shell .tool-queue-list strong, html .app-shell.studio-shell .rename-preview span { color: var(--studio-ink); }
+html .app-shell.studio-shell .tool-queue-list small, html .app-shell.studio-shell .tool-queue-list em, html .app-shell.studio-shell .tool-queue-empty { color: var(--studio-muted); }
+html .app-shell.studio-shell .tool-import-actions button, html .app-shell.studio-shell .tool-actions button, html .app-shell.studio-shell .rename-actions button, html .app-shell.studio-shell .rename-root button { background: var(--studio-paper); color: var(--studio-ink); border: 1px solid var(--studio-line); border-radius: 5px; box-shadow: none; }
+html .app-shell.studio-shell .tool-actions button.primary, html .app-shell.studio-shell .rename-actions button.primary { background: var(--studio-ink); color: var(--studio-surface); border-color: var(--studio-ink); }
+html .app-shell.studio-shell .rename-preview header { background: var(--studio-paper); color: var(--studio-ink); }
+.studio-shell [hidden] { display: none !important; }
+@media (prefers-reduced-motion: no-preference) {
+  .studio-shell .queue-item { animation: studio-enter .3s both; }
+  .studio-shell .processing-overlay i { animation: studio-processing 1.1s ease-in-out infinite; }
+  @keyframes studio-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes studio-processing { 0%,100% { opacity: .45; transform: scale(.9); } 50% { opacity: 1; transform: scale(1); } }
+}
+@media (max-width: 1180px) {
+  html .app-shell.studio-shell.studio-shell .workspace { grid-template-columns: 176px minmax(0,1fr) 276px; }
+  html .app-shell.studio-shell .topbar { padding: 0 16px; grid-template-columns: 145px minmax(0,1fr) auto; gap: 8px; }
+  html .app-shell.studio-shell .main-nav button { padding: 0 9px; font-size: 11px; }
+  .studio-shell .privacy-badge { display: none; }
+  .studio-shell .studio-welcome { gap: 20px; }
+  html .app-shell.studio-shell .preview-stage { padding-inline: 22px; }
+  html .app-shell.studio-shell .result-strip { gap: 7px; padding-inline: 14px; grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr) 36px 110px; }
+  .studio-shell .result-strip > div:nth-child(4) { display: none; }
+}
+@media (max-height: 800px) and (min-width: 801px) {
+  .studio-shell .studio-welcome { gap: 16px; }
+  .studio-shell .studio-photo-button { width: min(100%, 280px); }
+  .studio-welcome-heading h1 { font-size: 36px; }
+  .studio-welcome-heading p { margin-top: 7px; font-size: 11px; }
+}
+@media (max-width: 800px) {
+  .app-shell.studio-shell { --studio-header: 112px; }
+  html .app-shell.studio-shell .topbar { position: sticky; height: var(--studio-header); grid-template-columns: 1fr auto; grid-template-rows: 62px 50px; padding: 0 18px; gap: 0; }
+  html .app-shell.studio-shell .main-nav { grid-row: 2; grid-column: 1 / -1; justify-content: flex-start; gap: 3px; width: 100%; }
+  html .app-shell.studio-shell .main-nav button { padding: 0 12px; flex-shrink: 0; }
+  html .app-shell.studio-shell .topbar-actions { display: flex; grid-row: 1; grid-column: 2; }
+  html .app-shell.studio-shell.studio-shell .workspace { height: auto; min-height: 0; grid-template-columns: minmax(0,1fr); display: grid; padding: 0; }
+  html .app-shell.studio-shell.studio-shell .preview-panel { grid-row: 1; min-height: 650px; grid-template-rows: 56px minmax(420px,1fr) 76px; }
+  html .app-shell.studio-shell.studio-shell .queue-panel { grid-row: 2; min-height: 210px; border: 0; border-top: 1px solid var(--studio-line); }
+  html .app-shell.studio-shell.studio-shell .settings-panel { grid-row: 3; height: auto; overflow: visible; border: 0; border-top: 1px solid var(--studio-line); }
+  .studio-shell .queue-empty { display: none; }
+  .studio-shell .queue-list { max-height: 260px; }
+  html .app-shell.studio-shell .import-actions { grid-template-columns: 1fr 1fr; }
+  .studio-shell .studio-welcome { gap: 22px; padding: 10px 0; }
+  .studio-welcome-heading h1 { font-size: 36px; }
+  .studio-shell .studio-photo-button { width: min(100%, 280px); }
+  html .app-shell.studio-shell .tool-layout { grid-template-columns: minmax(0,1fr); }
+  html .app-shell.studio-shell .builtin-tool-page, html .app-shell.studio-shell .rename-page { padding: 28px 18px; }
+  .studio-shell .tool-actions > div, .studio-shell .rename-actions { flex-wrap: wrap; }
+  .studio-shell .studio-status { gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-shell *, .studio-shell *::before, .studio-shell *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+html .app-shell.studio-shell .setting-section { background: transparent; }
+.studio-shell .empty-stack { display: none; }
+html .app-shell.studio-shell .result-strip > div { background: transparent; box-shadow: none; border: 0; }
+.studio-shell .studio-details { margin-top: 12px; color: var(--studio-muted); font-size: 10px; }
+.studio-details summary { cursor: pointer; user-select: none; }
+.studio-details summary:hover { color: var(--studio-ink); }
+.studio-details .setting-hint { padding: 4px 0 0; }
+.studio-shell .setting-label, .studio-shell .check-row strong { font-size: 12px; }
+.studio-shell .setting-section .setting-hint { font-size: 11px; }
+.studio-shell .mode-grid button small { font-size: 10px; }
+html .app-shell.studio-shell .mode-grid button.active > span { color: var(--studio-ink); }
+
+/* Layout and palette are independent preferences. */
+.interface-style-control { min-width: 92px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); font: inherit; font-size: 11px; cursor: pointer; flex-shrink: 0; }
+html .app-shell.studio-shell { background: var(--studio-paper); }
+@media (prefers-reduced-motion: no-preference) {
+  .studio-shell > .workspace { animation: studio-enter .3s both; }
+}
+/* Keep the style switch reachable on the classic mobile layout as well. */
+@media (max-width: 800px) {
+  .classic-shell .topbar-actions { display: flex; }
+  .classic-shell .topbar-actions .privacy-badge { display: none; }
+}
+.studio-import > .studio-demo-link { min-width: 0; height: auto; padding: 0; background: none; color: var(--studio-muted); border: 0; font-size: 11px; text-decoration: underline; text-underline-offset: 4px; box-shadow: none; }
+.studio-photo-button { cursor: default; }
+@media (max-width: 680px) {
+  .classic-shell .topbar { height: auto; min-height: 62px; grid-template-columns: auto 1fr; row-gap: 8px; padding-block: 10px; }
+  .classic-shell .topbar-actions { grid-column: 1 / -1; justify-self: end; }
+}
+
+/* The native title bar used to keep the classic 20px width subtraction. */
+html .app-shell.studio-shell .topbar { width: 100%; }
+html .app-shell.studio-shell .result-strip > .icon-button { width: 36px; min-width: 36px; height: 36px; padding: 0; border-radius: 6px; color: var(--studio-ink); background: var(--studio-surface); box-shadow: none; }
+html .app-shell.studio-shell .result-strip > div { min-width: 0; }
+html .app-shell.studio-shell .result-strip strong { white-space: nowrap; }
+html[data-theme="dark"] .app-shell.studio-shell .import-actions .import-button,
+html[data-theme="dark"] .app-shell.studio-shell .studio-import > button:not(.studio-demo-link) {
+  background: color-mix(in srgb, var(--accent) 13%, var(--studio-surface));
+  color: var(--studio-ink); border-color: color-mix(in srgb, var(--accent) 34%, var(--studio-line));
+}
+html[data-theme="dark"] .app-shell.studio-shell .result-strip .export-button:disabled { background: var(--studio-surface); color: var(--studio-muted); border: 1px solid var(--studio-line); opacity: .65; }
+@media (max-width: 360px) {
+  html .app-shell.studio-shell .result-strip { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 32px 100px; gap: 6px; padding-inline: 10px; }
+  .studio-shell .result-strip .result-arrow { display: none; }
+  html .app-shell.studio-shell .result-strip > .icon-button { width: 32px; min-width: 32px; }
+  .studio-shell .result-strip .export-button { width: 100px; min-width: 100px; max-width: 100px; }
+}
+
+html .app-shell.studio-shell .compare-canvas,
+html .app-shell.studio-shell .image-inspector { height: 100%; max-height: 100%; min-height: 0; }
+
+/* Classic keeps its layout and materials, but shares the selected palette.
+   The native --paper override and older green literals masked those tokens. */
+html[data-palette][data-theme] .app-shell.classic-shell {
+  --paper: inherit;
+  --classic-panel: color-mix(in srgb, var(--surface) 96%, var(--palette-bg-a));
+  --classic-selected: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+html[data-palette][data-theme] .app-shell.classic-shell .topbar,
+html[data-palette][data-theme] .app-shell.classic-shell .queue-panel,
+html[data-palette][data-theme] .app-shell.classic-shell .settings-panel,
+html[data-palette][data-theme] .app-shell.classic-shell .preview-toolbar,
+html[data-palette][data-theme] .app-shell.classic-shell .result-strip,
+html[data-palette][data-theme] .app-shell.classic-shell .settings-panel > .panel-heading {
+  background: var(--classic-panel); border-color: var(--line);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .preview-panel,
+html[data-palette][data-theme] .app-shell.classic-shell .compare-canvas,
+html[data-palette][data-theme] .app-shell.classic-shell .image-inspector {
+  background: var(--palette-bg-b); border-color: var(--line);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .preview-stage {
+  background: radial-gradient(circle at 50% 42%, var(--classic-selected), var(--palette-bg-b) 68%);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .hero-dropzone {
+  background: color-mix(in srgb, var(--surface) 84%, var(--palette-bg-b));
+  border-color: color-mix(in srgb, var(--deep) 38%, var(--line));
+}
+html[data-palette][data-theme] .app-shell.classic-shell .hero-dropzone:hover {
+  background: var(--classic-selected); border-color: var(--deep);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .drop-card.one {
+  background: color-mix(in srgb, var(--deep) 55%, var(--surface));
+}
+html[data-palette][data-theme] .app-shell.classic-shell .drop-card.three::before {
+  background: color-mix(in srgb, var(--deep) 60%, var(--accent));
+}
+html[data-palette][data-theme] .app-shell.classic-shell .hero-copy p,
+html[data-palette][data-theme] .app-shell.classic-shell .hero-kicker,
+html[data-palette][data-theme] .app-shell.classic-shell .supported-formats { color: var(--muted); }
+html[data-palette][data-theme] .app-shell.classic-shell .topbar-quick-controls .floating-entry-button { color: var(--deep); }
+html[data-palette][data-theme] .app-shell.classic-shell .import-button:hover {
+  background: color-mix(in srgb, var(--deep) 90%, var(--ink));
+}
+html[data-palette][data-theme="dark"] .app-shell.classic-shell .import-button { color: var(--paper); }
+html[data-palette][data-theme] .app-shell.classic-shell .slider-section {
+  background: linear-gradient(180deg, var(--classic-panel), var(--palette-panel));
+}
+html[data-palette][data-theme] .app-shell.classic-shell .queue-item.selected {
+  background: var(--classic-selected); border-color: var(--line);
+  box-shadow: inset 3px 0 var(--deep);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .mode-grid button,
+html[data-palette][data-theme] .app-shell.classic-shell .preset-toolbar {
+  background: var(--classic-panel); border-color: var(--line); color: var(--ink);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .mode-grid button.active,
+html[data-palette][data-theme] .app-shell.classic-shell .scale-presets button.active,
+html[data-palette][data-theme] .app-shell.classic-shell .target-size-presets button.active {
+  background: var(--classic-selected); border-color: var(--deep); color: var(--ink);
+}
+html[data-palette][data-theme] .app-shell.classic-shell .mode-grid button > span { color: var(--deep); }
+html[data-palette][data-theme] .app-shell.classic-shell .panel-heading,
+html[data-palette][data-theme] .app-shell.classic-shell .setting-section,
+html[data-palette][data-theme] .app-shell.classic-shell .queue-footer { border-color: var(--line); }
+html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card {
+  background: color-mix(in srgb, var(--palette-bg-b) 84%, var(--deep));
+}
+html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > span,
+html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > small { color: var(--muted); }
+html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > strong { color: var(--deep); }
+@media (max-width: 980px) and (min-width: 801px) {
+  html .app-shell.studio-shell .preview-toolbar > div:first-child { display: none; }
+  html .app-shell.studio-shell .preview-toolbar { grid-template-columns: minmax(0,1fr) auto; padding-inline: 12px; }
+}
+@media (max-height: 600px) and (min-width: 801px) {
+  .studio-shell .studio-photo-button { display: none; }
+  .studio-shell .studio-welcome { gap: 14px; }
+  .studio-shell .studio-welcome-heading h1 { font-size: 28px; }
+  html .app-shell.studio-shell.studio-shell .preview-panel { grid-template-rows: 56px minmax(0,1fr) 64px; }
+  html .app-shell.studio-shell .preview-stage { padding: 12px 20px; }
+  html .app-shell.studio-shell .result-strip { padding-block: 8px; }
+}

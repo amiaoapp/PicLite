@@ -1,203 +1,126 @@
+<div align="center">
+
 # PicLite 图轻
 
-PicLite 图轻：开源跨平台本地图片动图压缩工具，智能择优压缩，本地文件夹监控，强大自定义悬浮窗。自动图片格式转换，批量压缩，添加水印，上传图床。支持 Windows、macOS、Linux 与可自托管 Web 端。
-帮助自媒体工作人员和开发人员提升工作效率
+**好画质，轻一点。**
 
-[English](README.en-US.md) · [下载桌面版](https://github.com/amiaoapp/PicLite/releases) · [Web 演示](https://amiaoapp.github.io/PicLite/) · [插件开发](docs/PLUGIN_DEVELOPMENT.md) · [问题反馈](https://github.com/amiaoapp/PicLite/issues)
+图片与动图的本地处理工作台：压缩、对比、转换、缩放、命名，一处完成。
 
-![PicLite 工作台](public/og.png)
+[下载桌面版](https://github.com/amiaoapp/PicLite/releases) · [在线体验](https://amiaoapp.github.io/PicLite/) · [Docker 部署](#web-与-docker) · [MCP 接入](docs/MCP.md) · [English](README.en-US.md)
 
-## 主要能力
+</div>
 
-- JPEG / JFIF、PNG、WebP、GIF 导入、转换、压缩与等比例缩放
-- 默认自动比较候选格式，在尽量保持观感的前提下选择更小结果
-- 原图/结果对比、实时体积、连续画质与尺寸控制、文字水印
-- 可将输出限制在 200 KB、100 KB、50 KB 或自定义大小，按真实编码结果自动调整画质与尺寸
-- 支持一次导入整个文件夹并递归加入其中图片，大批量导入沿用低内存队列
-- 剪贴板监听、全局快捷键、文件夹监测与本地图库
-- 类 Clop 的桌面悬浮结果：复制、预览、撤销、继续缩小、切换格式，并在左下状态位反馈操作成功或失败
-- 结果数量上限、堆叠/展开两种悬浮布局、自动隐藏
-- 可禁止系统截图与录屏捕获悬浮结果；macOS 与 Windows 桌面端均支持，第三方捕获工具是否遵循由其实现决定
-- 覆盖源文件、同目录重命名或固定目录输出，并支持定期清理
-- WebDAV、S3/R2、OSS、FTP、SFTP 图床上传
-- 内置批量重命名、格式转换、尺寸调整与扩图插件；也可加载本地 HTML/JavaScript 或 URL 工作台插件
-- Tauri 2 + Rust 桌面端；图片默认只在本机处理
+![PicLite 浅色工作台](docs/images/studio-light.jpg)
 
-### 内置插件：批量重命名
+> 本 README 描述当前源码。已发布安装包和在线演示的功能以各自版本为准；体验尚未发布的更新请从源码构建。
 
-批量重命名作为独立插件页面提供：从任意层级父目录提取正则分组、补零并通过模板生成文件名，执行前可预览冲突；自定义规则可以另存、覆盖并自动记住上次设置，文件夹监控也可复用同一套父目录命名规则。
+## 从一张图片开始
 
-### 内置插件：格式转换、尺寸调整与扩图
+拖入图片或文件夹，选择压缩方案，拖动对比线检查细节，再导出结果。质量、尺寸和目标大小变化后，会显示实际编码得到的体积。
 
-格式转换插件支持 HEIC／HEIF 苹果照片输入，批量输出 JPEG、WebP、PNG、AVIF、GIF、BMP、TIFF、ICO、QOI、TGA，可选择无损优先、智能平衡、更小体积或手动画质。HEIC／HEIF 解码也用于桌面端的压缩、预览和文件夹监控，不提供 HEIC 输出编码。尺寸插件使用 SIMD 加速的 Lanczos3 缩放，支持等比百分比、指定单边、适应宽高边界和精确尺寸；两者都能把参数直接带入新的文件夹监控任务。
+- **智能择优**：测量 JPEG、WebP、PNG 等候选结果，选择更小的有效文件；透明图片跳过 JPEG。
+- **图片与动图**：批量压缩、等比缩放、文字/图片水印、目标文件大小；GIF 添加水印后仍保留动画。
+- **独立工具**：格式转换、尺寸调整与扩图、父目录规则批量重命名、本地图库。
+- **桌面自动化**：复制图片触发优化、全局快捷键、多目录监测和悬浮结果；关闭主窗口后继续在菜单栏/托盘工作。
+- **按需扩展**：导入可信的 HTML/JavaScript 工作台插件，或通过 MCP 让智能体调用图片处理能力。
 
-### 悬浮窗工作流
+<details>
+<summary>查看深色界面</summary>
 
-桌面端可通过全局快捷键、复制图片、拖放文件或“选择本地图片”唤出悬浮窗，无需先打开完整工作台。图片完成自动择优后，把鼠标移到预览图上即可复制、预览、定位文件、撤销、继续缩小、切换格式、加水印或上传图床。悬浮结果支持拖动和缩放、堆叠循环与展开布局、数量上限和自动隐藏，并可在设置中自由选择最多 6 个操作按钮。
+![PicLite 深色工作台](docs/images/studio-dark.jpg)
 
-空窗和结果窗底栏均有鼠标穿透开关。开启后其他区域的点击传递给下方窗口，开关本身仍可点击以关闭穿透。
+</details>
 
-减号按钮可将悬浮窗折叠为 PicLite 小图标：有图时位于右上角，空窗时位于底栏穿透按钮右侧，悬停后显示并带用途提示。小图标可拖动，单击展开；展开后沿用图标移动后的位置，并保留原来的窗口尺寸和处理结果。开启穿透时也能操作折叠图标。
+## 界面可以自己选
 
-### 多任务文件夹监控
+右上角“界面样式”可选择 **经典旧版** 或 **新版界面**，默认保留经典旧版，选择会自动记住。切换外观保留当前图片、压缩参数和结果。
 
-在“文件夹监测”主页面添加并保存任务。A、B、C 等互不重叠的目录可同时启用，每个任务独立配置目标格式、质量、缩放、最大宽高、输出位置、命名规则、完成通知和悬浮结果。保存后立即生效，软件重启后自动恢复；软件需保持运行（可最小化到托盘）。
+两套界面共用原来的压缩、GIF、水印、导出和插件逻辑。石墨、雾蓝、紫灰、经典绿四种配色，以及浅色、深色和跟随系统外观均保留；界面布局和颜色主题分别设置。
 
-“仅格式或尺寸不符合时处理”会跳过已经满足目标的图片；关闭此项则对新图片执行压缩。尺寸可选择仅缩小、等比适应边界并允许放大，或精确宽高。启用父目录命名后，即使格式尺寸符合仍会生成命名后的结果；命名规则与批量重命名插件相同。监控不使用批量序号，请以 `{name}` 区分图片。
+## 选择适合的版本
 
-原图保留，结果保存到各自指定的位置。监控等待文件写入稳定，忽略已生成结果，并拦截目录重叠或输出形成循环的配置。处理成功显示悬浮结果，可同时发送系统通知（受系统通知设置影响）。
+| 能力 | 桌面端 | 浏览器 / Docker |
+| --- | --- | --- |
+| 图片批量压缩、对比、尺寸与水印 | 支持 | 支持，在浏览器本机处理 |
+| 经典 / 新版界面切换 | 支持 | 支持 |
+| 格式转换、尺寸调整、父目录批量命名插件 | 支持 | 使用桌面端 |
+| 持续剪贴板监听、全局快捷键、目录监测、悬浮窗 | 支持 | 使用桌面端 |
+| 写入原目录或覆盖源文件 | 支持 | 需要浏览器支持文件授权，并手动确认权限 |
+| MCP 本地文件操作 | 内置 stdio 服务 | HTTP 桥接见 [MCP 文档](docs/MCP.md) |
 
-JFIF 按 JPEG 图片支持导入、压缩、转换、监控与重命名；本版本不直接拆包或重打包 EPUB，请先提取其中图片。
+## 桌面安装与常用工作流
 
-## 截图
+前往 [Releases](https://github.com/amiaoapp/PicLite/releases) 下载对应架构：
 
-<img width="2924" height="1602" alt="image" src="https://github.com/user-attachments/assets/2379e6d7-e1ef-444d-890f-e2ea7942abe9" />
+| 系统 | 安装包 |
+| --- | --- |
+| Windows x64 / ARM64 | EXE、MSI、便携 ZIP |
+| macOS Apple Silicon / Intel | DMG |
+| Linux x64 / ARM64 | AppImage、DEB |
 
+macOS 当前构建采用 ad-hoc 签名，首次启动请按系统提示处理。
 
-## 下载
+**悬浮窗**：拖放、粘贴或快捷键唤出，处理后可复制、预览、定位、撤销、继续缩小、加水印或上传图床。空窗会随窗口整体缩放，底栏按钮保持固定可见；开启鼠标穿透后降低透明度，仍可通过开关恢复。
 
-在 [Releases](https://github.com/amiaoapp/PicLite/releases) 下载：
+**文件夹监测**：添加互不重叠的输入目录，每个任务独立设置格式、质量、尺寸、输出和命名规则。软件等待文件写入稳定，跳过生成结果并检查输出循环；保存的任务重启后恢复。关闭窗口后仍需让菜单栏/托盘进程保持运行。
 
-- Windows x64 / ARM64：`.exe`、`.msi` 或便携版 `.zip`
-- macOS Apple Silicon / Intel：`.dmg`
-- Linux x64 / ARM64：`.AppImage` 或 `.deb`
-
-macOS 构建目前为 ad-hoc 签名，首次运行可能需要在“系统设置 → 隐私与安全性”中允许打开。
+**图床上传**：桌面端支持 WebDAV、S3/R2、OSS、FTP、SFTP。只有主动上传时才向配置的服务发送图片。
 
 ## Web 与 Docker
 
-[GitHub Pages 在线 Demo](https://amiaoapp.github.io/PicLite/) 是无需安装的静态版本，图片直接在浏览器本地处理，不会上传到服务器。系统托盘、全局快捷键、剪贴板持续监听和文件夹监测等系统级功能请使用桌面端。
+[在线演示](https://amiaoapp.github.io/PicLite/) 无需安装。Docker 提供同一套网页压缩工作台，图片处理发生在访问者的浏览器，容器不需要挂载图片目录。图库也属于当前浏览器，不在多台设备间同步。
 
-需要局域网访问、固定域名或自己的服务入口时，可使用 GHCR 镜像部署 Docker 版本。默认服务端口为 `3456`。
+使用已发布镜像：
 
-### Docker Compose（推荐）
+```bash
+docker run -d --name piclite \
+  -p 3456:3456 --restart unless-stopped \
+  ghcr.io/amiaoapp/piclite:latest
+```
+
+打开 `http://服务器IP:3456`。使用 Compose：
 
 ```bash
 git clone https://github.com/amiaoapp/PicLite.git
 cd PicLite
-docker compose pull
 docker compose up -d
 ```
 
-升级、查看状态和日志：
-
-```bash
-docker compose pull
-docker compose up -d --remove-orphans
-docker compose ps
-docker compose logs -f piclite
-```
-
-可在项目目录创建 `.env` 修改监听地址、宿主机端口或版本：
-
-```dotenv
-PICLITE_BIND=0.0.0.0
-PICLITE_PORT=3456
-PICLITE_TAG=2.0.0
-```
-
-如需从当前源码本地构建：
+当前源码构建：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-### Docker Run
+可在 `.env` 中设置 `PICLITE_PORT=3456`、`PICLITE_BIND=127.0.0.1` 或 `PICLITE_TAG=2.0.0`。通过反向代理对外提供服务时，将域名转发到 `127.0.0.1:3456`；粘贴等浏览器能力通常需要 HTTPS 或 localhost。
+
+升级执行 `docker compose pull && docker compose up -d`；状态与日志使用 `docker compose ps` 和 `docker compose logs -f piclite`。
+
+## 智能体与插件
+
+桌面程序内置 MCP。通过 `piclite --mcp` 启动 stdio 服务，智能体可以检查图片、批量压缩和缩放图片/动图。Claude、Hermes、WorkBuddy 等支持标准 MCP 的客户端可配置使用；ChatGPT 通过 HTTPS MCP 桥接接入，具体权限与配置见 [MCP 指南](docs/MCP.md)。
+
+在桌面端“设置 → 插件”启用内置工具，或导入 `.html`、`.js`、`manifest.json`。插件执行的是你信任的代码，请先审阅来源。
+
+[中文插件开发指南](docs/PLUGIN_DEVELOPMENT.md) · [English plugin guide](docs/PLUGIN_DEVELOPMENT.en-US.md)
+
+## 开发与验证
+
+需要 Node.js 22.13+；桌面构建另需 Rust stable 和对应平台的 Tauri 2 系统依赖。
 
 ```bash
-docker run -d \
-  --name piclite \
-  -p 3456:3456 \
-  --restart unless-stopped \
-  ghcr.io/amiaoapp/piclite:latest
+npm ci
+npm run dev                  # Web 开发
+npm run desktop:dev          # Tauri 桌面开发
+npm test                     # 网页与原生回归测试
+npm run pages:build          # 静态 Web 构建
+npm run desktop:preview:mac   # 当前 Mac 架构的 Release 预览包
 ```
 
-浏览器打开 `http://服务器IP:3456`。GitHub Pages 与 Docker Web 端都保留压缩工作台；受浏览器权限限制，不提供系统托盘、全局快捷键和持续文件夹监测。
-
-反向代理时将域名转发至 `http://127.0.0.1:3456`。例如 Caddy：
-
-```caddyfile
-piclite.example.com {
-  reverse_proxy 127.0.0.1:3456
-}
-```
-
-## 本地开发
-
-要求 Node.js 22.13+、Rust stable，以及目标平台的 Tauri 2 系统依赖。
-
-```bash
-npm install
-npm run dev
-npm run desktop:dev
-```
-
-验证与构建：
-
-```bash
-npm test
-npm run desktop:build
-```
-
-macOS 本地测试包使用 `npm run desktop:preview:mac`，采用与正式版相同的 Release 优化，自动匹配 Mac 的 ARM64／Intel 架构，并使用独立的预览应用标识。首次构建前需用 `rustup target add aarch64-apple-darwin` 或 `rustup target add x86_64-apple-darwin` 安装对应标准库。Debug 构建仅用于代码调试，不用于判断导入和压缩速度。
-
-导入与压缩的手动计时对比：
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml preview_image_processing_timings -- --ignored --nocapture
-cargo test --release --manifest-path src-tauri/Cargo.toml preview_image_processing_timings -- --ignored --nocapture
-```
-
-## 创建工作台插件
-
-### 内置插件：图片批量重命名
-
-在主窗口打开“批量重命名”并选择根目录（默认启用，可在“设置 → 插件”中关闭）。递归扫描只处理图片，保留其它文件。从图片所在文件夹向根目录逐层匹配，遇到第一个匹配的父目录就停止。
-
-- `A/A1/A11/【1-1】A111/A1111/photo.jfif`，默认规则生成 `0101_photo.jfif`，直接位于 `【1-1】A111` 下的图片同样适用。
-- 两段数字分别补至两位：`1-1 → 0101`、`11-1 → 1101`；更长数字保留，不截断。
-- 中文词：规则 `(风景|人物)` 配合 `{1}_{name}`；英文词：`([A-Za-z]+)` 配合 `{1}_{name}`。
-- 英文首字母：`{1:initial}` 取捕获内容的首字母；`{1:initials}` 提取各单词首字母，例如 `New York → NY`。
-- 模板还支持 `{code}`、`{name}`、`{ext}`、`{folder}`、`{match}`、`{1}`、`{2}`、`{index}`、`{index:03}`。零捕获组时 `{code}` 使用整个匹配文本。
-
-执行前先扫描预览；未匹配和冲突项会标明，不覆盖已有文件。修改后的正则、模板、连接符与转换设置可以另存为自定义规则或覆盖已有自定义规则，软件也会自动恢复上次使用的规则。
-
-PicLite 插件不再用 `iframe` 嵌入。桌面端会读取 HTML/CSS/JavaScript，并挂载到工作台的可信插件容器；因此不会被站点的 `X-Frame-Options` 阻止，也支持自定义标签名称。请只安装你信任的代码。
-
-最小插件只需一个 HTML 文件：
-
-```html
-<!doctype html>
-<meta charset="utf-8">
-<main id="tool">
-  <h1>我的图片工具</h1>
-  <button id="ready">完成</button>
-</main>
-<script>
-  document.querySelector("#ready").onclick = () => {
-    window.PicLitePlugin.post("ready", { ok: true });
-  };
-</script>
-```
-
-打开“设置 → 插件”，可直接导入 `.html`、`.js` 或 `manifest.json`；也可填写自定义名称和 HTTPS 地址，由桌面端读取后运行。清单示例：
-
-```json
-{
-  "nameZh": "封面设计大师",
-  "nameEn": "Banner Maker",
-  "url": "https://example.com/plugin/"
-}
-```
-
-完整的运行时 API、资源路径规则和发布注意事项见[插件开发教程](docs/PLUGIN_DEVELOPMENT.md)。
+[问题反馈](https://github.com/amiaoapp/PicLite/issues) 时请提供版本、系统、复现步骤与脱敏后的错误信息。
 
 ## 隐私与许可证
 
-图片压缩默认在浏览器或桌面客户端本地完成；只有主动使用图床上传时，文件才会发送到你配置的服务。
+图片默认留在本机。网页图库使用 IndexedDB，清理站点数据会移除记录；需要留存的结果请及时导出。图片样张为专门生成的演示素材。
 
-PicLite 使用 [GPL-3.0-or-later](LICENSE)。桌面自动化工作流借鉴并改编自 GPL 项目 [FuzzyIdeas/Clop](https://github.com/FuzzyIdeas/Clop)，PicLite 不使用 Clop 商标；详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-## 智能体调用
-
-2.0 内置 MCP：启动 `piclite --mcp` 即可让支持 MCP 的智能体直接检查、压缩和缩放本地图片及动图。[配置与 ChatGPT 接入](docs/MCP.md)。
+PicLite 以 [GPL-3.0-or-later](LICENSE) 发布。桌面自动化工作流借鉴并改编自 [FuzzyIdeas/Clop](https://github.com/FuzzyIdeas/Clop)；PicLite 不使用其商标。第三方依赖与致谢见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

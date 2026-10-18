@@ -11,3 +11,9 @@ PicLite modifications are Copyright (c) PicLite contributors. The Clop project, 
 Where PicLite contains a direct adaptation of a Clop source file or algorithm, the corresponding source file retains a clear attribution and change notice.
 
 The current cross-platform rewrite began on 10 August 2026. Clop's macOS-specific AppKit and SwiftUI implementation is replaced with a Tauri, Rust and operating-system-WebView implementation for Windows, macOS and Linux. PicLite-specific branding, image processing integrations and platform adapters are modifications by PicLite contributors.
+
+## Web workbench dependencies and sample image
+
+Motion is MIT licensed; Phosphor Icons is MIT licensed. gifenc is MIT licensed. See each package's license in the dependency distribution.
+
+`public/studio-coast.webp` is an AI-generated sample photograph created for PicLite. It depicts a black volcanic coastline with breaking white waves; it is not a user-uploaded image.
