@@ -46,8 +46,8 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ inputs.version || github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version || github.ref_name }}
           labels: |
             org.opencontainers.image.title=PicLite
             org.opencontainers.image.description=PicLite self-hosted web application
