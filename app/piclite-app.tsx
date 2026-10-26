@@ -22,10 +22,11 @@ import packageManifest from "../package.json";
 import { Icon as HeaderIcon } from "../desktop/clop-icons";
 import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 import { FormatConverterPlugin, ResizePlugin, type NativeOutputFormat } from "./builtin-image-tools";
+import { BannerMaker } from "./banner-maker";
 
 type CompressionMode = "lossless" | "balanced" | "small" | "manual";
 type OutputFormat = "keep" | "image/jpeg" | "image/png" | "image/webp";
-type ViewName = "workspace" | "watcher" | "rename" | "convert" | "resize" | "gallery" | "preferences" | `plugin:${string}`;
+type ViewName = "workspace" | "banner" | "watcher" | "rename" | "convert" | "resize" | "gallery" | "preferences" | `plugin:${string}`;
 type PreviewMode = "compare" | "original" | "result";
 type ItemStatus = "ready" | "processing" | "done" | "error";
 type ExportMode = "download" | "overwrite" | "same-folder" | "fixed-folder";
@@ -3907,6 +3908,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         </div>
         {standalonePreferences ? <div className="standalone-window-title"><span className="eyebrow">PREFERENCES</span><strong>{t("应用设置", "Preferences")}</strong></div> : <nav className="main-nav" aria-label={t("主要功能", "Main navigation")}>
           <button className={view === "workspace" ? "active" : ""} type="button" onClick={() => setView("workspace")}>{t(nativeBridge ? "工作台" : "压缩工作台", "Workspace")}</button>
+          <button className={view === "banner" ? "active" : ""} type="button" onClick={() => setView("banner")}>{t("封面制作", "Cover maker")}</button>
           {workspacePlugins.find((plugin) => plugin.id === "watcher")?.enabled && <button className={view === "watcher" ? "active" : ""} type="button" onClick={() => setView("watcher")}>{t("文件夹监测", "Folder watch")}{watcherActive && <span className="live-dot" aria-label={t("监测中", "Watching")} />}</button>}
           {workspacePlugins.find((plugin) => plugin.id === "gallery")?.enabled && <button className={view === "gallery" ? "active" : ""} type="button" onClick={() => setView("gallery")}>{t("图库", "Library")}</button>}
           {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button className={view === "rename" ? "active" : ""} type="button" onClick={() => setView("rename")}>{t("批量重命名", "Batch rename")}</button>}
@@ -4232,6 +4234,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             <button className="compress-button" type="button" disabled={!items.length || processingAll} onClick={processAll}><span>{processingAll ? "···" : "✦"}</span>{processingAll ? t("正在应用到全部", "Applying to all…") : t(`按此参数应用到全部${items.length ? ` · ${items.length} 张` : ""}`, `Apply these settings to all${items.length ? ` · ${items.length}` : ""}`)}</button>
           </aside>
         </section>
+      ) : view === "banner" ? (
+        <BannerMaker language={desktopPreferences.language} />
       ) : view === "rename" ? (
         <BatchRenamePage bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} />
       ) : view === "convert" ? (

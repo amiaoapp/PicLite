@@ -18,7 +18,14 @@ const original=await readFile(source);
 const longSource=join(directory,'long-edge.png');
 await writeFile(longSource,await readFile(new URL('./fixtures/long-edge.png',import.meta.url)));
 async function verify(client) {
-  const list=await client.listTools(); assert.equal(list.tools.length,2);
+  const list=await client.listTools(); assert.equal(list.tools.length,3);
+  const coverSource=join(directory,'cover-source.png'); await writeFile(coverSource,await readFile(new URL('./fixtures/long-edge.png',import.meta.url)));
+  const coverPath=join(directory,'transparent-cover.png');
+  const cover=await client.callTool({name:'piclite_create_cover',arguments:{imagePath:coverSource,outputPath:coverPath,config:{canvasW:600,canvasH:400,innerSize:180,transparent:true,enableShadow:false,borderType:'none',borderRadius:0}}});
+  assert.equal(cover.isError,false);
+  assert.equal(cover.structuredContent.result.width,600); assert.equal(cover.structuredContent.result.height,400); assert.equal(cover.structuredContent.result.format,'png');
+  assert.match((await readFile(coverPath)).subarray(0,8).toString('hex'),/^89504e470d0a1a0a$/);
+  assert.equal((await client.callTool({name:'piclite_create_cover',arguments:{imagePath:'relative.png'}})).isError,true);
   const inspect=await client.callTool({name:'piclite_inspect',arguments:{path:source}});
   assert.equal(inspect.isError,false); assert.equal(inspect.structuredContent.result.frames,4);
   const rejected=await client.callTool({name:'piclite_compress',arguments:{paths:[longSource],format:'image/webp'}});

@@ -15,6 +15,7 @@ Windows command 指向安装目录的 `piclite.exe` 或便携版 `PicLite.exe`�
 工具：
 - `piclite_compress`：paths 为绝对路径数组，支持 quality（1–100）、scale（0.1–100）、format（keep/image/webp/image/png/image/jpeg/image/avif）、outputDirectory、targetSizeKb。默认原目录另存，源文件不会被覆盖。
 - `piclite_inspect`：path 为图片路径，返回尺寸、字节数、格式、帧数和动画状态。
+- `piclite_create_cover`：传入 `imagePath`（本机图片绝对路径）即可居中裁切并输出 **透明 3:2 PNG**。可用 `config` 设定图标尺寸、裁切缩放、透明/底板、留白、圆角、边框和阴影；也可传 `presetPath` 读取 img2banner 导出的预设 JSON，并用 config 覆盖其中参数。输出文件冲突时自动加序号，不覆盖源图。
 
 示例请求：“用 PicLite 把 /绝对路径/demo.gif 缩到 50%，输出动态 WebP，然后检查它是否仍是动画。”
 
@@ -39,4 +40,4 @@ cargo build --manifest-path src-tauri/Cargo.toml
 node tests/mcp-smoke.mjs
 ```
 
-测试使用官方 SDK 连接真实二进制，覆盖 stdio / Streamable HTTP 的初始化、工具列表、GIF→动态 WebP、缩放、动图帧检查、参数错误和源文件保留。
+测试使用官方 SDK 连接真实二进制，覆盖 stdio / Streamable HTTP 的初始化、工具列表、配置驱动的透明 PNG 封面、GIF→动态 WebP、缩放、动图帧检查、参数错误和源文件保留。

@@ -17,3 +17,8 @@ The current cross-platform rewrite began on 10 August 2026. Clop's macOS-specifi
 Motion is MIT licensed; Phosphor Icons is MIT licensed. gifenc is MIT licensed. See each package's license in the dependency distribution.
 
 `public/studio-coast.webp` is an AI-generated sample photograph created for PicLite. It depicts a black volcanic coastline with breaking white waves; it is not a user-uploaded image.
+
+
+## img2banner
+
+The embedded cover editor UI is based on [amiaoapp/img2banner](https://github.com/amiaoapp/img2banner), Copyright appmiao contributors, licensed under the MIT License as stated in its README. Source: `app/img2banner-template.html`.
