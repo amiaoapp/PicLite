@@ -1,6 +1,6 @@
 [package]
 name = "piclite"
-version = "2.0.1"
+version = "2.0.2"
 description = "PicLite local-first image compressor"
 authors = ["PicLite contributors"]
 edition = "2021"

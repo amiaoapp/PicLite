@@ -122,3 +122,20 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" "${files[@]}" --title "PicLite 图轻 ${GITHUB_REF_NAME}" --notes-file "docs/RELEASE-${GITHUB_REF_NAME#v}.md" --repo "${GITHUB_REPOSITORY}"
           fi
+      - name: Remove stale versioned installers after successful upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          repo, tag = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REF_NAME']
+          version = tag.removeprefix('v')
+          release = json.loads(subprocess.check_output([
+              'gh', 'release', 'view', tag, '--repo', repo, '--json', 'assets'
+          ]))
+          for asset in release['assets']:
+              match = re.match(r'^PicLite_(\d+\.\d+\.\d+)_', asset['name'])
+              if match and match.group(1) != version:
+                  subprocess.run(['gh', 'release', 'delete-asset', tag, asset['name'],
+                                  '--repo', repo, '--yes'], check=True)
+          PY
