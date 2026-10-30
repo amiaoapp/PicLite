@@ -6,11 +6,11 @@
 .app-shell .brand strong{font-size:18px;letter-spacing:-.6px}
 .app-shell .brand small{font-size:11px}
 .app-shell .brand-version{font-size:9px;margin:0}
-.app-shell .topbar .topbar-actions{display:flex;gap:6px;min-width:0;max-width:none;justify-self:end}
+.app-shell .topbar .topbar-actions{display:flex;gap:6px;min-width:0;max-width:none;justify-self:end;flex-shrink:0}
 .app-shell .topbar-quick-controls{gap:4px}
 .app-shell .topbar-quick-controls button{width:30px;height:30px;flex:0 0 30px;border:0;box-shadow:none;background:transparent;color:var(--ink);border-radius:9px}
 .app-shell .topbar-quick-controls button:hover{background:color-mix(in srgb,var(--deep) 10%,transparent);transform:none}
-.app-shell .topbar-quick-controls .sponsor-entry-button{display:none}
+.app-shell .topbar-quick-controls .sponsor-entry-button{display:grid;color:var(--deep)}
 .app-shell .tool-navigation{display:grid;grid-template-columns:18px minmax(0,1fr) 18px;gap:2px;align-items:center;min-width:0;width:100%;height:100%}
 .app-shell .main-nav.tool-tabs{display:flex;justify-self:stretch;align-items:center;gap:3px;height:100%;width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-y;scroll-behavior:auto}
 .app-shell .tool-tabs::-webkit-scrollbar{display:none}
@@ -87,3 +87,12 @@ html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0
 .app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
 .app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
 .app-shell.desktop-app .workspace .settings-panel{padding-bottom:24px}
+
+/* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */
+html[data-density] .app-shell .topbar.topbar{grid-template-columns:170px minmax(0,1fr) 168px;column-gap:12px}
+html[data-density] .app-shell .topbar .topbar-actions{width:168px;min-width:168px;max-width:168px;display:flex;overflow:visible;grid-column:3;grid-row:1;justify-content:flex-end}
+html[data-density] .app-shell .topbar-quick-controls{display:flex;width:168px;min-width:168px;flex-wrap:nowrap;gap:4px;align-items:center}
+html[data-density] .app-shell .topbar-quick-controls>.appearance-menu{display:flex;flex:0 0 30px;min-width:30px;width:30px}
+html[data-density] .app-shell .topbar-quick-controls>button,html[data-density] .app-shell .topbar-quick-controls .appearance-trigger{display:grid;flex:0 0 30px;width:30px;height:30px;min-width:30px}
+@media(max-width:1000px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:140px minmax(0,1fr) 168px;gap:8px}}
+@media(max-width:680px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:88px minmax(0,1fr) 98px;gap:4px}html[data-density] .app-shell .topbar .topbar-actions,html[data-density] .app-shell .topbar-quick-controls{width:98px;min-width:98px;max-width:98px}html[data-density] .app-shell .topbar-quick-controls>.floating-entry-button,html[data-density] .app-shell .topbar-quick-controls>.language-entry-button{display:none}}

@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingCorner: "bottom-right",
   floatingWidth: 320,
   floatingHeight: 230,
-  floatingActions: ["downscale", "watermark", "undo", "copy", "preview", "reveal"],
+  floatingActions: ["downscale", "undo", "quality", "copy", "upload", "save"],
   floatingWatermark: {
     text: "PicLite",
     fontFamily: "Microsoft YaHei",
@@ -163,7 +163,7 @@ export function loadSettings(): DesktopSettings {
       shortcutUploadCurrent: mainPreferences.shortcutUpload || parsed.shortcutUploadCurrent || DEFAULT_SETTINGS.shortcutUploadCurrent,
       floatingWidth: Math.max(280, Number(parsed.floatingWidth) || DEFAULT_SETTINGS.floatingWidth),
       floatingHeight: Math.max(220, Number(parsed.floatingHeight) || DEFAULT_SETTINGS.floatingHeight),
-      floatingActions: Array.isArray(parsed.floatingActions) ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
+      floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
       floatingWatermark: { ...DEFAULT_SETTINGS.floatingWatermark, ...(parsed.floatingWatermark || {}) },
       watchProfiles: Array.isArray(parsed.watchProfiles) ? parsed.watchProfiles : (parsed.watchFolders || []).map((path, index) => ({
         id: `migrated-${index}`, name: fileName(path), enabled: true,
