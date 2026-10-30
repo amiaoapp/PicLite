@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./liquid-glass.css";
 
 :root {
   --ink: #1f2937;

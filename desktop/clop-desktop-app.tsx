@@ -1,9 +1,11 @@
+import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
 import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
+import { FloatingResultEditor } from "./floating-result-editor";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
@@ -13,6 +15,7 @@ type ResultItem = QuickCompressResult & {
   id: string;
   originalSource?: string;
   reencodeSource?: string;
+  editorQuality?: number;
   preview?: string;
   width?: number;
   height?: number;
@@ -266,7 +269,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, smartCompression, status: "working", error: undefined } : candidate));
     try {
       const [output] = await api.quickCompressPaths([source], nativeSettings(effectiveSettings));
-      if (!output) throw new Error(tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
+      if (!output || output.error || !output.output) throw new Error(output?.error || tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
       const snapshot: ResultItem = { ...item, history: undefined };
       const history = [...(item.history || []), snapshot];
       const provisional: ResultItem = {
@@ -274,6 +277,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
         ...output,
         source: originalSource,
         originalSource,
+        editorQuality: overrides.quality ?? item.editorQuality,
         // A structural edit (resize/watermark) becomes the baseline for every
         // later format switch. Keeping the pre-edit source here caused the UI
         // to re-encode the larger image and made the result grow again.
@@ -505,7 +509,7 @@ function FormatBar({ value, update }: { value?: string; update: (format: ImageFo
   </div>;
 }
 
-function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void }) {
+function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
   const saved = percentage(item);
   const format = resultFormat(item);
   const startWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -513,7 +517,7 @@ function ResultCard({ item, api, settings, active, allowWindowDrag = true, notif
     event.preventDefault();
     void api.startDragging();
   };
-  return <article className={`result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={(event) => { if (!item.output) return; event.preventDefault(); void api.openImage(item.output); }}>
+  return <article className={`result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={(event) => { if (!item.output) return; event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>(".floating-editor-toolbar button:last-child")?.click(); }}>
     <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
       {item.preview ? <img src={item.preview} alt={fileName(item.source)} /> : <Icon name={item.status === "working" ? "spark" : "image"} />}
       <div className="result-overlay">
@@ -528,6 +532,7 @@ function ResultCard({ item, api, settings, active, allowWindowDrag = true, notif
         <ResultActions item={item} api={api} settings={settings} notify={notify || (() => undefined)} onDownscale={downscale} onWatermark={watermark} onUndo={undo} onUpload={upload} />
       </div>}
     </div>
+    {process && item.output && item.status !== "working" && <FloatingResultEditor key={item.output} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} language={settings.language} format={format} quality={item.editorQuality ?? (settings.preset.quality || 86)} canUndo={!!item.history?.length} undo={undo} process={process} notify={notify || (() => undefined)} />}
     <button className="result-close" title={tr(settings.language, "移除", "Dismiss")} onClick={(event) => { event.stopPropagation(); remove(); }}><Icon name="close" /></button>
   </article>;
 }
@@ -708,7 +713,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   useEffect(() => {
     if (collapsed || !settings.autoHideResults || !results.length || working) return;
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void api.hideCurrentWindow(), Math.max(1, settings.autoHideSeconds) * 1000);
+    timer.current = window.setTimeout(() => { if (!document.querySelector(".floating-editor-panel")) void api.hideCurrentWindow(); }, Math.max(1, settings.autoHideSeconds) * 1000);
     return () => { if (timer.current) window.clearTimeout(timer.current); };
   }, [api, collapsed, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
 
@@ -718,7 +723,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       mode: smartCompression ? "auto" : "manual",
       format,
       scale: 100,
-      preventLarger: true,
+      preventLarger: smartCompression,
     });
   };
   const undo = (item: ResultItem) => setResults((current) => current.map((candidate) => {
@@ -803,7 +808,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     </section> : <>
       <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{results.map((item, index) => {
         const active = selectedId ? selectedId === item.id : index === 0;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag={settings.floatingDisplayMode !== "stack"} notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} /></div>;
+        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag={settings.floatingDisplayMode !== "stack"} notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
@@ -1293,6 +1298,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
 }
 
 export function PicLiteDesktopApp() {
+  useLiquidGlassTheme();
   if (!bridge) return <div className="fatal">PicLite desktop bridge is unavailable.</div>;
   if (bridge.windowLabel === "preferences") return <Preferences api={bridge} />;
   if (bridge.windowLabel === "dropzone") return <FloatingResults api={bridge} />;

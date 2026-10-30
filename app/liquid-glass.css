@@ -1,0 +1,94 @@
+/* Web material approximation inspired by rdev/liquid-glass-react (MIT).
+   No SVG displacement, pointer tracking, canvas, or animated filters. See docs/liquid-glass-theme.md.
+   Existing palettes, color-scheme ownership, geometry and image pixels stay intact. */
+html[data-material="glass"] {
+  --glass-solid: #f4f7fa;
+  --glass-tint: rgb(246 249 252 / .86);
+  --glass-edge: rgb(82 104 128 / .22);
+  --glass-highlight: rgb(255 255 255 / .86);
+  --glass-shadow: 0 8px 28px rgb(34 54 76 / .08), inset 0 1px 0 var(--glass-highlight);
+  --glass-blur: blur(14px) saturate(125%);
+  --glass-muted: #526171;
+}
+html[data-material="glass"][data-theme="dark"] {
+  --glass-solid: #202934;
+  --glass-tint: rgb(30 39 50 / .9);
+  --glass-edge: rgb(181 202 225 / .22);
+  --glass-highlight: rgb(221 237 255 / .16);
+  --glass-shadow: 0 8px 28px rgb(4 10 18 / .2), inset 0 1px 0 var(--glass-highlight);
+  --glass-muted: #bac7d6;
+}
+/* Opaque base is the no-backdrop-filter fallback. Blur is restricted to small
+   chrome surfaces; scrolling sidebars/cards never allocate backdrop layers. */
+html[data-material="glass"][data-material][data-theme] :is(.app-shell, .desktop-app, .preferences-window) {
+  --muted: var(--glass-muted);
+  --studio-muted: var(--glass-muted);
+  background: radial-gradient(ellipse at 15% 0%, var(--palette-glow-a, rgb(150 185 215 / .2)), transparent 48%),
+    radial-gradient(ellipse at 95% 80%, var(--palette-glow-b, rgb(150 185 215 / .12)), transparent 44%), var(--paper);
+}
+html[data-material="glass"][data-material][data-theme] :is(.app-shell, .desktop-app, .preferences-window) :is(.topbar, .queue-panel, .settings-panel, .preferences-sidebar, .preference-card, .gallery-toolbar, .gallery-card, .upload-card, .plugin-import-panel),
+html[data-material="glass"][data-material][data-theme] :is(.update-notice, .desktop-download-guide, .glass-surface) {
+  background: linear-gradient(145deg, var(--glass-highlight), transparent 48%), var(--glass-solid);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* Higher specificity than Studio's repeated shell classes; no layout overrides. */
+html[data-material="glass"][data-material][data-theme] .app-shell.studio-shell.studio-shell :is(.queue-panel, .settings-panel) {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 35%, transparent), transparent 50%), var(--glass-solid);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  border-color: var(--glass-edge);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-material="glass"][data-material][data-theme] :is(.app-shell, .desktop-app, .preferences-window) .topbar,
+  html[data-material="glass"][data-material][data-theme] :is(.update-notice, .desktop-download-guide, .glass-surface) {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 28%, transparent), transparent 48%), var(--glass-tint);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+}
+/* Keep the WKWebView resize-memory safeguard already present in globals.css. */
+html[data-material="glass"][data-platform="darwin"][data-theme] .desktop-app .topbar {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 30%, transparent), transparent 48%), var(--glass-solid);
+}
+html[data-material="glass"][data-material][data-theme] :is(.app-shell, .preferences-window) :is(.preview-toolbar, .result-strip, .panel-heading, .clop-preferences) {
+  background: var(--glass-solid);
+  border-color: var(--glass-edge);
+}
+html[data-material="glass"][data-material][data-theme] :is(.topbar-quick-controls button, .interface-style-control, .material-controls select) {
+  color: var(--ink);
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+html[data-material="glass"][data-material][data-theme] :is(.main-nav button, .preferences-sidebar nav button:not(.active)) { color: var(--glass-muted); }
+html[data-material="glass"][data-material][data-theme] :is(.main-nav button.active, .main-nav button:hover) { color: var(--ink); }
+html[data-material="glass"][data-material][data-theme] :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--deep);
+  outline-offset: 3px;
+}
+.material-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.material-controls label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); }
+.material-controls select { min-height: 34px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; color: var(--ink); background: var(--surface); }
+/* Manual option covers browsers which cannot report the OS preference. Token
+   substitution also makes surfaces created by editor/floating modules opaque. */
+html[data-material="glass"][data-transparency="reduce"] { --glass-tint: var(--glass-solid); --glass-highlight: transparent; --glass-blur: none; }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html[data-material="glass"] { --glass-tint: var(--glass-solid); --glass-highlight: transparent; --glass-blur: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-material="glass"] :is(.topbar, .glass-surface, .material-controls select) { transition: none; animation: none; }
+}
+@media (forced-colors: active) {
+  html[data-material="glass"][data-material][data-theme] :is(.topbar, .queue-panel, .settings-panel, .preference-card, .gallery-card, .glass-surface) {
+    background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+@media (max-width: 640px) {
+  html[data-material="glass"] { --glass-blur: none; }
+  .material-controls { align-items: stretch; }
+  .material-controls label { flex-wrap: wrap; }
+}

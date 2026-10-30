@@ -1,4 +1,9 @@
+<!doctype html>
+<html lang="zh-CN">
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PicLite 封面制作</title>
 <style>
 /* Inlined style.css */
 :root{
@@ -100,24 +105,33 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
 <body>
   <main class="app">
+    <header class="editor-toolbar">
+      <div><h1>封面制作</h1><p>组合背景、图片与文字，实时预览</p></div>
+      <div class="export-settings">
+        <label>格式 <select id="format"><option value="image/webp" selected>WebP</option><option value="image/png">PNG</option><option value="image/jpeg">JPEG</option></select></label>
+        <label>质量 <input id="qualityNum" type="number" min="10" max="100" value="90"></label>
+      </div>
+      <div class="action-buttons"><button id="copyBtn" class="btn">复制图片</button><button id="downloadBtn" class="btn primary">导出图片</button></div>
+    </header>
     <section class="panel left">
       <div class="brand">
-        <h1>封面设计大师 Max</h1>
-        <p>文章封面生成器 · 支持多图层与预设保存</p>
+        <h2>图层设置</h2>
+        <p>从底板到文字，逐层调整</p>
       </div>
 
       <div class="preset-bar">
-        <span style="font-size:13px; font-weight:700; color:var(--muted);">📁 工程预设</span>
+        <span style="font-size:13px; font-weight:700; color:var(--muted);">工程预设</span>
         <div style="display:flex; gap:8px;">
-          <button id="importBtn" class="btn" style="padding:6px 10px; font-size:12px;">📂 导入预设</button>
-          <button id="exportPresetBtn" class="btn primary" style="padding:6px 10px; font-size:12px;">💾 保存预设</button>
+          <button id="importBtn" class="btn" style="padding:6px 10px; font-size:12px;">导入</button>
+          <button id="exportPresetBtn" class="btn" style="padding:6px 10px; font-size:12px;">保存预设</button>
         </div>
         <input type="file" id="importInput" accept=".json" style="display:none">
       </div>
 
       <div class="controls-scroll">
-        <div class="module-group">
-          <div class="module-title">Layer 1: 画布与背景底板</div>
+        <div class="module-group background-panel">
+          <h3 class="module-title"><span class="layer-icon" aria-hidden="true">▧</span>背景与画布</h3>
+          <p class="module-description">设置尺寸、底色与背景图片</p>
           <div class="control-row">
             <label>画布宽高</label>
             <div class="inputs">
@@ -163,8 +177,9 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
           </div>
         </div>
 
-        <div class="module-group">
-          <div class="module-title">Layer 2: 图标与插图</div>
+        <div class="module-group image-panel">
+          <h3 class="module-title"><span class="layer-icon" aria-hidden="true">▣</span>主体图片</h3>
+          <p class="module-description">导入素材，调整裁切与外观</p>
           <div class="uploader" id="dropArea">
             <input id="fileInput" type="file" accept="image/*" />
             <div style="font-size:12px; color:var(--muted)">拖拽/粘贴图源素材</div>
@@ -172,12 +187,12 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
             <div class="editor-area" id="editorWrap" style="display:none;">
               <div style="font-size:12px; color:var(--muted); margin-bottom:8px; font-weight:500;">内部裁切定位区</div>
               <canvas id="editorCanvas" width="120" height="120"></canvas>
-              <div style="font-size:11px; color:var(--muted); margin-top:8px;">🖱️ 拖拽平移 | ⚙️ 滚轮缩放</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:8px;">拖拽调整裁切位置，滚轮精细缩放</div>
               <button id="resetCropBtn" class="btn" style="padding:4px 8px; font-size:12px; margin-top:8px; width:100%">重置内部图</button>
             </div>
           </div>
 
-          <div class="drag-hint">💡 整体图标可直接在右侧画布拖拽</div>
+          <div class="drag-hint">在预览画布中拖拽图片可调整位置</div>
 
           <div class="control-row" style="margin-top:12px;">
             <label>整体大小</label>
@@ -212,8 +227,9 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
           </div>
         </div>
 
-        <div class="module-group">
-          <div class="module-title">Layer 3: 悬浮文本</div>
+        <div class="module-group text-panel">
+          <h3 class="module-title"><span class="layer-icon" aria-hidden="true">T</span>文字图层</h3>
+          <p class="module-description">添加标题，设置字体与文字底板</p>
           <div class="control-row">
             <label>文字内容</label>
             <div class="inputs">
@@ -287,6 +303,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
     <section class="panel right">
       <div class="theme-inline">
+        <h2>实时预览</h2>
         <button id="themeToggle" class="theme-btn" aria-label="切换主题" aria-pressed="false">
           <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path></svg>
           <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
@@ -304,22 +321,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         </div>
       </div>
 
-      <div class="module-group" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center; width:100%;">
-        <div class="inputs" style="display:flex; gap:12px; align-items:center;">
-            <select id="format" style="width:auto;">
-              <option value="image/webp" selected>WebP (推荐)</option>
-              <option value="image/png">PNG</option>
-              <option value="image/jpeg">JPEG</option>
-            </select>
-            <label style="color:var(--muted); font-size:12px; display:flex; align-items:center; gap:4px;">
-                质量 <input id="qualityNum" type="number" min="10" max="100" value="90" style="width:50px;">
-            </label>
-        </div>
-        <div class="action-buttons">
-          <button id="copyBtn" class="btn">复制图</button>
-          <button id="downloadBtn" class="btn primary">导出下载</button>
-        </div>
-      </div>
+      <p class="preview-caption">拖拽图片或文字调整位置。预览比例不影响导出尺寸。</p>
     </section>
   </main>
 
@@ -401,6 +403,14 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
         applyTheme(current === 'light' ? 'dark' : 'light', true);
       });
+    }
+
+    // Normalize wheel units and cap each gesture event to less than 2%.
+    function wheelZoomScale(current, event, min, max) {
+        if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return current;
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 800 : 1;
+        const pixels = Math.max(-80, Math.min(80, event.deltaY * unit));
+        return Math.max(min, Math.min(max, current * Math.exp(-pixels * 0.0002)));
     }
 
     // === 视图缩放 ===
@@ -621,9 +631,11 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         generateInnerFromOrig();
     });
     editorCanvas.addEventListener('wheel', e => {
+        if (!origImg) return;
         e.preventDefault();
-        const factor = 1 + (-e.deltaY > 0 ? 0.05 : -0.05);
-        crop.zoom = Math.max(0.2, Math.min(5, crop.zoom * factor));
+        const next = wheelZoomScale(crop.zoom, e, 0.2, 5);
+        if (next === crop.zoom) return;
+        crop.zoom = next;
         zoom.value = Math.round(crop.zoom * 100); zoomNum.value = zoom.value;
         generateInnerFromOrig();
     }, {passive: false});
