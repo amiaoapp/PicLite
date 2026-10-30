@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
+// Standalone floating/preferences documents do not load app/globals.css.
+import "./liquid-glass.css";
 import { applyMaterialPreference, DEFAULT_MATERIAL, MATERIAL_EVENT, MATERIAL_STORAGE_KEY, readMaterialPreference, setMaterialPreference } from "./material-preference";
 export { setMaterialPreference } from "./material-preference";
 export type { InterfaceMaterial, MaterialPreference, TransparencyPreference } from "./material-preference";

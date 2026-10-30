@@ -6,6 +6,7 @@ mod animation_size;
 mod click_through;
 mod floating_collapse;
 mod floating_editor;
+mod crop_editor;
 mod heic_input;
 mod png_candidate;
 
@@ -6774,6 +6775,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(DesktopState::default())
+        .manage(crop_editor::CropRequests::default())
         .setup(|app| {
             match create_tray(app) {
                 Ok(()) => {
@@ -6803,6 +6805,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label().starts_with("crop-") {
+                if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+                    crop_editor::window_closed(window.app_handle(), window.label());
+                }
+                return;
+            }
             let state = window.state::<DesktopState>();
             match event {
                 WindowEvent::CloseRequested { api, .. }
@@ -6878,6 +6886,9 @@ pub fn run() {
             export_images,
             quick_compress_paths,
             floating_editor::edit_floating_image,
+            crop_editor::open_crop_editor,
+            crop_editor::get_crop_editor_source,
+            crop_editor::finish_crop_editor,
             floating_editor::save_floating_result,
             compress_image_data,
             compress_image_base64,

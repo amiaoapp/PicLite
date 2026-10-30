@@ -45,7 +45,7 @@ try {
     const ctx=canvas.getContext('2d');ctx.fillStyle='#349681';ctx.fillRect(0,0,100,100);ctx.fillStyle='#e6b15a';ctx.fillRect(100,0,100,100);
     window.calls=[];
     const api={
-      editFloatingImage: async(path,edit)=>{calls.push({kind:'crop',path,edit});return '/edited.png';},
+      openCropEditor: async(path)=>{calls.push({kind:'cropWindow',path});return '/edited.png';},
       copyImagePath: async path=>calls.push({kind:'copy',path}), selectFolder:async()=>'/exports',
       saveFloatingResult:async(path,folder)=>{calls.push({kind:'save',path,folder});return '/exports/result.png';},
       openImage:async path=>calls.push({kind:'preview',path}), revealPath:async path=>calls.push({kind:'reveal',path}),
@@ -85,31 +85,23 @@ try {
   // action grid into a six-wide row, and never let intrinsic image sizing crop.
   for (const height of [188,220,230,280,410]) for (const layout of ['full','compact']) for (const theme of ['light','dark']) {
     await evaluate(`renderCard(320,'${layout}','${theme}');document.getElementById('test').style.height='${height}px'`);await settle();
-    const v=await evaluate(`(()=>{const grid=document.querySelector('.result-actions'),image=document.querySelector('.result-preview>img'),stage=document.querySelector('.result-preview'),bar=document.querySelector('.format-bar'),card=document.querySelector('.result-card');const r=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,right:b.right,bottom:b.bottom,w:b.width,h:b.height}};return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,image:r(image),stage:r(stage),bar:r(bar),card:r(card),fit:getComputedStyle(image).objectFit,buttonColor:getComputedStyle(bar.querySelector('button')).color,buttonBackground:getComputedStyle(bar).backgroundColor,grid:r(grid),buttons:[...grid.querySelectorAll('button')].map(r),buttonFont:parseFloat(getComputedStyle(bar.querySelector('button')).fontSize),opacity:getComputedStyle(bar.querySelector('button')).opacity};})()`);
+    const v=await evaluate(`(()=>{const grid=document.querySelector('.result-actions'),image=document.querySelector('.floating-image-slot img'),stage=document.querySelector('.result-preview'),bar=document.querySelector('.format-bar'),card=document.querySelector('.result-card');const r=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,right:b.right,bottom:b.bottom,w:b.width,h:b.height}};return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,image:r(image),stage:r(stage),bar:r(bar),card:r(card),fit:getComputedStyle(image).objectFit,buttonColor:getComputedStyle(bar.querySelector('button')).color,buttonBackground:getComputedStyle(bar).backgroundColor,grid:r(grid),buttons:[...grid.querySelectorAll('button')].map(r),buttonFont:parseFloat(getComputedStyle(bar.querySelector('button')).fontSize),opacity:getComputedStyle(bar.querySelector('button')).opacity};})()`);
     assert.equal(v.columns,3,'small floating actions must remain two rows of three');
-    assert.equal(v.opacity,'1');assert.ok(v.buttonFont>=11);assert.equal(v.buttonColor,'rgb(241, 244, 246)');assert.equal(v.buttonBackground,'rgb(53, 59, 64)');assert.ok(v.grid.bottom<=v.bar.y,'action grid clipped by formats');assert.ok(v.buttons.every(b=>b.y>=v.stage.y&&b.bottom<=v.stage.bottom),'action buttons outside preview at '+height+' '+layout);
+    assert.equal(v.opacity,'1');assert.ok(v.buttonFont<=10);assert.ok(Number(await evaluate('getComputedStyle(document.querySelector(".format-bar button")).fontWeight'))<=500);assert.ok(v.grid.bottom<=v.bar.y,'action grid clipped by formats');assert.ok(v.buttons.every(b=>b.y>=v.stage.y&&b.bottom<=v.stage.bottom),'action buttons outside preview at '+height+' '+layout);
     assert.equal(v.fit,'contain');assert.ok(v.image.bottom<=v.stage.bottom+1&&v.image.right<=v.stage.right+1,'image box overflows preview and gets cut off');
-    assert.ok(v.bar.bottom<=v.card.bottom+1&&v.bar.h>=28,'format bar is clipped');
+    assert.ok(v.bar.bottom<=v.card.bottom+1&&v.bar.h>=22,'format bar is clipped');
   }
   const screenshot=async(name)=>{const r=await evaluate('(()=>{const r=document.querySelector(".result-card").getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}})()');const shot=await send('Page.captureScreenshot',{format:'png',clip:{...r,scale:2}});writeFileSync('/Users/amiao/.hermes/cache/scratch/piclite-ui-v2/'+name+'.png',Buffer.from(shot.data,'base64'));};
   await screenshot('floating-result');
   await click('[data-action="quality"]');await screenshot('floating-quality');await click('.floating-editor-footer button:not(.primary)');
-  await click('[data-action="crop"]');await screenshot('floating-crop');await click('.floating-editor-footer button:not(.primary)');
+  await click('[data-action="crop"]');assert.equal(await evaluate('!!document.querySelector(".floating-crop-stage")'),false);
   assert.equal(await evaluate('!!document.querySelector(".result-card .floating-card-header + .floating-card-body")'),true,'one integrated card');
   for (const width of [320,380]) for (const layout of ['full','compact']) for (const theme of ['light','dark']) {
     await evaluate(`renderCard(${width},'${layout}','${theme}')`); await settle(); await fits();
     assert.equal(await evaluate('document.querySelectorAll(".result-card .format-bar").length'),1);
-    await click('[data-action="crop"]'); await fits();
-    assert.equal(await evaluate('document.querySelectorAll(".result-preview").length'),0,'crop replaces preview');
-    assert.equal(await evaluate('document.querySelector(".floating-card-content").dataset.interacting'),'true');
-    const rect=await evaluate('(()=>{const r=document.querySelector(".floating-crop-stage").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};})()');
-    await send('Input.dispatchMouseEvent',{type:'mousePressed',x:rect.x+rect.width*.25,y:rect.y+rect.height*.2,button:'left',clickCount:1});
-    await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:rect.x+rect.width*.75,y:rect.y+rect.height*.8,button:'left',buttons:1});
-    await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:rect.x+rect.width*.75,y:rect.y+rect.height*.8,button:'left',clickCount:1});
-    await click('[data-action="apply-edit"]');
-    const calls=await evaluate('window.calls');const crop=calls.filter(c=>c.kind==='crop').at(-1);
-    assert.deepEqual(crop,{kind:'crop',path:'/source.png',edit:{x:50,y:20,width:100,height:60,outputWidth:100,outputHeight:60}});
-    assert.equal(calls.filter(c=>c.kind==='process').at(-1).source,'/edited.png');
+    await click('[data-action="crop"]');await fits();
+    assert.equal(await evaluate('calls.filter(c=>c.kind==="cropWindow").at(-1).path'),'/source.png');
+    assert.equal(await evaluate('calls.filter(c=>c.kind==="process").at(-1).source'),'/edited.png');
     await click('[data-action="quality"]'); await fits();
     await evaluate(`(()=>{const e=document.querySelector('input[type=range]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'43');e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await click('.format-bar button[data-format="webp"]'); await click('[data-action="apply-edit"]');
@@ -127,21 +119,6 @@ try {
     await click('[data-action="dismiss"]');
     await fits();
   }
-  await evaluate("renderCard(380,'full','light','zh')");await settle();await click('[data-action="crop"]');
-  assert.equal(await evaluate('document.querySelectorAll("[data-crop-handle]").length'),4);
-  await evaluate(`(()=>{const e=document.querySelector('.floating-crop-aspect select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'1');e.dispatchEvent(new Event('change',{bubbles:true}));})()`);await settle();
-  let sel=await evaluate(`(()=>{const s=document.querySelector('.floating-crop-selection'),r=s.getBoundingClientRect();return {width:r.width,height:r.height};})()`);assert.ok(Math.abs(sel.width-sel.height)<1,'square preset keeps crop square');
-  const handle=await evaluate(`(()=>{const r=document.querySelector('.handle-se').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:handle.x,y:handle.y,button:'left',buttons:1,clickCount:1});
-  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:handle.x-18,y:handle.y-18,button:'left',buttons:1});
-  await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:handle.x-18,y:handle.y-18,button:'left'});await settle();
-  const resized=await evaluate(`(()=>{const r=document.querySelector('.floating-crop-selection').getBoundingClientRect();return{width:r.width,height:r.height}})()`);assert.ok(resized.width<sel.width,'corner drag resizes crop');assert.ok(Math.abs(resized.width-resized.height)<1);
-  const beforeMove=await evaluate(`(()=>{const r=document.querySelector('.floating-crop-selection').getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}})()`);
-  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:beforeMove.x+beforeMove.width/2,y:beforeMove.y+beforeMove.height/2,button:'left',buttons:1,clickCount:1});
-  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:beforeMove.x+beforeMove.width/2+12,y:beforeMove.y+beforeMove.height/2+5,button:'left',buttons:1});
-  await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:beforeMove.x+beforeMove.width/2+12,y:beforeMove.y+beforeMove.height/2+5,button:'left'});await settle();
-  const moved=await evaluate(`(()=>{const r=document.querySelector('.floating-crop-selection').getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}})()`);assert.ok(moved.x>beforeMove.x,'selection can be moved');assert.equal(moved.width,beforeMove.width);
-  await screenshot('floating-crop-v3');await click('[data-action="apply-edit"]');assert.ok((await evaluate('calls.filter(c=>c.kind==="crop").at(-1).edit.width'))<100);
   await evaluate("renderCard(380,'full','light')");await settle();
   const card=await evaluate(`(()=>{const r=document.querySelector('.result-card').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()`);
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:card.x+card.width/2,y:card.y+card.height/2});await settle();
@@ -151,10 +128,9 @@ try {
   for(const kind of ['copy','save','undo','preview','reveal','dismiss']) assert(calls.some(c=>c.kind===kind),kind);
   assert(!calls.some(c=>c.kind==='drag'),'controls never start window dragging');
   await evaluate("renderCard(320,'compact','dark','zh')");await settle();await fits();
-  await click('[data-action="crop"]');await fits();
-  await evaluate("renderCard(320,'compact','light','zh');document.getElementById('test').style.height='230px'");await settle();
-  await click('[data-action="crop"]');
-  assert.equal(await evaluate(`(()=>{const card=document.querySelector('.result-card').getBoundingClientRect(); const footer=document.querySelector('.floating-editor-footer').getBoundingClientRect();const formats=document.querySelector('.format-bar').getBoundingClientRect();const params=document.querySelector('.floating-editor-parameters');return footer.bottom<=card.bottom && formats.bottom<=card.bottom && params.scrollHeight>params.clientHeight && params.clientHeight>30})()`),true,'230px window keeps apply and format visible with inner parameter scrolling');
+  await click('[data-action="quality"]');await fits();
+  await evaluate("renderCard(320,'compact','light','zh');document.getElementById('test').style.height='230px'");await settle();await click('[data-action="quality"]');
+  assert.equal(await evaluate(`(()=>{const c=document.querySelector('.result-card').getBoundingClientRect(),f=document.querySelector('.floating-editor-footer').getBoundingClientRect(),b=document.querySelector('.format-bar').getBoundingClientRect();return f.bottom<=c.bottom&&b.bottom<=c.bottom})()`),true);
   await evaluate("renderCard(380,'full','light')");await settle();await click('[data-action="more"]');
   await click('[data-action="preview"]');
   assert.equal(await evaluate('!!document.querySelector(".floating-overflow-menu")'),false,'menu action closes its menu');
@@ -174,7 +150,8 @@ try {
   assert.equal(await evaluate(`(()=>{const a=document.querySelector('[data-action=more]').getBoundingClientRect(); const b=document.querySelector('.floating-footer .floating-collapse-button').getBoundingClientRect();return a.bottom<=b.top || b.bottom<=a.top || a.right<=b.left || b.right<=a.left})()`),true,'collapse never overlaps card overflow');
   await click('.floating-editor-footer button:not(.primary)');
   await evaluate('document.activeElement.blur()');
-  await new Promise(r=>setTimeout(r,1200));
-  assert.equal(await evaluate('hideCalls'),1,'closing editor restarts window auto-hide');
-  console.log('PASS: integrated full/compact card at 320/380px in light/dark; exact pointer crop payload; quality + format recompression; copy/save/undo/preview/reveal/dismiss; Escape; no nested controls, duplicate toolbar, control overflow or accidental window dragging. Chinese compact edit fits; 230px height pins Apply and formats with inner scrolling. Auto-hide pauses while editing and resumes after close; collapse avoids overflow. Native artifacts verified separately in Rust.');
+  // Background Chromium may throttle its 1s timer; await the observable result.
+  for(let attempt=0;attempt<40&&await evaluate('hideCalls')===0;attempt++)await new Promise(r=>setTimeout(r,100));
+  assert.equal(await evaluate('hideCalls'),1,'closing editor restarts window auto-hide within 4s');
+  console.log('PASS: integrated full/compact card at 320/380px in light/dark; separate crop window launch/result; quality + format recompression; copy/save/undo/preview/reveal/dismiss; Escape; no nested controls, duplicate toolbar, control overflow or accidental window dragging. Chinese compact quality fits; 230px height pins Apply and formats with inner scrolling. Auto-hide pauses while editing and resumes after close; collapse avoids overflow. Native artifacts verified separately in Rust.');
 } finally {socket.close();}

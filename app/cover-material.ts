@@ -2,9 +2,11 @@ import glassCss from "./liquid-glass.css?raw";
 
 const coverCss = `
 html[data-material="glass"] { --bg: var(--paper); --card: var(--glass-solid); --muted: var(--glass-muted); --accent: var(--deep); }
-html[data-material="glass"] body { background: var(--paper); color: var(--ink); }
-html[data-material="glass"] .panel { background: linear-gradient(145deg,var(--glass-highlight),transparent 48%),var(--glass-solid); border: 1px solid var(--glass-edge); box-shadow:var(--glass-shadow); }
-html[data-material="glass"] :is(.module-group,.preset-bar,.uploader,.editor-area) { background:var(--glass-solid); border-color:var(--glass-edge); }
+html[data-material="glass"] body { background:var(--glass-depth); color:var(--ink); }
+html[data-material="glass"] .panel { background:var(--glass-wash),var(--glass-tint); border:1px solid var(--glass-edge); box-shadow:var(--glass-shadow); }
+html[data-material="glass"] :is(.module-group,.preset-bar,.uploader) { background:var(--glass-wash),var(--glass-tint); border-color:var(--glass-edge); }
+html[data-material="glass"] .editor-toolbar { background:var(--glass-wash),var(--glass-popover); border-color:var(--glass-edge); box-shadow:var(--glass-shadow); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); }
+/* Editor canvas and its surround retain the source editor's pixel treatment. */
 html[data-material="glass"] :is(.module-title,.control-row label) { color:var(--ink); }
 html[data-material="glass"] :is(input[type=number],input[type=text],select,.btn) { background:var(--glass-solid); color:var(--ink); border:1px solid var(--glass-edge); }
 html[data-material="glass"] .btn.primary { background:var(--deep); color:var(--paper); }

@@ -68,7 +68,10 @@ if ("__TAURI_INTERNALS__" in window) {
     ...({
       editFloatingImage: (path, edit) => invoke("edit_floating_image", { path, edit }),
       saveFloatingResult: (path, folder) => invoke("save_floating_result", { path, folder }),
-    } satisfies Pick<import("./clop-types").PicLiteBridge, "editFloatingImage" | "saveFloatingResult">),
+      openCropEditor: (path) => invoke("open_crop_editor", { path }),
+      getCropEditorSource: (request) => invoke("get_crop_editor_source", { request }),
+      finishCropEditor: (request, edit) => invoke("finish_crop_editor", { request, edit }),
+    } satisfies Pick<import("./clop-types").PicLiteBridge, "editFloatingImage" | "saveFloatingResult" | "openCropEditor" | "getCropEditorSource" | "finishCropEditor">),
     copyImagePath: (path) => invoke("copy_image_path", { path }),
     copyText: (text) => invoke("copy_text", { text }),
     selectImages: async () => {
@@ -308,6 +311,11 @@ if ("__TAURI_INTERNALS__" in window) {
     copyImageData: noop,
     copyCompressedData: async (_data, fileName) => `/preview/${fileName}`,
     cacheImageData: async (_data, fileName) => `/preview/${fileName}`,
+    ...({
+      openCropEditor: async () => { throw new Error("Cropping requires the desktop app"); },
+      getCropEditorSource: async () => { throw new Error("Cropping requires the desktop app"); },
+      finishCropEditor: async () => { throw new Error("Cropping requires the desktop app"); },
+    } satisfies Pick<import("./clop-types").PicLiteBridge, "openCropEditor" | "getCropEditorSource" | "finishCropEditor">),
     copyImagePath: noop,
     copyText: noop,
     selectImages: async () => [],

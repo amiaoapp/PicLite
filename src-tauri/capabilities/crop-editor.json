@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "crop-editor",
+  "description": "Independent crop windows",
+  "windows": ["crop-*"],
+  "permissions": ["core:default", "core:window:allow-set-theme"]
+}

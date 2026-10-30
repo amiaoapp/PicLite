@@ -6,6 +6,7 @@ import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
+import { FloatingPreviewImage } from "./floating-preview-image";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
@@ -518,7 +519,7 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
     void api.startDragging();
   };
   const preview = (controls: {quality:()=>void;save:()=>void}) => <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
-    {item.preview ? <img src={item.preview} alt={fileName(item.source)} draggable={false} /> : <Icon name={item.status === "working" ? "spark" : "image"} />}
+    {item.preview ? <FloatingPreviewImage src={item.preview} alt={fileName(item.source)} width={item.width} height={item.height}/> : <Icon name={item.status === "working" ? "spark" : "image"} />}
     <div className="result-overlay">
       {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
         <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>

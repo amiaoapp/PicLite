@@ -7,6 +7,11 @@ if (!root) throw new Error("PicLite renderer root is missing");
 const floatingWindow = ["dropzone", "preferences"].includes(window.picLite?.windowLabel || "main");
 
 async function mount() {
+  if (window.picLite?.windowLabel?.startsWith("crop-") || new URLSearchParams(location.search).get("window") === "crop") {
+    const [{ CropEditorApp }] = await Promise.all([import("./crop-editor-app"), import("./crop-editor.css")]);
+    createRoot(root!).render(<CropEditorApp />);
+    return;
+  }
   if (floatingWindow) {
     const [{ PicLiteDesktopApp }] = await Promise.all([
       import("./clop-desktop-app"),
