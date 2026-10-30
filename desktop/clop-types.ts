@@ -219,7 +219,7 @@ export type WatcherSettings = {
 export type NativeImage = { name: string; type: string; path: string; data: Uint8Array; previewData?: Uint8Array; previewType?: string; width?: number; height?: number };
 
 export type WindowMaterialState = {
-  backend: "nsglass-clear" | "nsvisualeffect" | "opaque" | "unsupported";
+  backend: "nsglass-regular" | "nsglass-clear" | "nsvisualeffect" | "opaque" | "unsupported";
   enabled: boolean;
   reducedTransparency: boolean;
   radius: number;

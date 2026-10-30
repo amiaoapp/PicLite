@@ -219,6 +219,18 @@ html[data-theme="dark"] .app-shell.studio-shell .result-strip .export-button:dis
   .studio-shell .result-strip .export-button { width: 100px; min-width: 100px; max-width: 100px; }
 }
 
+/* Match the visible footer children at each breakpoint. Hidden metrics must
+   release their tracks, while both export actions keep their intrinsic width. */
+html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr) minmax(0,.7fr) 38px max-content; }
+html .app-shell.studio-shell .workspace .result-strip > .icon-button { width: 38px; min-width: 38px; }
+html .app-shell.studio-shell .workspace .result-strip > .export-button { width: auto; min-width: 78px; max-width: none; justify-self: stretch; }
+@media (max-width: 1180px) {
+  html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr) 38px max-content; }
+}
+@media (max-width: 1000px) {
+  html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 38px max-content; }
+}
+
 html .app-shell.studio-shell .compare-canvas,
 html .app-shell.studio-shell .image-inspector { height: 100%; max-height: 100%; min-height: 0; }
 

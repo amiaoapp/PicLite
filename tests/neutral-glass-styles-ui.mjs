@@ -26,7 +26,7 @@ try {
       assert.equal(result.image,'none'); assert.equal(result.blur,'none');
       const stage=await evaluate(`({bg:getComputedStyle(document.querySelector('.preview-stage')).backgroundColor,image:getComputedStyle(document.querySelector('.preview-stage')).backgroundImage})`);
       assert.deepEqual(stage,{bg:'rgba(0, 0, 0, 0)',image:'none'},'preview must not retain a legacy palette gradient');
-      assert.match(result.panel,/rgba\((\d+), \1, \1, 0\.(28|32)\)/);
+      assert.match(result.panel,/rgba\((\d+), \1, \1, 0\.(46|5)\)/);
       if(baseline)assert.deepEqual(result,baseline,'glass changes with palette');baseline=result;cases++;
     }
     await evaluate(`document.documentElement.dataset.nativeMaterial='vibrancy'`);

@@ -84,7 +84,10 @@ svg { width: 18px; height: 18px; }
 .piclite-symbol i:nth-child(4)::before, .piclite-symbol i:nth-child(4)::after { content: ""; position: absolute; left: 23%; right: 23%; top: 45%; height: 10%; border-radius: 2px; background: #153f33; }
 .piclite-symbol i:nth-child(4)::after { top: 23%; bottom: 23%; left: 45%; width: 10%; height: auto; }
 
-.settings-palette-picker { width: min(680px, 100%); display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px; }
+/* Palettes are a full-width choice, not a narrow trailing settings control. */
+.settings-row:has(.settings-palette-picker) { grid-template-columns: minmax(0, 1fr); gap: 10px; padding-block: 12px; }
+.settings-row:has(.settings-palette-picker) > .settings-control { justify-content: flex-start; width: 100%; }
+.settings-palette-picker { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
 .settings-palette { min-width: 0; height: 58px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); text-align: left; }
 .settings-palette:hover { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); }
 .settings-palette.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }

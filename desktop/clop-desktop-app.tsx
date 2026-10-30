@@ -6,7 +6,6 @@ import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
-import { FloatingPreviewImage } from "./floating-preview-image";
 import { floatingRadius } from "./floating-appearance";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
@@ -515,21 +514,22 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
   const feedback = notify || (() => undefined);
   const actionProps = {item, api, settings, notify: feedback, onDownscale: downscale, onWatermark: watermark, onUndo: undo, onUpload: upload};
   const startWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, select, a, [data-no-drag]")) return;
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, select, a")) return;
     event.preventDefault();
+    event.stopPropagation();
     void api.startDragging();
   };
-  const preview = (controls: {quality:()=>void;save:()=>void}) => <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
-    {item.preview ? <FloatingPreviewImage src={item.preview} alt={fileName(item.source)} width={item.width} height={item.height}/> : <Icon name={item.status === "working" ? "spark" : "image"} />}
+  const preview = (controls: {quality:()=>void;save:()=>void}) => <div className="result-preview">
+    {!item.preview && <Icon name={item.status === "working" ? "spark" : "image"} />}
     <div className="result-overlay">
       {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
         <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
         {item.width && item.height ? <small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
       </>}
     </div>
-    {item.status === "done" && <div className="result-hover-actions" data-no-drag onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
+    {item.status === "done" && <div className="result-hover-actions"><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
   </div>;
-  return <article className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onClick={select}>
+  return <article className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onPointerDownCapture={allowWindowDrag ? startWindowDrag : undefined} onClick={select}>
     <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
   </article>;
 }
@@ -806,7 +806,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : ""} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+  return <main style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -822,7 +822,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     </section> : <>
       <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{results.map((item, index) => {
         const active = selectedId ? selectedId === item.id : index === 0;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag={settings.floatingDisplayMode !== "stack"} notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
+        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>

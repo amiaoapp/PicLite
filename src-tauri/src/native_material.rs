@@ -66,6 +66,107 @@ mod macos {
     use std::ffi::CStr;
 
     const IDENTIFIER: &str = "com.piclite.native-material";
+    const TITLEBAR_IDENTIFIER: &str = "com.piclite.native-titlebar";
+
+    fn make_material(
+        mtm: MainThreadMarker,
+        host: &NSView,
+        radius: f64,
+        glass: bool,
+    ) -> Retained<NSView> {
+        if glass {
+            let effect = NSGlassEffectView::initWithFrame(mtm.alloc(), host.bounds());
+            // Regular softens desktop lettering; Clear is intended for unobstructed backgrounds.
+            effect.setStyle(NSGlassEffectViewStyle::Regular);
+            effect.setTintColor(None);
+            effect.setCornerRadius(radius);
+            let surface = NSView::initWithFrame(mtm.alloc(), host.bounds());
+            effect.setContentView(Some(&surface));
+            effect.into_super()
+        } else {
+            let effect = NSVisualEffectView::initWithFrame(mtm.alloc(), host.bounds());
+            effect.setMaterial(NSVisualEffectMaterial::Popover);
+            effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+            effect.setState(NSVisualEffectState::Active);
+            effect.into_super()
+        }
+    }
+
+    fn fit_material(view: &NSView, host: &NSView) {
+        view.setFrame(host.bounds());
+        view.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        if unsafe { view.superview() }.is_none() {
+            host.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, None);
+        }
+    }
+
+    fn clip_view(view: &NSView, radius: f64) {
+        view.setWantsLayer(true);
+        unsafe {
+            let layer: Option<Retained<AnyObject>> = msg_send![view, layer];
+            if let Some(layer) = layer {
+                let _: () = msg_send![&layer, setCornerRadius: radius];
+                let _: () = msg_send![&layer, setMasksToBounds: radius > 0.0];
+            }
+        }
+    }
+
+    fn clip_floating_tree(view: &NSView, radius: f64) {
+        // Wry may put a rounded backing layer above the material. Reset every
+        // full-size ancestor/child, including WKWebView, so numeric zero is square.
+        clip_view(view, radius);
+        for child in view.subviews().iter() {
+            if child.frame().size == view.bounds().size {
+                clip_floating_tree(&child, radius);
+            }
+        }
+    }
+
+    fn titlebar_material(window: &NSWindow, mtm: MainThreadMarker, enabled: bool) {
+        // Keep the existing titlebar and contentLayoutRect: FullSizeContentView
+        // would move the web toolbar under traffic lights and change drag geometry.
+        let button: Option<Retained<NSView>> =
+            unsafe { msg_send![window, standardWindowButton: 0usize] };
+        let Some(host) = button.and_then(|button| unsafe { button.superview() }) else {
+            return;
+        };
+        let original_false = NSString::from_str(TITLEBAR_IDENTIFIER);
+        let original_true = NSString::from_str(&format!("{TITLEBAR_IDENTIFIER}.transparent"));
+        let existing = host
+            .subviews()
+            .iter()
+            .find(|view| {
+                let id = view.identifier();
+                id.as_deref() == Some(&original_false) || id.as_deref() == Some(&original_true)
+            })
+            .map(|view| view.clone());
+        if !enabled {
+            if let Some(view) = existing {
+                window.setTitlebarAppearsTransparent(
+                    view.identifier().as_deref() == Some(&original_true),
+                );
+                view.removeFromSuperview();
+            }
+            return;
+        }
+        let view = existing.unwrap_or_else(|| {
+            let view = make_material(mtm, &host, 0.0, false);
+            if let Some(effect) = view.downcast_ref::<NSVisualEffectView>() {
+                effect.setMaterial(NSVisualEffectMaterial::Titlebar);
+            }
+            view.setIdentifier(Some(if window.titlebarAppearsTransparent() {
+                &original_true
+            } else {
+                &original_false
+            }));
+            view
+        });
+        window.setTitlebarAppearsTransparent(true);
+        fit_material(&view, &host);
+    }
 
     pub(super) fn apply(
         window: &tauri::WebviewWindow,
@@ -98,7 +199,16 @@ mod macos {
             .iter()
             .find(|view| view.identifier().as_deref() == Some(&identifier))
             .map(|v| v.clone());
+        if transparent_shell {
+            clip_floating_tree(&content, radius);
+            // NSThemeFrame may carry its own rounded mask above the content root.
+            if let Some(frame) = unsafe { content.superview() } {
+                clip_view(&frame, radius);
+            }
+            ns_window.invalidateShadow();
+        }
         if !enabled {
+            titlebar_material(ns_window, mtm, false);
             if let Some(view) = existing {
                 view.removeFromSuperview();
             }
@@ -120,53 +230,26 @@ mod macos {
         ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
         let glass_available =
             AnyClass::get(CStr::from_bytes_with_nul(b"NSGlassEffectView\0").unwrap()).is_some();
-        let material: Retained<NSView> = if let Some(view) = existing {
-            view
-        } else if glass_available {
-            let glass = NSGlassEffectView::initWithFrame(mtm.alloc(), content.bounds());
-            glass.setStyle(NSGlassEffectViewStyle::Clear);
-            glass.setTintColor(None);
-            glass.setCornerRadius(radius);
-            // Give the material its own content container; leave Tauri's WKWebView untouched.
-            let surface = NSView::initWithFrame(mtm.alloc(), content.bounds());
-            glass.setContentView(Some(&surface));
-            glass.into_super()
-        } else {
-            let effect = NSVisualEffectView::initWithFrame(mtm.alloc(), content.bounds());
-            effect.setMaterial(NSVisualEffectMaterial::Popover);
-            effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-            effect.setState(NSVisualEffectState::Active);
-            effect.into_super()
-        };
+        titlebar_material(ns_window, mtm, true);
+        let material: Retained<NSView> =
+            existing.unwrap_or_else(|| make_material(mtm, &content, radius, glass_available));
         if glass_available {
             if let Some(glass) = material.downcast_ref::<NSGlassEffectView>() {
+                glass.setStyle(NSGlassEffectViewStyle::Regular);
+                glass.setTintColor(None);
                 glass.setCornerRadius(radius);
             }
         } else {
-            // CALayer's public cornerRadius/masksToBounds APIs also work on macOS 11.
-            material.setWantsLayer(true);
-            unsafe {
-                let layer: Option<Retained<AnyObject>> = msg_send![&material, layer];
-                if let Some(layer) = layer {
-                    let _: () = msg_send![&layer, setCornerRadius: radius];
-                    let _: () = msg_send![&layer, setMasksToBounds: true];
-                }
-            }
+            clip_view(&material, radius);
         }
         material.setIdentifier(Some(&identifier));
-        material.setFrame(content.bounds());
-        material.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewWidthSizable
-                | NSAutoresizingMaskOptions::ViewHeightSizable,
-        );
-        // Position below every pre-existing child, including WKWebView. AppKit retains it.
-        // The view is retained locally and its parent is the retained window content view.
-        if unsafe { material.superview() }.is_none() {
-            content.addSubview_positioned_relativeTo(&material, NSWindowOrderingMode::Below, None);
+        fit_material(&material, &content);
+        if transparent_shell {
+            clip_floating_tree(&content, radius);
         }
         Ok(MaterialState {
             backend: if glass_available {
-                "nsglass-clear"
+                "nsglass-regular"
             } else {
                 "nsvisualeffect"
             },

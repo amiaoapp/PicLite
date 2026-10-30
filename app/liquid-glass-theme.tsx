@@ -54,7 +54,7 @@ export function useLiquidGlassTheme() {
           const result = await bridge.setWindowMaterial!({ enabled, radius });
           if (disposed || current !== revision) return;
           root.dataset.nativeMaterial = result.enabled
-            ? (result.backend === "nsglass-clear" ? "glass" : result.backend === "nsvisualeffect" ? "vibrancy" : "none")
+            ? (result.backend === "nsglass-regular" || result.backend === "nsglass-clear" ? "glass" : result.backend === "nsvisualeffect" ? "vibrancy" : "none")
             : "none";
           if (result.reducedTransparency) root.dataset.transparency = "reduce";
           window.dispatchEvent(new CustomEvent("piclite:native-material", { detail: result }));

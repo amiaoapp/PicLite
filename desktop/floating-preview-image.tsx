@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { containPreview } from './preview-fit';
+import { coverPreview } from './preview-fit';
 
 /** Size against the current native-webview slot on every resize. No intrinsic
  * image dimensions or percent-height grid cycles participate in layout. */
@@ -13,8 +13,8 @@ export function FloatingPreviewImage({src,alt,width,height}:{src:string;alt:stri
     measure();const observer=new ResizeObserver(measure);observer.observe(node);window.addEventListener('resize',measure);
     return()=>{observer.disconnect();window.removeEventListener('resize',measure);};
   },[]);
-  const fit=containPreview(decoded.width||width||1,decoded.height||height||1,box.width,box.height);
-  return <div ref={slot} className="floating-image-slot" data-preview-fit="contain">
-    <img src={src} alt={alt} draggable={false} onLoad={event=>setDecoded({width:event.currentTarget.naturalWidth,height:event.currentTarget.naturalHeight})} style={{position:'absolute',width:fit.width,height:fit.height,left:fit.left,top:fit.top,maxWidth:'none',maxHeight:'none',minWidth:0,minHeight:0,objectFit:'contain',transform:'none'}}/>
+  const fit=coverPreview(decoded.width||width||1,decoded.height||height||1,box.width,box.height);
+  return <div ref={slot} className="floating-image-slot" data-preview-fit="cover">
+    <img src={src} alt={alt} draggable={false} onLoad={event=>setDecoded({width:event.currentTarget.naturalWidth,height:event.currentTarget.naturalHeight})} style={{position:'absolute',width:fit.width,height:fit.height,left:fit.left,top:fit.top,maxWidth:'none',maxHeight:'none',minWidth:0,minHeight:0,objectFit:'cover',transform:'none'}}/>
   </div>;
 }
