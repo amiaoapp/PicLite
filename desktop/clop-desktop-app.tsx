@@ -420,7 +420,7 @@ function DropSurface({ language, active, compact = false }: { language: Language
   </div>;
 }
 
-function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; menu?: boolean }) {
+function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, onQuality, onSave, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; onQuality?: () => void; onSave?: () => void; menu?: boolean }) {
   const language = settings.language;
   const copy = () => copyImageWithFeedback(api.copyImagePath, item.output, language, notify);
   const runWithNotice = async (operation: () => Promise<unknown>, success: string) => {
@@ -443,6 +443,8 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     await runWithNotice(() => api.revealPath(output), tr(language, "已在文件夹中定位", "Shown in folder"));
   };
   const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; run: () => void }> = {
+    quality: { title: tr(language,"调整压缩质量","Compression quality"), icon: "sliders", disabled:!onQuality, run:()=>onQuality?.() },
+    save: { title: tr(language,"保存副本","Save copy"), icon: "save", disabled:!onSave, run:()=>onSave?.() },
     downscale: { title: tr(language, "再缩小一半", "Downscale by half again"), icon: "minus", run: onDownscale },
     watermark: { title: tr(language, "按已保存参数添加水印", "Apply the saved watermark"), icon: "watermark", run: onWatermark },
     undo: { title: tr(language, "撤销上一次处理", "Undo last operation"), icon: "undo", disabled: !item.history?.length, run: onUndo },
@@ -515,7 +517,7 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
     event.preventDefault();
     void api.startDragging();
   };
-  const preview = <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
+  const preview = (controls: {quality:()=>void;save:()=>void}) => <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
     {item.preview ? <img src={item.preview} alt={fileName(item.source)} draggable={false} /> : <Icon name={item.status === "working" ? "spark" : "image"} />}
     <div className="result-overlay">
       {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
@@ -523,10 +525,10 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
         {item.width && item.height ? <small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
       </>}
     </div>
-    {item.status === "done" && <div className="result-hover-actions" data-no-drag onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}><ResultActions {...actionProps} /></div>}
+    {item.status === "done" && <div className="result-hover-actions" data-no-drag onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
   </div>;
   return <article className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select}>
-    <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} previewContent={preview} menuActions={<ResultActions {...actionProps} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
+    <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
   </article>;
 }
 
@@ -889,10 +891,12 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
-const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "watermark", "undo", "copy", "preview", "reveal", "gallery", "upload"];
+const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "watermark", "preview", "reveal", "gallery"];
 
 function floatingActionLabel(language: Language, action: FloatingAction) {
   return ({
+    quality: tr(language,"压缩质量","Quality"),
+    save: tr(language,"保存副本","Save copy"),
     downscale: tr(language, "减半", "Half"),
     watermark: tr(language, "水印", "Watermark"),
     undo: tr(language, "撤销", "Undo"),
@@ -905,7 +909,7 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
 }
 
 function floatingActionIcon(action: FloatingAction) {
-  return ({ downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
+  return ({ quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
 }
 
 function SettingsRow({ title, note, children }: { title: React.ReactNode; note?: React.ReactNode; children: React.ReactNode }) {

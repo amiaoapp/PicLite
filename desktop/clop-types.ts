@@ -7,7 +7,7 @@ export type ResultDisplayMode = "stack" | "list";
 export type FilePlacement = "same-folder" | "fixed-folder";
 export type ImageFormat = "keep" | "jpeg" | "png" | "webp";
 export type CleanupUnit = "hours" | "days" | "months";
-export type FloatingAction = "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
+export type FloatingAction = "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
 
 export type FloatingWatermark = {
   text: string;

@@ -4,13 +4,14 @@ import { Crop, DotsThree } from "@phosphor-icons/react";
 import { Icon } from "./clop-icons";
 import type { ImageFormat, Language, OptimisationPreset, PicLiteBridge } from "./clop-types";
 import { tr } from "./clop-store";
-import { cropFromDrag, editorCompressionSettings } from "./floating-editor-model";
+import { cropFromDrag, editorCompressionSettings, translateCrop, resizeCrop, cropForAspect } from "./floating-editor-model";
+import type { CropRect, CropCorner } from "./floating-editor-model";
 import "./floating-result-editor.css";
 
 type Props = {
   api: PicLiteBridge; path?: string; preview?: string; width?: number; height?: number;
   filename: string; language: Language; format?: string; quality: number;
-  previewContent: ReactNode; menuActions: ReactNode; disabled?: boolean;
+  renderPreview: (controls:{quality:()=>void;save:()=>void})=>ReactNode; renderMenu: (controls:{quality:()=>void;save:()=>void})=>ReactNode; disabled?: boolean;
   process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void>;
   updateFormat: (format: ImageFormat) => void; dismiss: () => void;
   notify: (message: string, tone?: "error" | "success") => void;
@@ -28,7 +29,8 @@ export function FloatingResultEditor(p: Props) {
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const start = useRef<{x: number; y: number} | null>(null);
+  const [aspect,setAspect]=useState(0);
+  const start=useRef<{point:{x:number;y:number};rect:CropRect;kind:"draw"|"move"|CropCorner}|null>(null);
   const running = useRef(false);
   const label = (zh: string, en: string) => tr(p.language, zh, en);
   const canEdit = !!p.path && !!p.process && !p.disabled;
@@ -70,10 +72,18 @@ export function FloatingResultEditor(p: Props) {
   };
   const selectCrop = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!start.current || !p.width || !p.height) return;
-    const selection = cropFromDrag(start.current, point(event), p.width, p.height);
-    setCrop(selection); setSize({width: selection.width, height: selection.height});
+    const g=start.current,q=point(event);
+    let selection:CropRect;
+    if(g.kind==="move") selection=translateCrop(g.rect,(q.x-g.point.x)*p.width,(q.y-g.point.y)*p.height,p.width,p.height);
+    else if(g.kind==="draw"){
+      selection=cropFromDrag(g.point,q,p.width,p.height);
+      if(aspect){const w=Math.min(selection.width,selection.height*aspect);selection={...selection,width:Math.max(1,Math.round(w)),height:Math.max(1,Math.round(w/aspect))};}
+    } else selection=resizeCrop(g.rect,g.kind,q,p.width,p.height,aspect);
+    setCrop(selection);setSize({width:selection.width,height:selection.height});
   };
-  const resetCrop = () => {setCrop({x: 0, y: 0, width: p.width!, height: p.height!}); setSize({width: p.width!, height: p.height!});};
+  const resetCrop=()=>{const c=cropForAspect(p.width!,p.height!,aspect);setCrop(c);setSize({width:c.width,height:c.height});};
+  const controls={quality:()=>{setMenu(false);setMode("quality");},save:()=>void save()};
+  const Preview=p.renderPreview,Menu=p.renderMenu;
   const dimension = (value: string) => Math.max(1, Math.min(16384, Math.round(Number(value) || 1)));
   const validSize = size.width > 0 && size.height > 0 && size.width <= 16384 && size.height <= 16384 && size.width * size.height <= 64_000_000;
   return <div ref={root} className={`floating-card-content ${mode ? "is-editing" : ""}`} data-interacting={!!mode || menu || busy}
@@ -85,18 +95,23 @@ export function FloatingResultEditor(p: Props) {
       <button ref={trigger} data-action="more" className="floating-card-icon" aria-label={label("更多操作", "More actions")} title={label("更多操作", "More actions")} aria-haspopup="menu" aria-expanded={menu} disabled={busy} onClick={event => {event.stopPropagation(); setMenu(!menu);}}><DotsThree weight="bold" /></button>
     </header>
     <div className="floating-card-body">
-      {!mode ? p.previewContent : <section ref={panel} className={`floating-editor-panel mode-${mode}`} aria-label={mode === "crop" ? label("裁剪与尺寸", "Crop & resize") : label("压缩质量", "Compression quality")}
+      {!mode ? <Preview {...controls}/> : <section ref={panel} className={`floating-editor-panel mode-${mode}`} aria-label={mode === "crop" ? label("裁剪与尺寸", "Crop & resize") : label("压缩质量", "Compression quality")}
         onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onWheel={event => event.stopPropagation()}>
         <div className="floating-editor-parameters">
         {mode === "crop" && p.preview && p.width && p.height ? <>
+          <label className="floating-crop-aspect"><span>{label("裁切比例","Crop ratio")}</span><select aria-label={label("裁切比例","Crop ratio")} value={aspect} disabled={busy} onChange={event=>{const a=Number(event.target.value);setAspect(a);const c=cropForAspect(p.width!,p.height!,a);setCrop(c);setSize({width:c.width,height:c.height});}}><option value="0">{label("自由","Free")}</option><option value="1">1:1</option><option value={3/2}>3:2</option><option value={4/3}>4:3</option><option value={16/9}>16:9</option><option value={p.width/p.height}>{label("原图比例","Original")}</option></select></label>
           <div className="floating-crop-space">
             <div className="floating-crop-stage" style={{aspectRatio: `${p.width}/${p.height}`, width: `min(100%, ${138 * p.width / p.height}px)`}}
-              onPointerDown={event => {if (event.button !== 0 || busy) return; event.preventDefault(); start.current = point(event); event.currentTarget.setPointerCapture(event.pointerId);}}
+              onPointerDown={event => {if(event.button!==0||busy)return;event.preventDefault();
+                const q=point(event),corner=(event.target as HTMLElement).closest<HTMLElement>("[data-crop-handle]")?.dataset.cropHandle as CropCorner|undefined;
+                const selected=(event.target as HTMLElement).closest(".floating-crop-selection");
+                const full=crop.width===p.width&&crop.height===p.height;
+                start.current={point:q,rect:crop,kind:corner||(selected&&!full?"move":"draw")};event.currentTarget.setPointerCapture(event.pointerId);}}
               onPointerMove={selectCrop}
               onPointerUp={event => {selectCrop(event); start.current = null; if(event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);}}
               onPointerCancel={() => {start.current = null;}}>
               <img src={p.preview} alt={label("拖动选择裁剪区域", "Drag to select a crop")} draggable={false} />
-              <div className="floating-crop-selection" style={{left: `${crop.x/p.width*100}%`, top: `${crop.y/p.height*100}%`, width: `${crop.width/p.width*100}%`, height: `${crop.height/p.height*100}%`}} />
+              <div className="floating-crop-selection" tabIndex={0} role="group" aria-label={label("裁切选区，可拖动移动","Crop selection, drag to move")} onKeyDown={event=>{if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;event.preventDefault();const step=event.shiftKey?10:1;setCrop(current=>translateCrop(current,event.key==="ArrowLeft"?-step:event.key==="ArrowRight"?step:0,event.key==="ArrowUp"?-step:event.key==="ArrowDown"?step:0,p.width!,p.height!));}} style={{left: `${crop.x/p.width*100}%`, top: `${crop.y/p.height*100}%`, width: `${crop.width/p.width*100}%`, height: `${crop.height/p.height*100}%`}}>{(["nw","ne","sw","se"] as CropCorner[]).map(corner=><span key={corner} className={`crop-handle handle-${corner}`} data-crop-handle={corner}/>)}</div>
             </div>
           </div>
           <div className="floating-editor-size">
@@ -114,7 +129,7 @@ export function FloatingResultEditor(p: Props) {
     <div className="floating-card-file" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
       <strong title={p.filename}>{p.filename}</strong>
       <button data-action="crop" className="floating-card-icon" disabled={busy || !canCrop} aria-pressed={mode === "crop"} title={label("裁剪与调整尺寸（静态图片）", "Crop and resize (still images)")} aria-label={label("裁剪", "Crop")} onClick={() => {setMenu(false); setMode(mode === "crop" ? null : "crop");}}><Crop /></button>
-      <button data-action="quality" className="floating-card-icon" disabled={busy || !canEdit} aria-pressed={mode === "quality"} title={label("调整编码质量", "Adjust encoder quality")} aria-label={label("质量", "Quality")} onClick={() => {setMenu(false); setMode(mode === "quality" ? null : "quality");}}><Icon name="sliders" /></button>
+
     </div>
     <div className="format-bar floating-card-formats" aria-label={label("输出格式", "Output format")} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
       {(["keep", "jpeg", "webp", "png"] as ImageFormat[]).map(f => <button key={f} data-format={f} disabled={busy || !p.path || p.disabled} className={(mode ? format === f : p.format === f) ? "active" : ""} aria-pressed={mode ? format === f : p.format === f} onClick={() => {setFormat(f); if (!mode) p.updateFormat(f);}}>{f === "keep" ? "AUTO" : f.toUpperCase()}</button>)}
@@ -126,7 +141,7 @@ export function FloatingResultEditor(p: Props) {
       buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length-1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus();
     }}>
       <button data-action="save" role="menuitem" disabled={busy || !p.path || p.disabled} onClick={() => void save()}><Icon name="save" />{label("保存副本…", "Save copy…")}</button>
-      {p.menuActions}
+      {<Menu {...controls}/>}
     </section>}
   </div>;
 }
