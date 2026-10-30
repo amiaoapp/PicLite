@@ -23,7 +23,7 @@ export function bindCoverMaterial(frame: HTMLIFrameElement, source = document.do
   previous?.remove();
   const style = target.createElement("style");
   style.id = "piclite-cover-material";
-  style.textContent = glassCss + coverCss;
+  style.textContent = glassCss + coverCss + " .theme-inline .theme-btn,.theme-inline .theme-label{display:none!important}";
   target.head.appendChild(style);
   const tokens = ["--ink", "--paper", "--deep", "--surface", "--line"];
   const sync = () => {
