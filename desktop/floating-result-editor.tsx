@@ -49,7 +49,7 @@ export function FloatingResultEditor(p:Props){
   const apply=()=>run(async()=>{await p.process?.(editorCompressionSettings(quality,format));setQualityMode(false);});
   const actions={quality:()=>{setMenu(false);setQualityMode(true);},save:()=>void save()};
   const Preview=p.renderPreview,Menu=p.renderMenu;
-  return <div ref={root} className={`floating-card-content ${qualityMode?'is-editing':''}`} data-interacting={qualityMode||menu||busy}
+  return <div ref={root} className={`floating-card-content ${qualityMode?'is-editing':''} ${p.preview?'has-preview':''}`} data-interacting={qualityMode||menu||busy}
     onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();}}}
     onContextMenu={event=>{event.preventDefault();event.stopPropagation();if(!busy)setMenu(true);}}>
     {!qualityMode && p.preview && <FloatingPreviewImage src={p.preview} alt={p.filename} width={p.width} height={p.height}/>}

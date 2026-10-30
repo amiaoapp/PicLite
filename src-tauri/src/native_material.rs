@@ -125,47 +125,34 @@ mod macos {
         }
     }
 
-    fn titlebar_material(window: &NSWindow, mtm: MainThreadMarker, enabled: bool) {
-        // Keep the existing titlebar and contentLayoutRect: FullSizeContentView
-        // would move the web toolbar under traffic lights and change drag geometry.
+    fn titlebar_material(window: &NSWindow, _mtm: MainThreadMarker, _enabled: bool) {
+        // Wry's transparent(true) implicitly enables FullSizeContentView, even
+        // with the default decorated titlebar. Its WKWebView then occupies the
+        // titlebar's 32-point strip. Preserve the current viewport while moving
+        // it below native chrome; never install a material above application UI.
         let button: Option<Retained<NSView>> =
             unsafe { msg_send![window, standardWindowButton: 0usize] };
         let Some(host) = button.and_then(|button| unsafe { button.superview() }) else {
-            return;
+            return; // Borderless floating windows retain their own geometry.
         };
-        let original_false = NSString::from_str(TITLEBAR_IDENTIFIER);
-        let original_true = NSString::from_str(&format!("{TITLEBAR_IDENTIFIER}.transparent"));
-        let existing = host
-            .subviews()
-            .iter()
-            .find(|view| {
-                let id = view.identifier();
-                id.as_deref() == Some(&original_false) || id.as_deref() == Some(&original_true)
-            })
-            .map(|view| view.clone());
-        if !enabled {
-            if let Some(view) = existing {
-                window.setTitlebarAppearsTransparent(
-                    view.identifier().as_deref() == Some(&original_true),
-                );
+        for view in host.subviews().iter() {
+            if view.identifier().is_some_and(|id| {
+                let id = id.to_string();
+                id == TITLEBAR_IDENTIFIER || id == format!("{TITLEBAR_IDENTIFIER}.transparent")
+            }) {
                 view.removeFromSuperview();
             }
-            return;
         }
-        let view = existing.unwrap_or_else(|| {
-            let view = make_material(mtm, &host, 0.0, false);
-            if let Some(effect) = view.downcast_ref::<NSVisualEffectView>() {
-                effect.setMaterial(NSVisualEffectMaterial::Titlebar);
+        let style = window.styleMask();
+        if style.contains(objc2_app_kit::NSWindowStyleMask::FullSizeContentView) {
+            let viewport = window.contentView().map(|view| view.bounds().size);
+            window.setStyleMask(style & !objc2_app_kit::NSWindowStyleMask::FullSizeContentView);
+            if let Some(size) = viewport {
+                window.setContentSize(size);
             }
-            view.setIdentifier(Some(if window.titlebarAppearsTransparent() {
-                &original_true
-            } else {
-                &original_false
-            }));
-            view
-        });
-        window.setTitlebarAppearsTransparent(true);
-        fit_material(&view, &host);
+        }
+        // Let AppKit draw and clip its appearance-aware native titlebar material.
+        window.setTitlebarAppearsTransparent(false);
     }
 
     pub(super) fn apply(
