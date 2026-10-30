@@ -159,6 +159,7 @@ if ("__TAURI_INTERNALS__" in window) {
       return { data: decodeBase64(result.data) };
     },
     updateDesktopPreferences: (preferences) => invoke("update_desktop_preferences", { preferences }),
+    setWindowMaterial: (options) => invoke("set_window_material", options),
     setWindowTheme: async (theme) => {
       await currentWindow.setTheme(theme === "system" ? null : theme);
       const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";

@@ -29,10 +29,57 @@ export function useLiquidGlassTheme() {
   const { material, transparency } = preference;
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-transparency: reduce)");
-    const apply = () => applyMaterialPreference(document.documentElement, { material, transparency }, media.matches);
+    let disposed = false;
+    let revision = 0;
+    // Serialize native transitions so a slow earlier toggle cannot win over a newer one.
+    let pending = Promise.resolve();
+    const apply = () => {
+      const root = document.documentElement;
+      applyMaterialPreference(root, { material, transparency }, media.matches);
+      const enabled = material === "glass" && root.dataset.transparency === "full" && root.dataset.floatingCollapsed !== "true";
+      const current = ++revision;
+      const bridge = window.picLite;
+      if (!bridge?.setWindowMaterial) return;
+      pending = pending.then(async () => {
+        if (disposed || current !== revision) return;
+        try {
+          let radius = 18;
+          if (bridge.windowLabel === "dropzone") {
+            try {
+              const saved = JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1") || "{}");
+              radius = typeof saved.floatingCornerRadius === "number" && Number.isFinite(saved.floatingCornerRadius)
+                ? Math.max(0, Math.min(80, saved.floatingCornerRadius)) : 10;
+            } catch { radius = 10; }
+          }
+          const result = await bridge.setWindowMaterial!({ enabled, radius });
+          if (disposed || current !== revision) return;
+          root.dataset.nativeMaterial = result.enabled
+            ? (result.backend === "nsglass-clear" ? "glass" : result.backend === "nsvisualeffect" ? "vibrancy" : "none")
+            : "none";
+          if (result.reducedTransparency) root.dataset.transparency = "reduce";
+          window.dispatchEvent(new CustomEvent("piclite:native-material", { detail: result }));
+        } catch (error) {
+          if (!disposed && current === revision) root.dataset.nativeMaterial = "error";
+          console.warn("Native window material unavailable", error);
+        }
+      });
+    };
     apply();
     media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
+    const storage = (event: StorageEvent) => { if (event.key === "piclite.desktop.clop-settings.v1" || event.key === null) apply(); };
+    window.addEventListener("storage", storage);
+    window.addEventListener("piclite:settings-changed", apply);
+    window.addEventListener("piclite:floating-collapsed", apply);
+    // AppKit accessibility preferences may change without WebKit firing its media query.
+    window.addEventListener("focus", apply);
+    return () => {
+      disposed = true;
+      media.removeEventListener("change", apply);
+      window.removeEventListener("storage", storage);
+      window.removeEventListener("piclite:settings-changed", apply);
+      window.removeEventListener("piclite:floating-collapsed", apply);
+      window.removeEventListener("focus", apply);
+    };
   }, [material, transparency]);
   return [preference, choose] as const;
 }

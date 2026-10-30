@@ -1,7 +1,7 @@
 import glassCss from "./liquid-glass.css?raw";
 
 const coverCss = `
-html[data-material="glass"] { --bg: var(--paper); --card: var(--glass-solid); --muted: var(--glass-muted); --accent: var(--deep); }
+html[data-material="glass"] { --bg: var(--glass-solid); --card: var(--glass-tint); --muted: var(--glass-muted); --accent: var(--glass-accent); }
 html[data-material="glass"] body { background:var(--glass-depth); color:var(--ink); }
 html[data-material="glass"] .panel { background:var(--glass-wash),var(--glass-tint); border:1px solid var(--glass-edge); box-shadow:var(--glass-shadow); }
 html[data-material="glass"] :is(.module-group,.preset-bar,.uploader) { background:var(--glass-wash),var(--glass-tint); border-color:var(--glass-edge); }
@@ -28,8 +28,9 @@ export function bindCoverMaterial(frame: HTMLIFrameElement, source = document.do
   style.textContent = glassCss + coverCss + " .theme-inline .theme-btn,.theme-inline .theme-label{display:none!important}";
   target.head.appendChild(style);
   const tokens = ["--ink", "--paper", "--deep", "--surface", "--line"];
+  const attributes = ["data-theme", "data-palette", "data-material", "data-transparency", "data-platform", "data-native-material"];
   const sync = () => {
-    for (const attribute of ["data-theme", "data-palette", "data-material", "data-transparency", "data-platform"]) {
+    for (const attribute of attributes) {
       const value = source.getAttribute(attribute);
       if (value === null) root.removeAttribute(attribute); else root.setAttribute(attribute, value);
     }
@@ -39,6 +40,6 @@ export function bindCoverMaterial(frame: HTMLIFrameElement, source = document.do
   };
   sync();
   const observer = new MutationObserver(sync);
-  observer.observe(source, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-material", "data-transparency", "data-platform", "style"] });
+  observer.observe(source, { attributes: true, attributeFilter: [...attributes, "style"] });
   return () => { observer.disconnect(); style.remove(); };
 }

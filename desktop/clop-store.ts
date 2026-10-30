@@ -1,3 +1,4 @@
+import { floatingRadius } from "./floating-appearance";
 import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, OptimisationPreset, UpdateCheckFrequency } from "./clop-types";
 
 const SETTINGS_KEY = "piclite.desktop.clop-settings.v1";
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingCorner: "bottom-right",
   floatingWidth: 320,
   floatingHeight: 230,
+  floatingCornerRadius: 10,
   floatingActions: ["downscale", "undo", "quality", "copy", "upload", "save"],
   floatingWatermark: {
     text: "PicLite",
@@ -87,7 +89,7 @@ function validAppearance(value: unknown): value is Appearance {
 }
 
 function validColorTheme(value: unknown): value is ColorTheme {
-  return value === "graphite" || value === "mist" || value === "violet" || value === "green";
+  return value === "graphite" || value === "mist" || value === "violet" || value === "green" || value === "white";
 }
 
 function validUpdateCheckFrequency(value: unknown): value is UpdateCheckFrequency {
@@ -163,6 +165,7 @@ export function loadSettings(): DesktopSettings {
       shortcutUploadCurrent: mainPreferences.shortcutUpload || parsed.shortcutUploadCurrent || DEFAULT_SETTINGS.shortcutUploadCurrent,
       floatingWidth: Math.max(280, Number(parsed.floatingWidth) || DEFAULT_SETTINGS.floatingWidth),
       floatingHeight: Math.max(220, Number(parsed.floatingHeight) || DEFAULT_SETTINGS.floatingHeight),
+      floatingCornerRadius: floatingRadius(parsed.floatingCornerRadius),
       floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
       floatingWatermark: { ...DEFAULT_SETTINGS.floatingWatermark, ...(parsed.floatingWatermark || {}) },
       watchProfiles: Array.isArray(parsed.watchProfiles) ? parsed.watchProfiles : (parsed.watchFolders || []).map((path, index) => ({

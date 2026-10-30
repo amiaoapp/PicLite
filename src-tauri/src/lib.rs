@@ -9,6 +9,7 @@ mod floating_editor;
 mod crop_editor;
 mod heic_input;
 mod png_candidate;
+mod native_material;
 
 use std::{
     borrow::Cow,
@@ -6858,6 +6859,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            native_material::set_window_material,
             select_folder,
             suggest_screenshot_folder,
             select_images,

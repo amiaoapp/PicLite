@@ -2062,3 +2062,25 @@ html[data-palette="violet"] .drop-dock { --dock-accent: #c5a9dc; --dock-muted: #
 html[data-palette="green"] .drop-dock { --dock-accent: #9db96d; }
 
 @media (max-width: 900px) { .palette-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Pure white is an additional palette; existing saved defaults are preserved. */
+html[data-palette="white"][data-theme="light"] {
+  --ink:#202020; --muted:#646464; --line:#dedede; --paper:#ffffff; --surface:#ffffff;
+  --deep:#303030; --accent:#e5e5e5; --accent-strong:#d4d4d4; --success:#404040;
+  --shadow:0 18px 56px rgb(0 0 0 / .08); --palette-glow-a:transparent; --palette-glow-b:transparent;
+  --palette-bg-a:#ffffff; --palette-bg-b:#ffffff; --palette-panel:#ffffff;
+}
+html[data-palette="white"][data-theme="dark"] {
+  --ink:#f5f5f5; --muted:#b6b6b6; --line:#3c3c3c; --paper:#181818; --surface:#242424;
+  --deep:#e5e5e5; --accent:#d8d8d8; --accent-strong:#eeeeee; --success:#c8c8c8;
+  --shadow:0 18px 56px rgb(0 0 0 / .25); --palette-glow-a:transparent; --palette-glow-b:transparent;
+  --palette-bg-a:#181818; --palette-bg-b:#181818; --palette-panel:#242424;
+}
+html[data-palette="white"][data-theme][data-material="standard"] :is(.app-shell, .desktop-app) { --paper:var(--palette-bg-a); background:var(--paper); }
+html[data-palette="white"][data-theme][data-material="standard"] .desktop-app :is(.topbar, .queue-panel, .settings-panel, .preview-panel) { background:var(--surface); }
+html[data-palette="white"] .drop-dock { --dock-accent:#c8c8c8; --dock-muted:#929292; }
+.palette-picker { grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); }
+.palette-choice.white .palette-swatch { background:#fff; }
+.palette-choice.white .palette-swatch i:nth-child(1) { background:#fff; }
+.palette-choice.white .palette-swatch i:nth-child(2) { background:#e5e5e5; }
+.palette-choice.white .palette-swatch i:nth-child(3) { background:#b8b8b8; }

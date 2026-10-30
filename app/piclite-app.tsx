@@ -40,7 +40,7 @@ type ExportMode = "download" | "overwrite" | "same-folder" | "fixed-folder";
 type WatermarkLayout = "tile" | "single";
 type WatermarkKind = "text" | "image" | "blind";
 type ThemeMode = "system" | "light" | "dark";
-type ColorTheme = "graphite" | "mist" | "violet" | "green";
+type ColorTheme = "graphite" | "mist" | "violet" | "green" | "white";
 type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 type UiDensity = "auto" | "comfortable" | "compact";
 type ShortcutPreferenceKey = "shortcutShow" | "shortcutPaste" | "shortcutDock" | "shortcutGallery" | "shortcutUpload";
@@ -221,6 +221,7 @@ type NativeBridge = {
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
   updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
   setWindowTheme: (theme: ThemeMode) => Promise<void>;
+  setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<import("../desktop/clop-types").WindowMaterialState>;
   startDragging: () => Promise<void>;
   startResizeDragging: (direction: "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West") => Promise<void>;
   showMainWindow: () => Promise<void>;
@@ -795,7 +796,7 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
     } catch { /* keep the main-window value when the old desktop key is malformed */ }
     const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled } as DesktopPreferences & { dockLayout?: string };
     // 0.11 之前的“桌宠”偏好自动迁移到紧凑压缩坞。
-    const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green"].includes(preferences.colorTheme)
+    const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green", "white"].includes(preferences.colorTheme)
       ? preferences.colorTheme
       : "graphite";
     const updateCheckFrequency: UpdateCheckFrequency = ["startup", "daily", "weekly", "never"].includes(preferences.updateCheckFrequency)
@@ -4507,9 +4508,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 </div>
               </div>
               <div className="preference-row column">
-                <div><strong>{t("界面配色", "Colour theme")}</strong><small>{t("石墨蓝更清爽，也可以随时切回经典绿色", "Graphite is cleaner, and the classic green remains available")}</small></div>
+                <div><strong>{t("界面配色", "Colour theme")}</strong><small>{t("纯白与多种配色可选；液态玻璃使用中性透明材质", "Choose pure white or a colour palette; Liquid Glass stays neutral")}</small></div>
                 <div className="palette-picker">
                   {([
+                    ['white', t('纯白', 'Pure white'), t('纯净 · 中性', 'Clean · neutral')],
                     ['graphite', t('石墨蓝', 'Graphite'), t('克制 · 清晰', 'Neutral · crisp')],
                     ['mist', t('雾蓝', 'Mist blue'), t('轻盈 · 通透', 'Light · airy')],
                     ['violet', t('紫晶', 'Violet'), t('柔和 · 现代', 'Soft · modern')],

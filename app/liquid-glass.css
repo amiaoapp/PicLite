@@ -1,90 +1,111 @@
-/* CSS optical material inspired by liquid-glass-react. WebKit-safe: no SVG
-   displacement, full-window filter, animated compositing or image filtering.
-   Repeated root attributes intentionally outrank legacy studio/palette chrome. */
-html[data-material="glass"] {
-  --glass-solid: #f3f7fc;
-  --glass-tint: rgb(235 244 255 / .56);
-  --glass-popover: rgb(239 247 255 / .73);
-  --glass-edge: rgb(76 113 150 / .32);
-  --glass-highlight: rgb(255 255 255 / .92);
-  --glass-glint: rgb(255 255 255 / .52);
-  --glass-shade: rgb(75 112 150 / .12);
-  --glass-shadow: inset 0 1px 0 var(--glass-highlight), inset 1px 0 0 var(--glass-glint), inset 0 -1px 0 var(--glass-shade), 0 8px 24px rgb(23 52 84 / .1);
-  --glass-blur: blur(18px) saturate(155%);
-  --glass-muted: #465c72;
-  --glass-wash: linear-gradient(122deg, rgb(255 255 255 / .46), transparent 33%, transparent 68%, rgb(148 191 222 / .14));
-  --glass-depth: radial-gradient(ellipse at 2% 12%, rgb(103 174 219 / .52), transparent 52%), radial-gradient(ellipse at 95% 88%, rgb(88 145 176 / .32), transparent 52%), linear-gradient(132deg, #dbe9f5, #eff5fa 48%, #c8dce9);
+/* Neutral clear material. Native macOS material supplies the desktop backdrop;
+   CSS fallback is a quiet neutral frost. Never filter large panels or images.
+   Repeated attributes deliberately outrank platform, studio and palette rules. */
+html[data-material="glass"][data-material][data-theme] {
+  --glass-solid: #ffffff;
+  --glass-ink: #202020;
+  --glass-muted: #565656;
+  --glass-accent: #303030;
+  --glass-tint: rgb(255 255 255 / .28);
+  --glass-popover: rgb(255 255 255 / .86);
+  --glass-edge: rgb(0 0 0 / .16);
+  --glass-highlight: rgb(255 255 255 / .8);
+  --glass-glint: rgb(255 255 255 / .4);
+  --glass-shade: rgb(0 0 0 / .05);
+  --glass-shadow: inset 0 1px 0 var(--glass-highlight), inset 0 -1px 0 var(--glass-shade), 0 4px 16px rgb(0 0 0 / .06);
+  --glass-blur: blur(10px);
+  --glass-wash: none;
+  --glass-depth: #f4f4f4;
+  --ink: var(--glass-ink); --muted: var(--glass-muted); --deep: var(--glass-accent);
+  --accent: #d8d8d8; --accent-strong: #c8c8c8; --accent-soft: #ededed;
+  --paper: var(--glass-solid); --surface: var(--glass-tint); --surface-solid: var(--glass-solid);
+  --sidebar: var(--glass-tint); --card: var(--glass-tint); --line: var(--glass-edge);
+  --palette-bg-a: var(--glass-solid); --palette-bg-b: var(--glass-solid); --palette-panel: var(--glass-tint);
+  --palette-glow-a: transparent; --palette-glow-b: transparent;
+  --studio-ink: var(--glass-ink); --studio-muted: var(--glass-muted);
+  --studio-paper: var(--glass-solid); --studio-surface: var(--glass-tint); --studio-canvas: transparent;
+  --studio-accent: var(--glass-accent); --studio-line: var(--glass-edge);
 }
-html[data-material="glass"][data-theme="dark"] {
-  --glass-solid: #202e40;
-  --glass-tint: rgb(23 39 59 / .57);
-  --glass-popover: rgb(24 40 60 / .8);
-  --glass-edge: rgb(181 216 245 / .29);
-  --glass-highlight: rgb(228 246 255 / .4);
-  --glass-glint: rgb(194 227 255 / .22);
-  --glass-shade: rgb(2 10 20 / .42);
-  --glass-muted: #bccddd;
-  --glass-wash: linear-gradient(122deg, rgb(185 219 251 / .16), transparent 34%, transparent 67%, rgb(85 145 190 / .13));
-  --glass-depth: radial-gradient(ellipse at 2% 12%, rgb(51 112 157 / .66), transparent 54%), radial-gradient(ellipse at 95% 88%, rgb(47 109 134 / .44), transparent 50%), linear-gradient(132deg, #172c40, #101b29 48%, #25445b);
+html[data-material="glass"][data-material][data-theme="dark"] {
+  --glass-solid: #242424; --glass-ink: #f5f5f5; --glass-muted: #cecece;
+  --glass-accent: #e5e5e5; --glass-tint: rgb(24 24 24 / .32);
+  --glass-popover: rgb(36 36 36 / .9); --glass-edge: rgb(255 255 255 / .2);
+  --glass-highlight: rgb(255 255 255 / .22); --glass-glint: rgb(255 255 255 / .12);
+  --glass-shade: rgb(0 0 0 / .22); --glass-depth: #202020;
+  --accent: #d8d8d8; --accent-strong: #eeeeee; --accent-soft: #404040;
 }
+/* An explicit local token reset also defeats layout-scoped palette aliases. */
 html[data-material="glass"][data-material][data-theme] :is(.app-shell, .desktop-app, .preferences-window) {
-  --muted: var(--glass-muted); --studio-muted: var(--glass-muted);
-  background: var(--glass-depth);
+  --ink: var(--glass-ink); --muted: var(--glass-muted); --deep: var(--glass-accent);
+  --studio-ink: var(--glass-ink); --studio-muted: var(--glass-muted);
+  --studio-surface: var(--glass-tint); --studio-canvas: transparent;
+  --paper: var(--glass-solid); --surface: var(--glass-tint);
+  background: var(--glass-depth); color: var(--glass-ink);
 }
-/* Large resizable/scrolling areas transmit the background without allocating a
-   backdrop texture. Optical depth comes from the actual alpha + inset edges. */
+/* Native transparency must reach all the way from NSWindow to visible panels. */
+html[data-material="glass"][data-material][data-theme][data-transparency="full"]:is([data-native-material="glass"], [data-native-material="vibrancy"]) {
+  --glass-depth: transparent; background: transparent !important;
+}
+html[data-material="glass"][data-material][data-theme][data-transparency="full"]:is([data-native-material="glass"], [data-native-material="vibrancy"]) :is(body, #root, #__next, .app-shell, .desktop-app, .preferences-window, .clop-preferences, .settings-window, .settings-content, .workspace) {
+  background: transparent !important;
+}
 html[data-material="glass"][data-material][data-theme] .app-shell.desktop-app .workspace > :is(.queue-panel, .settings-panel, .preview-panel),
-html[data-material="glass"][data-material][data-theme] :is(.app-shell, .preferences-window) :is(.queue-panel, .settings-panel, .preview-panel, .preferences-sidebar, .preference-card, .gallery-toolbar, .gallery-card, .upload-card, .plugin-import-panel),
+html[data-material="glass"][data-material][data-theme] :is(.app-shell, .preferences-window, .settings-window) :is(.queue-panel, .settings-panel, .preview-panel, .preferences-sidebar, .settings-sidebar, .settings-card, .preference-card, .gallery-toolbar, .gallery-card, .upload-card, .plugin-import-panel),
 html[data-material="glass"][data-material][data-theme] .app-shell.studio-shell.studio-shell :is(.queue-panel, .settings-panel, .preview-panel),
 html[data-material="glass"][data-material][data-theme] :is(.integrated-result-card, .glass-surface, .floating-results:not(.is-collapsed)) {
-  background: var(--glass-wash), var(--glass-tint);
-  border-color: var(--glass-edge); box-shadow: var(--glass-shadow);
+  background: var(--glass-tint); border-color: var(--glass-edge); box-shadow: var(--glass-shadow);
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
-/* Bounded optical layers: only 64px toolbar, action buttons and popovers.
-   The targeted !important overrides globals' Darwin toolbar-only safeguard;
-   the large-panel safeguards remain effective. No layout properties here. */
-html[data-material="glass"][data-material][data-theme] :is(.app-shell .topbar.topbar, .appearance-panel, .floating-overflow-menu, .update-notice, .desktop-download-guide),
-html[data-material="glass"][data-material][data-theme] .integrated-result-card .result-actions button {
-  background: var(--glass-wash), var(--glass-popover);
-  border-color: var(--glass-edge); box-shadow: var(--glass-shadow);
-  color: var(--ink, #203044);
-  backdrop-filter: var(--glass-blur) !important;
-  -webkit-backdrop-filter: var(--glass-blur) !important;
+/* Only short toolbars and small popovers allocate a backdrop texture. */
+html[data-material="glass"][data-material][data-theme] :is(.app-shell .topbar.topbar, .appearance-panel, .floating-overflow-menu, .update-notice, .desktop-download-guide) {
+  background: var(--glass-popover); border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow); color: var(--glass-ink);
+  backdrop-filter: var(--glass-blur) !important; -webkit-backdrop-filter: var(--glass-blur) !important;
 }
 html[data-material="glass"][data-material][data-theme] :is(.preview-toolbar, .result-strip, .panel-heading, .floating-card-header, .floating-card-file, .floating-card-formats, .floating-footer) {
-  background: var(--glass-wash), var(--glass-tint); border-color: var(--glass-edge);
+  background: var(--glass-tint); border-color: var(--glass-edge); color: var(--glass-ink);
 }
 html[data-material="glass"][data-material][data-theme] .integrated-result-card {
   --float-surface: var(--glass-tint); --float-control: var(--glass-popover);
   --float-line: var(--glass-edge); --float-muted: var(--glass-muted);
-  --float-ink: var(--ink); --float-accent: var(--deep, #3e91db);
+  --float-ink: var(--glass-ink); --float-accent: var(--glass-accent);
 }
 html[data-material="glass"][data-material][data-theme] :is(.main-nav button, .preferences-sidebar nav button:not(.active)) { color: var(--glass-muted); }
-html[data-material="glass"][data-material][data-theme] :is(.main-nav button.active, .main-nav button:hover) { color: var(--ink); }
-html[data-material="glass"] :is(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--deep, #3e91db); outline-offset: 3px; }
+html[data-material="glass"][data-material][data-theme] :is(.main-nav button.active, .main-nav button:hover) { color: var(--glass-ink); }
+html[data-material="glass"][data-material][data-theme] .app-shell :is(.quick-mode, .preset-toolbar, .preset-toolbar select, .import-button, .folder-import-button, .clipboard-button, .target-size-presets button, .target-size-custom input, .select-wrap select, .setting-section input[type=number], .mode-grid button, .appearance-segments, .appearance-segments button) {
+  background: var(--glass-popover); border-color: var(--glass-edge); color: var(--glass-ink);
+}
+html[data-material="glass"][data-material][data-theme] .app-shell :is(.quick-mode.active, .target-size-presets button.active, .mode-grid button.active, .appearance-segments button[aria-pressed=true]) {
+  background: color-mix(in srgb, var(--glass-solid) 82%, var(--glass-ink) 18%); color: var(--glass-ink); border-color: var(--glass-accent);
+}
+html[data-material="glass"][data-material][data-theme][data-palette] .app-shell.desktop-app :is(.preview-stage, .hero-dropzone, .compare-canvas, .image-inspector) { background: transparent; box-shadow: none; }
+html[data-material="glass"][data-material][data-theme] { --classic-selected: var(--glass-tint); --classic-panel: var(--glass-tint); }
+html[data-material="glass"][data-material][data-theme] .app-shell :is(.quick-mode small, .quick-mode strong, .range-labels, .setting-label, .setting-hint) { color: var(--glass-ink); }
+html[data-material="glass"][data-material][data-theme] :is(.export-button, .preferences-sidebar nav button.active, .settings-sidebar button.active) { background: var(--glass-accent); color: var(--glass-solid); }
+html[data-material="glass"] :is(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 3px; }
 .material-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
 .material-controls label { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink); }
 .material-controls select { min-height:34px; max-width:100%; border:1px solid var(--line); border-radius:8px; padding:4px 9px; color:var(--ink); background:var(--surface); }
-/* Tokens make every shared consumer opaque, including standalone documents. */
-html[data-material="glass"][data-transparency="reduce"] { --glass-tint:var(--glass-solid); --glass-popover:var(--glass-solid); --glass-wash:none; --glass-blur:none; --glass-depth:var(--glass-solid); }
-@media (prefers-reduced-transparency:reduce), (prefers-contrast:more) {
-  html[data-material="glass"] { --glass-tint:var(--glass-solid); --glass-popover:var(--glass-solid); --glass-wash:none; --glass-blur:none; --glass-depth:var(--glass-solid); }
+/* Solid accessibility fallback propagates to every material consumer. */
+html[data-material="glass"][data-material][data-theme][data-transparency="reduce"] {
+  --glass-tint: var(--glass-solid); --glass-popover: var(--glass-solid); --glass-blur: none; --glass-depth: var(--glass-solid);
+  background: var(--glass-solid);
 }
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  html[data-material="glass"] { --glass-popover:var(--glass-solid); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html[data-material="glass"][data-material][data-theme] {
+    --glass-tint: var(--glass-solid); --glass-popover: var(--glass-solid); --glass-blur: none; --glass-depth: var(--glass-solid);
+  }
+  html[data-material="glass"][data-material][data-theme][data-transparency][data-native-material][data-native-material] { background: var(--glass-solid) !important; }
+  html[data-material="glass"][data-material][data-theme][data-transparency][data-native-material][data-native-material] :is(body, #root, #__next, .app-shell, .desktop-app, .preferences-window, .clop-preferences, .settings-window, .settings-content, .workspace) { background: var(--glass-solid) !important; }
 }
-@media (prefers-reduced-motion:reduce) { html[data-material="glass"] :is(.topbar,.glass-surface,.material-controls select) { transition:none; animation:none; } }
-@media (forced-colors:active) {
-  html[data-material="glass"] { --glass-tint:Canvas; --glass-popover:Canvas; --glass-wash:none; --glass-blur:none; --glass-depth:Canvas; --glass-edge:CanvasText; --glass-shadow:none; --glass-muted:CanvasText; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-material="glass"][data-material][data-theme] { --glass-popover: var(--glass-solid); }
+}
+@media (prefers-reduced-motion: reduce) { html[data-material="glass"] :is(.topbar, .glass-surface, .material-controls select) { transition:none; animation:none; } }
+@media (forced-colors: active) {
+  html[data-material="glass"][data-material][data-theme] {
+    --glass-solid: Canvas; --glass-ink: CanvasText; --glass-accent: CanvasText; --glass-tint: Canvas;
+    --glass-popover: Canvas; --glass-depth: Canvas; --glass-blur: none; --glass-edge: CanvasText; --glass-shadow: none; --glass-muted: CanvasText;
+  }
 }
 @media (max-width:640px) { .material-controls { align-items:stretch; } .material-controls label { flex-wrap:wrap; } }
-
-/* Legacy form panels must not read as opaque white tiles inside dark glass. */
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell :is(.quick-mode,.preset-toolbar,.preset-toolbar select,.import-button,.folder-import-button,.clipboard-button,.target-size-presets button,.target-size-custom input,.select-wrap select,.setting-section input[type=number]){background:var(--glass-wash),color-mix(in srgb,var(--glass-solid) 42%,transparent);border-color:var(--glass-edge);color:var(--ink);box-shadow:inset 0 1px 0 var(--glass-glint)}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell :is(.quick-mode.active,.target-size-presets button.active){background:var(--glass-wash),color-mix(in srgb,var(--deep) 17%,var(--glass-solid) 48%);border-color:color-mix(in srgb,var(--deep) 50%,var(--glass-edge));color:var(--ink)}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell :is(.quick-mode small,.quick-mode strong,.range-labels,.setting-label,.setting-hint,.clipboard-button){color:var(--ink)}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell :is(.preview-stage,.hero-dropzone){background:transparent;box-shadow:none}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell .hero-dropzone{border-color:var(--glass-edge);background:linear-gradient(135deg,color-mix(in srgb,var(--glass-highlight) 12%,transparent),transparent 60%)}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell .preview-toolbar{background:var(--glass-wash),color-mix(in srgb,var(--glass-solid) 32%,transparent)}
-html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell .queue-panel,html[data-material="glass"][data-material][data-theme][data-transparency="full"] .app-shell .settings-panel{border-radius:16px;box-shadow:var(--glass-shadow)}

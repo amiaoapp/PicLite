@@ -7,6 +7,7 @@ import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
 import { FloatingPreviewImage } from "./floating-preview-image";
+import { floatingRadius } from "./floating-appearance";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
@@ -528,7 +529,7 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
     </div>
     {item.status === "done" && <div className="result-hover-actions" data-no-drag onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
   </div>;
-  return <article className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select}>
+  return <article className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onClick={select}>
     <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
   </article>;
 }
@@ -590,6 +591,14 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     });
     return () => { disposed = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    document.documentElement.style.setProperty('--floating-radius', `${floatingRadius(settings.floatingCornerRadius)}px`);
+    return () => { document.documentElement.style.removeProperty('--floating-radius'); };
+  }, [settings.floatingCornerRadius]);
+  useEffect(() => {
+    document.documentElement.dataset.floatingCollapsed = String(collapsed);
+    window.dispatchEvent(new Event('piclite:floating-collapsed'));
+  }, [collapsed]);
   useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => { void api.setContentProtected(!settings.allowFloatingCapture).catch(() => undefined); }, [api, settings.allowFloatingCapture]);
   useEffect(() => { void ensureFontLoaded(api, settings.floatingWatermark.fontFamily).catch(() => undefined); }, [api, settings.floatingWatermark.fontFamily]);
@@ -797,7 +806,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : ""} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+  return <main style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : ""} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -1144,6 +1153,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="外观" en="Appearance" />}><Select label={tr(language, "外观", "Appearance")} value={settings.appearance} onChange={(value) => patch("appearance", value)}><option value="system">{tr(language, "跟随系统", "System")}</option><option value="light">{tr(language, "浅色", "Light")}</option><option value="dark">{tr(language, "深色", "Dark")}</option></Select></SettingsRow>
           <SettingsRow title={<T language={language} zh="界面配色" en="Colour theme" />} note={<T language={language} zh="选择一套你看着舒服的主色调" en="Choose the colour palette you prefer" />}><div className="settings-palette-picker">
             {([
+              ["white", tr(language, "纯白", "Pure white")],
               ["graphite", tr(language, "石墨蓝", "Graphite")],
               ["mist", tr(language, "雾蓝", "Mist blue")],
               ["violet", tr(language, "紫晶", "Violet")],
@@ -1224,6 +1234,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </div>
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
+        <SettingsRow title={<T language={language} zh="圆角弧度" en="Corner radius" />} note={<T language={language} zh="0 为直角，调整后即时应用并自动保存" en="0 gives square corners; changes apply immediately and are saved" />}><span className="floating-radius-control"><input aria-label={tr(language, "悬浮窗圆角", "Floating corner radius")} type="range" min="0" max="28" step="1" value={settings.floatingCornerRadius} onChange={event => patch("floatingCornerRadius", floatingRadius(Number(event.target.value)))} /><output>{settings.floatingCornerRadius} px</output></span></SettingsRow>
         <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后图片区域的点击会传递给下方窗口；悬浮窗底栏的穿透按钮始终可点击" en="Clicks reach the window below; the toggle in the floating footer remains clickable." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>

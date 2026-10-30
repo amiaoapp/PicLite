@@ -1,6 +1,6 @@
 export type Language = "zh" | "en";
 export type Appearance = "system" | "light" | "dark";
-export type ColorTheme = "graphite" | "mist" | "violet" | "green";
+export type ColorTheme = "graphite" | "mist" | "violet" | "green" | "white";
 export type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 export type ResultLayout = "compact" | "full";
 export type ResultDisplayMode = "stack" | "list";
@@ -82,6 +82,7 @@ export type DesktopSettings = {
   floatingCorner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   floatingWidth: number;
   floatingHeight: number;
+  floatingCornerRadius: number;
   floatingActions: FloatingAction[];
   floatingWatermark: FloatingWatermark;
   autoHideResults: boolean;
@@ -217,6 +218,13 @@ export type WatcherSettings = {
 
 export type NativeImage = { name: string; type: string; path: string; data: Uint8Array; previewData?: Uint8Array; previewType?: string; width?: number; height?: number };
 
+export type WindowMaterialState = {
+  backend: "nsglass-clear" | "nsvisualeffect" | "opaque" | "unsupported";
+  enabled: boolean;
+  reducedTransparency: boolean;
+  radius: number;
+};
+
 export type PicLiteBridge = {
   platform: string;
   windowLabel: string;
@@ -260,6 +268,7 @@ export type PicLiteBridge = {
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
   updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock?: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
   setWindowTheme: (theme: Appearance) => Promise<void>;
+  setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<WindowMaterialState>;
   startDragging: () => Promise<void>;
   startResizeDragging: (direction: "SouthEast") => Promise<void>;
   showMainWindow: () => Promise<void>;
