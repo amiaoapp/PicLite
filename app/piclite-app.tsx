@@ -1,4 +1,7 @@
 "use client";
+import { moveBefore, loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
+import "./library-organization.css";
+import { useLiquidGlassTheme, MaterialControls } from "./liquid-glass-theme";
 /* eslint-disable @next/next/no-img-element -- Blob URLs are created and revoked locally. */
 
 import {
@@ -390,6 +393,7 @@ type QuickCompressResult = {
 };
 
 type GalleryRecord = {
+  folderId?: string;
   id: string;
   name: string;
   createdAt: number;
@@ -435,7 +439,8 @@ function loadWorkspacePlugins(): WorkspacePlugin[] {
     const saved = JSON.parse(current || "[]") as WorkspacePlugin[];
     const legacy = current ? [] : JSON.parse(window.localStorage.getItem(LEGACY_WORKSPACE_PLUGINS_KEY) || "[]") as WorkspacePlugin[];
     const builtins = BUILTIN_WORKSPACE_PLUGINS.map((plugin) => ({ ...plugin, enabled: saved.find((item) => item.id === plugin.id)?.enabled ?? false }));
-    return [...builtins, ...(current ? saved : legacy).filter((plugin) => plugin.kind !== "builtin")];
+    const all = [...builtins, ...(current ? saved : legacy).filter((plugin) => plugin.kind !== "builtin")];
+    return all.sort((a,b) => { const ai=saved.findIndex(p=>p.id===a.id), bi=saved.findIndex(p=>p.id===b.id); return (ai<0?999:ai)-(bi<0?999:bi); });
   } catch { return BUILTIN_WORKSPACE_PLUGINS; }
 }
 
@@ -926,7 +931,10 @@ async function galleryPut(record: GalleryRecord) {
   const database = await openGalleryDb();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(GALLERY_STORE_NAME, "readwrite");
-    transaction.objectStore(GALLERY_STORE_NAME).put(record);
+    const store = transaction.objectStore(GALLERY_STORE_NAME);
+    const previous = store.get(record.id);
+    previous.onsuccess = () => store.put({ ...record, folderId: chooseFolderForWrite(record.folderId, previous.result, loadLibraryFolders().defaultFolderId) });
+    previous.onerror = () => reject(previous.error);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error || new Error("图库写入失败"));
   });
@@ -2339,6 +2347,7 @@ function CornerDropTarget({ bridge }: { bridge: NativeBridge }) {
 }
 
 export function PicLiteApp() {
+  useLiquidGlassTheme();
   const bridge = typeof window !== "undefined" ? window.picLite : undefined;
   if (bridge?.windowLabel === "dropzone") return <TrayDropDock bridge={bridge} />;
   if (bridge?.windowLabel === "corner-drop-target") return <CornerDropTarget bridge={bridge} />;
@@ -2393,6 +2402,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [watchProfileName, setWatchProfileName] = useState(() => typeof window === "undefined" ? "" : (loadDesktopSettings().watchProfiles[0]?.name || ""));
   const [watcherActive, setWatcherActive] = useState(false);
   const [watcherEvents, setWatcherEvents] = useState<WatcherEvent[]>([]);
+  const [libraryFolders, setLibraryFolders] = useState(loadLibraryFolders);
+  const [activeFolder, setActiveFolder] = useState("all");
+  const [newFolderName, setNewFolderName] = useState("");
+  const [draggedTool, setDraggedTool] = useState<string | null>(null);
   const [galleryItems, setGalleryItems] = useState<GalleryViewItem[]>([]);
   const [galleryRevision, setGalleryRevision] = useState(0);
   const [gallerySelectedId, setGallerySelectedId] = useState<string | null>(null);
@@ -2513,6 +2526,18 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     const scale = Math.max(0.1, Math.min(100, value / original * 100));
     setSettings((current) => ({ ...current, scale, resize: false }));
   }, [selected]);
+  const visibleGalleryItems = useMemo(() => galleryItems.filter(item => activeFolder === "all" || (item.folderId || "") === activeFolder), [galleryItems, activeFolder]);
+  useEffect(() => { window.localStorage.setItem(LIBRARY_FOLDERS_KEY, JSON.stringify(libraryFolders)); }, [libraryFolders]);
+  useEffect(() => {
+    const sync = (event: StorageEvent) => { if (event.key === LIBRARY_FOLDERS_KEY) setLibraryFolders(loadLibraryFolders()); };
+    window.addEventListener("storage", sync); return () => window.removeEventListener("storage", sync);
+  }, []);
+  async function moveGalleryToFolder(ids: string[], folderId: string) {
+    try { await Promise.all(galleryItems.filter(item => ids.includes(item.id)).map(async item => {
+      const { previewUrl: _previewUrl, ...record } = item;
+      await galleryPut({ ...record, folderId });
+    })); await refreshGallery(); } catch (error) { showToast(error instanceof Error ? error.message : String(error)); }
+  }
   const galleryPreview = useMemo(() => galleryItems.find((item) => item.id === galleryPreviewId) || null, [galleryItems, galleryPreviewId]);
   const selectedMetrics = useMemo(() => {
     const original = selected?.originalBytes || 0;
@@ -3909,15 +3934,19 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         {standalonePreferences ? <div className="standalone-window-title"><span className="eyebrow">PREFERENCES</span><strong>{t("应用设置", "Preferences")}</strong></div> : <nav className="main-nav" aria-label={t("主要功能", "Main navigation")}>
           <button className={view === "workspace" ? "active" : ""} type="button" onClick={() => setView("workspace")}>{t(nativeBridge ? "工作台" : "压缩工作台", "Workspace")}</button>
           <button className={view === "banner" ? "active" : ""} type="button" onClick={() => setView("banner")}>{t("封面制作", "Cover maker")}</button>
-          {workspacePlugins.find((plugin) => plugin.id === "watcher")?.enabled && <button className={view === "watcher" ? "active" : ""} type="button" onClick={() => setView("watcher")}>{t("文件夹监测", "Folder watch")}{watcherActive && <span className="live-dot" aria-label={t("监测中", "Watching")} />}</button>}
-          {workspacePlugins.find((plugin) => plugin.id === "gallery")?.enabled && <button className={view === "gallery" ? "active" : ""} type="button" onClick={() => setView("gallery")}>{t("图库", "Library")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button className={view === "rename" ? "active" : ""} type="button" onClick={() => setView("rename")}>{t("批量重命名", "Batch rename")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "convert")?.enabled && <button className={view === "convert" ? "active" : ""} type="button" onClick={() => setView("convert")}>{t("格式转换", "Convert")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "resize")?.enabled && <button className={view === "resize" ? "active" : ""} type="button" onClick={() => setView("resize")}>{t("尺寸调整", "Resize")}</button>}
-          {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
+          {workspacePlugins.filter(plugin => plugin.enabled && (plugin.kind !== "builtin" || nativeBridge || plugin.id === "watcher" || plugin.id === "gallery")).map(plugin => {
+            const destination = (plugin.kind === "builtin" ? plugin.id : `plugin:${plugin.id}`) as ViewName;
+            return <button key={plugin.id} type="button" draggable className={view === destination ? "active" : ""}
+              title={t("拖动调整顺序；按 Alt + 左右方向键移动", "Drag to reorder; Alt + arrow keys to move")}
+              onDragStart={event => { setDraggedTool(plugin.id); event.dataTransfer.setData("text/piclite-tool", plugin.id); }}
+              onDragEnd={() => setDraggedTool(null)} onDragOver={event => { if (draggedTool) event.preventDefault(); }}
+              onDrop={event => { event.preventDefault(); const from = event.dataTransfer.getData("text/piclite-tool"); setWorkspacePlugins(items => moveBefore(items.map(p=>p.id), from, plugin.id).map(id=>items.find(p=>p.id===id)!)); setDraggedTool(null); }}
+              onKeyDown={event => { if (!event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return; event.preventDefault(); setWorkspacePlugins(items=>{ const next=[...items],i=next.findIndex(p=>p.id===plugin.id),j=i+(event.key==="ArrowLeft"?-1:1); if(j>=0&&j<next.length)[next[i],next[j]]=[next[j],next[i]];return next; }); }}
+              onClick={() => setView(destination)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}{plugin.id === "watcher" && watcherActive && <span className="live-dot" />}</button>;
+          })}
         </nav>}
         <div className="topbar-actions">
-          {!standalonePreferences && <InterfaceStyleSwitch value={interfaceStyle} onChange={setInterfaceStyle} language={desktopPreferences.language} />}
+          {!standalonePreferences && <><MaterialControls language={desktopPreferences.language} /><InterfaceStyleSwitch value={interfaceStyle} onChange={setInterfaceStyle} language={desktopPreferences.language} /></>}
           {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{nativeBridge && <button type="button" className="sponsor-entry-button" title={t("赞助支持", "Support PicLite")} aria-label={t("打开赞助支持", "Open support options")} onClick={() => void nativeBridge.showPreferencesWindow("sponsor")}><HeaderIcon name="heart" /></button>}{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><HeaderIcon name="gear" /></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><HeaderIcon name="floating" /></button>}<button type="button" title={t("切换浅色 / 深色主题", "Toggle light / dark theme")} aria-label={t("切换主题", "Toggle theme")} onClick={toggleHeaderTheme}><HeaderIcon name={resolveTheme(desktopPreferences.theme) === "dark" ? "sun" : "moon"} /></button><button className="language-entry-button" type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
         </div>
       </header>
@@ -4340,10 +4369,20 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             <div className="gallery-summary"><strong>{galleryItems.length}</strong><span>{t("张结果图", "results")}</span><button type="button" onClick={() => void refreshGallery()}>↻ {t("刷新", "Refresh")}</button></div>
           </header>
 
+          <div className="library-folder-toolbar">
+            <div className="library-folder-tabs" role="group" aria-label={t("图库文件夹", "Library folders")}>
+              {[{id:"all",name:t("全部图片", "All images")},{id:"",name:t("未分类", "Uncategorized")},...libraryFolders.folders].map(folder => <button key={folder.id} type="button" aria-pressed={activeFolder === folder.id} onClick={()=>{setActiveFolder(folder.id);setGalleryCheckedIds([]);}}>{folder.name}<small>{galleryItems.filter(item=>folder.id==="all"||(item.folderId||"")===folder.id).length}</small></button>)}
+            </div>
+            <form onSubmit={event=>{event.preventDefault();const name=newFolderName.trim();if(!name||libraryFolders.folders.some(f=>f.name===name))return;const id=crypto.randomUUID();setLibraryFolders(current=>({...current,folders:[...current.folders,{id,name}]}));setNewFolderName("");setActiveFolder(id);}}>
+              <input aria-label={t("新文件夹名称", "New folder name")} placeholder={t("新文件夹名称", "New folder name")} value={newFolderName} maxLength={60} onChange={event=>setNewFolderName(event.target.value)}/><button type="submit" disabled={!newFolderName.trim()}>{t("新建文件夹", "Create folder")}</button>
+            </form>
+            <label>{t("新压缩结果自动归入", "Automatically file new results in")}<select value={libraryFolders.defaultFolderId} onChange={event=>setLibraryFolders(current=>({...current,defaultFolderId:event.target.value}))}><option value="">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+            {activeFolder!=="all"&&activeFolder!==""&&<button type="button" onClick={async()=>{ const id=activeFolder;await moveGalleryToFolder(galleryItems.filter(i=>i.folderId===id).map(i=>i.id),"");setLibraryFolders(current=>({folders:current.folders.filter(f=>f.id!==id),defaultFolderId:current.defaultFolderId===id?"":current.defaultFolderId}));setActiveFolder("all");}}>{t("移除文件夹（图片保留）", "Remove folder (keep images)")}</button>}
+          </div>
           {galleryItems.length ? (
             <>
             <div className="gallery-bulk-toolbar">
-              <button type="button" onClick={() => setGalleryCheckedIds((current) => current.length === galleryItems.length ? [] : galleryItems.map((item) => item.id))}>{galleryCheckedIds.length === galleryItems.length ? t("取消全选", "Clear selection") : t("全选", "Select all")}</button>
+              <button type="button" onClick={() => setGalleryCheckedIds((current) => current.length === visibleGalleryItems.length ? [] : visibleGalleryItems.map((item) => item.id))}>{galleryCheckedIds.length === visibleGalleryItems.length ? t("取消全选", "Clear selection") : t("全选", "Select all")}</button>
               <span>{t(`已选择 ${galleryCheckedIds.length} 张`, `${galleryCheckedIds.length} selected`)}</span>
               <select aria-label={t("批量删除范围", "Bulk delete range")} value={galleryDeleteScope} onChange={(event) => setGalleryDeleteScope(event.target.value as typeof galleryDeleteScope)}>
                 <option value="selected">{t("删除勾选项", "Selected entries")}</option>
@@ -4354,9 +4393,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               </select>
               <button className="danger" type="button" onClick={() => void deleteGalleryBatch()}>{t("批量移除", "Remove batch")}</button>
               <small>{t("只删除图库记录，不删除本地图片", "Library records only; local images are kept")}</small>
+              <select aria-label={t("将勾选图片移到文件夹", "Move selected images to folder")} value="" disabled={!galleryCheckedIds.length} onChange={event=>{if(event.target.value)void moveGalleryToFolder(galleryCheckedIds,event.target.value==="uncategorized"?"":event.target.value);}}><option value="">{t("移动到文件夹…", "Move to folder…")}</option><option value="uncategorized">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>
             </div>
             <div className="gallery-grid">
-              {galleryItems.map((record) => (
+              {visibleGalleryItems.map((record) => (
                 <article className={`gallery-card ${gallerySelectedId === record.id ? "selected" : ""} ${galleryCheckedIds.includes(record.id) ? "checked" : ""}`} key={record.id} tabIndex={0} onClick={() => setGallerySelectedId(record.id)} onDoubleClick={() => { setGallerySelectedId(record.id); setGalleryPreviewId(record.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setGallerySelectedId(record.id); setGalleryPreviewId(record.id); } }}>
                   <label className="gallery-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={galleryCheckedIds.includes(record.id)} onChange={(event) => setGalleryCheckedIds((current) => event.target.checked ? [...new Set([...current, record.id])] : current.filter((id) => id !== record.id))} /><span>{t("选择", "Select")}</span></label>
                   <button className="gallery-preview" type="button" tabIndex={-1} onClick={() => setGallerySelectedId(record.id)} onDoubleClick={() => setGalleryPreviewId(record.id)} aria-label={t(`预览 ${record.name}`, `Preview ${record.name}`)}><img src={record.previewUrl} alt={record.name} /><span>{record.width} × {record.height}</span><em>{t("双击预览", "Double-click to preview")}</em></button>
@@ -4364,6 +4404,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                     <strong title={record.name}>{record.name}</strong>
                     <small>{new Date(record.createdAt).toLocaleString(desktopPreferences.language === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} · {formatBytes(record.outputBytes)} · {sizeChangeLabel(record.originalBytes, record.outputBytes)}</small>
                     {record.remoteUrl && <button className="gallery-link" type="button" title={record.remoteUrl} onClick={() => void copyRemoteUrl(record.remoteUrl!)}><span>↗</span><b>{record.remoteUrl}</b><em>{t("复制链接", "Copy URL")}</em></button>}
+                    <label className="gallery-folder-picker">{t("文件夹", "Folder")}<select aria-label={t(`分类 ${record.name}`, `Folder for ${record.name}`)} value={record.folderId || ""} onClick={event=>event.stopPropagation()} onChange={event=>void moveGalleryToFolder([record.id],event.target.value)}><option value="">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
                     <div className="gallery-actions">
                       <button type="button" onClick={() => void copyGalleryResult(record)}>⧉ {t("复制图片", "Copy image")}</button>
                       <button type="button" onClick={() => downloadGalleryResult(record)}>↓ {t("保存文件", "Save file")}</button>
@@ -4374,6 +4415,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   </div>
                 </article>
               ))}
+              {!visibleGalleryItems.length && <p className="gallery-empty">{t("此文件夹尚无图片，可将现有图片移入，或将它设为自动归类目标。", "This folder is empty. Move images here or select it as the automatic destination.")}</p>}
             </div>
             </>
           ) : (
@@ -4527,7 +4569,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             {preferenceSection === "plugins" && <section className="preference-card plugin-preference-card">
               <div className="preference-card-heading"><span>{t("工作台插件", "Workbench plugins")}</span><small>{t("HTML / JavaScript 直接在可信插件容器中运行，不再使用 iframe", "HTML / JavaScript runs directly in a trusted plugin container, without iframes")}</small></div>
-              {workspacePlugins.map((plugin) => <div className="preference-row plugin-row" key={plugin.id}><div>{plugin.kind === "builtin" ? <strong>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</strong> : <input className="plugin-name-input" aria-label={t("插件名称", "Plugin name")} value={desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn} onChange={(event) => { const name = event.target.value; setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, nameZh: name, nameEn: name } : item)); }} />}<small>{plugin.kind === "builtin" ? t("内置插件", "Built-in plugin") : plugin.kind === "url" ? plugin.url : t("本地可信插件", "Local trusted plugin")}</small></div><div className="plugin-row-actions"><button className={`switch ${plugin.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={plugin.enabled} onClick={() => setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, enabled: !item.enabled } : item))}><i /></button>{plugin.kind !== "builtin" && <button className="preference-action danger" type="button" onClick={() => setWorkspacePlugins((current) => current.filter((item) => item.id !== plugin.id))}>{t("移除", "Remove")}</button>}</div></div>)}
+              {workspacePlugins.map((plugin) => <div className="preference-row plugin-row" key={plugin.id}><div>{plugin.kind === "builtin" ? <strong>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</strong> : <input className="plugin-name-input" aria-label={t("插件名称", "Plugin name")} value={desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn} onChange={(event) => { const name = event.target.value; setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, nameZh: name, nameEn: name } : item)); }} />}<small>{plugin.kind === "builtin" ? t("内置插件", "Built-in plugin") : plugin.kind === "url" ? plugin.url : t("本地可信插件", "Local trusted plugin")}</small></div><div className="plugin-row-actions"><button type="button" aria-label={t("上移插件", "Move plugin up")} disabled={workspacePlugins[0]?.id===plugin.id} onClick={()=>setWorkspacePlugins(items=>{const next=[...items],i=next.findIndex(p=>p.id===plugin.id);if(i>0)[next[i-1],next[i]]=[next[i],next[i-1]];return next;})}>↑</button><button type="button" aria-label={t("下移插件", "Move plugin down")} disabled={workspacePlugins[workspacePlugins.length-1]?.id===plugin.id} onClick={()=>setWorkspacePlugins(items=>{const next=[...items],i=next.findIndex(p=>p.id===plugin.id);if(i<next.length-1)[next[i+1],next[i]]=[next[i],next[i+1]];return next;})}>↓</button><button className={`switch ${plugin.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={plugin.enabled} onClick={() => setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, enabled: !item.enabled } : item))}><i /></button>{plugin.kind !== "builtin" && <button className="preference-action danger" type="button" onClick={() => setWorkspacePlugins((current) => current.filter((item) => item.id !== plugin.id))}>{t("移除", "Remove")}</button>}</div></div>)}
               <div className="plugin-import-panel"><button className="preference-action" type="button" onClick={() => pluginInputRef.current?.click()}>{t("导入 HTML / JS / manifest.json", "Import HTML / JS / manifest.json")}</button><span>{t("或添加网页插件", "or add a web plugin")}</span><input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder={t("自定义插件名称", "Custom plugin name")} /><input value={pluginUrl} onChange={(event) => setPluginUrl(event.target.value)} placeholder="https://banner.xmit.dev/" /><button className="preference-action" type="button" onClick={() => void addUrlPlugin()}>{t("读取并添加", "Fetch and add")}</button></div>
               <p className="plugin-security-note">{t("非 iframe 插件拥有页面脚本执行能力，只安装你信任的 HTML / JavaScript。插件需要宿主能力时可调用 window.PicLitePlugin.post()。", "Non-iframe plugins can execute page scripts. Install only HTML / JavaScript you trust. Plugins can request host capabilities with window.PicLitePlugin.post().")}</p>
             </section>}

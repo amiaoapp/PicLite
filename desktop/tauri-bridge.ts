@@ -65,6 +65,10 @@ if ("__TAURI_INTERNALS__" in window) {
     copyImageData: (data) => invoke("copy_image_data", { data: Array.from(data) }),
     copyCompressedData: (data, fileName) => invoke("copy_compressed_data", { data: Array.from(data), fileName }),
     cacheImageData: (data, fileName) => invoke("cache_image_data", { data: Array.from(data), fileName }),
+    ...({
+      editFloatingImage: (path, edit) => invoke("edit_floating_image", { path, edit }),
+      saveFloatingResult: (path, folder) => invoke("save_floating_result", { path, folder }),
+    } satisfies Pick<import("./clop-types").PicLiteBridge, "editFloatingImage" | "saveFloatingResult">),
     copyImagePath: (path) => invoke("copy_image_path", { path }),
     copyText: (text) => invoke("copy_text", { text }),
     selectImages: async () => {

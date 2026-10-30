@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImagesIcon, FolderOpenIcon, ArrowsClockwiseIcon, SlidersHorizontalIcon, CheckCircleIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
+import "./image-tools-redesign.css";
 
 export type NativeOutputFormat = "keep" | "image/jpeg" | "image/jfif" | "image/png" | "image/webp" | "image/avif" | "image/gif" | "image/bmp" | "image/tiff" | "image/x-icon" | "image/qoi" | "image/x-tga";
 type ConversionOutputFormat = Exclude<NativeOutputFormat, "keep">;
@@ -214,19 +216,23 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
     });
     queue.setBusy(false);
   };
-  return <section className="builtin-tool-page">
-    <header className="tool-hero"><div><span>BUILT-IN PLUGIN / CONVERT</span><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("支持 HEIC／HEIF 苹果照片导入，批量转换为常用图片格式，并可套用工作台压缩方案。", "Import Apple HEIC/HEIF photos and convert to common image formats using workbench optimisation modes.")}</p></div><b>01</b></header>
-    <div className="tool-layout"><ToolQueue items={queue.items} remove={queue.remove} clear={queue.clear} language={language} />
-      <div className="tool-console"><div className="tool-import-actions"><button type="button" onClick={() => void queue.choose(false)}>＋ {queue.t("添加图片", "Add images")}</button><button type="button" onClick={() => void queue.choose(true)}>⌑ {queue.t("导入文件夹", "Import folder")}</button></div>
-        <div className="tool-fields">
+  return <section className="builtin-tool-page converter-page">
+    <header className="tool-hero"><div><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("批量转换图片格式，原图保留在本机。支持 HEIC / HEIF 导入。", "Batch convert your images locally. Original files stay intact. HEIC / HEIF supported.")}</p></div><ArrowsClockwiseIcon size={32} weight="duotone" /></header>
+    <div className="tool-layout converter-layout">
+      <section className="converter-input" aria-label={queue.t("源图片", "Source images")}><header className="converter-section-heading"><ImagesIcon size={22} /><div><h2>{queue.t("源图片", "Source images")}</h2><p>{queue.t("选择图片或导入整个文件夹", "Choose files or import an entire folder")}</p></div></header><div className="tool-import-actions"><button type="button" disabled={queue.busy} onClick={() => void queue.choose(false)}><ImagesIcon size={18} />{queue.t("添加图片", "Add images")}</button><button type="button" disabled={queue.busy} onClick={() => void queue.choose(true)}><FolderOpenIcon size={18} />{queue.t("导入文件夹", "Import folder")}</button></div><ToolQueue items={queue.items} remove={queue.remove} clear={queue.clear} language={language} /></section>
+      <div className="tool-console"><header className="converter-section-heading"><SlidersHorizontalIcon size={22} /><div><h2>{queue.t("转换设置", "Conversion settings")}</h2><p>{queue.t("设置格式、质量与保存位置", "Format, quality and destination")}</p></div></header>
+        <fieldset className="tool-fields" disabled={queue.busy}>
           <label><span>{queue.t("目标格式", "Output format")}</span><select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}>{OUTPUT_FORMAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
           {mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
           <label><span>{queue.t("文件名后缀", "Filename suffix")}</span><input value={suffix} onChange={(event) => setSuffix(event.target.value)} /></label>
           <OutputLocationFields bridge={bridge} language={language} placement={placement} setPlacement={setPlacement} folder={folder} setFolder={setFolder} />
-        </div>
-        <footer className="tool-actions"><small>{queue.notice || queue.t("所有图片仅在本机处理", "All images stay on this device")}</small><div><button type="button" disabled={queue.busy || (placement === "fixed-folder" && !folder)} onClick={async () => queue.setNotice(await onCreateMonitor({ outputFolder: placement === "fixed-folder" ? folder : "@same-folder", outputSuffix: suffix, mode, quality: effectiveQuality, format, scale: 100, resize: false }, queue.t("格式转换", "Format conversion")))}>◎ {queue.t("按此配置添加监控任务", "Add watch task with these settings")}</button><button className="primary" type="button" disabled={queue.busy || !queue.items.length} onClick={() => void process()}>{queue.busy ? "···" : "→"} {queue.t("开始转换", "Convert")}</button></div></footer>
+        </fieldset>
+        <footer className="tool-actions"><small role="status" aria-live="polite">{queue.notice || queue.t("所有图片仅在本机处理", "All images stay on this device")}</small><div><button type="button" disabled={queue.busy || (placement === "fixed-folder" && !folder)} onClick={async () => queue.setNotice(await onCreateMonitor({ outputFolder: placement === "fixed-folder" ? folder : "@same-folder", outputSuffix: suffix, mode, quality: effectiveQuality, format, scale: 100, resize: false }, queue.t("格式转换", "Format conversion")))}>{queue.t("保存为监控任务", "Create watch task")}</button><button className="primary" type="button" disabled={queue.busy || !queue.items.length || (placement === "fixed-folder" && !folder)} onClick={() => void process()}>{queue.busy ? queue.t("转换中…", "Converting…") : queue.t("开始转换", "Convert")}</button></div></footer>
       </div>
+      <section className="converter-results" aria-label={queue.t("转换结果", "Results")}><header className="converter-section-heading"><DownloadSimpleIcon size={22} /><div><h2>{queue.t("转换结果", "Results")}</h2><p>{queue.t("完成后可查看文件大小和保存路径", "Review file sizes and saved locations")}</p></div><span className="converter-count">{queue.items.filter((item) => item.status === "done").length} / {queue.items.length}</span></header>
+        {queue.items.some((item) => item.status === "done" || item.status === "error") ? <div className="converter-result-list">{queue.items.filter((item) => item.status === "done" || item.status === "error").map((item) => <article key={item.id} className={item.status}><CheckCircleIcon size={20} /><div><strong>{item.name}</strong><p>{item.result?.error || `${formatBytes(item.result?.originalBytes)} → ${formatBytes(item.result?.outputBytes)}`}</p><small title={item.result?.output}>{item.result?.output}</small></div><span>{item.status === "error" ? queue.t("失败", "Failed") : queue.t("已保存", "Saved")}</span></article>)}</div> : <div className="converter-results-empty"><DownloadSimpleIcon size={26} /><p>{queue.t("转换完成的文件会显示在这里", "Converted files will appear here")}</p><small>{queue.t("设置输出格式后，点击开始转换", "Choose an output format, then select Convert")}</small></div>}
+      </section>
     </div>
   </section>;
 }

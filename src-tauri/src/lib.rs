@@ -5,6 +5,7 @@ pub fn run_mcp() {
 mod animation_size;
 mod click_through;
 mod floating_collapse;
+mod floating_editor;
 mod heic_input;
 mod png_candidate;
 
@@ -6876,6 +6877,8 @@ pub fn run() {
             save_upload_profile,
             export_images,
             quick_compress_paths,
+            floating_editor::edit_floating_image,
+            floating_editor::save_floating_result,
             compress_image_data,
             compress_image_base64,
             compress_image_with_watermark_base64,
