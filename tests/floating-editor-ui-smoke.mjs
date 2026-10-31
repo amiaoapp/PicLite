@@ -86,7 +86,7 @@ try {
   for (const height of [188,220,230,280,410]) for (const layout of ['full','compact']) for (const theme of ['light','dark']) {
     await evaluate(`renderCard(320,'${layout}','${theme}');document.getElementById('test').style.height='${height}px'`);await settle();
     const v=await evaluate(`(()=>{const grid=document.querySelector('.result-actions'),image=document.querySelector('.floating-image-slot img'),stage=document.querySelector('.result-preview'),bar=document.querySelector('.format-bar'),card=document.querySelector('.result-card');const r=e=>{const b=e.getBoundingClientRect();return{x:b.x,y:b.y,right:b.right,bottom:b.bottom,w:b.width,h:b.height}};return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,image:r(image),stage:r(stage),bar:r(bar),card:r(card),fit:getComputedStyle(image).objectFit,buttonColor:getComputedStyle(bar.querySelector('button')).color,buttonBackground:getComputedStyle(bar).backgroundColor,grid:r(grid),buttons:[...grid.querySelectorAll('button')].map(r),buttonFont:parseFloat(getComputedStyle(bar.querySelector('button')).fontSize),opacity:getComputedStyle(bar.querySelector('button')).opacity};})()`);
-    assert.equal(v.columns,3,'small floating actions must remain two rows of three');
+    assert.equal(v.columns,height-2<=240?6:3,'short previews use one row; taller previews use two rows');
     assert.equal(v.opacity,'1');assert.ok(v.buttonFont<=10);assert.ok(Number(await evaluate('getComputedStyle(document.querySelector(".format-bar button")).fontWeight'))<=500);assert.ok(v.grid.bottom<=v.bar.y,'action grid clipped by formats');assert.ok(v.buttons.every(b=>b.y>=v.stage.y&&b.bottom<=v.stage.bottom),'action buttons outside preview at '+height+' '+layout);
     assert.equal(v.fit,'cover');assert.ok(v.image.bottom>=v.stage.bottom-1&&v.image.right>=v.stage.right-1,'cover must fill the preview without letterboxing');
     assert.ok(v.bar.bottom<=v.card.bottom+1&&v.bar.h>=22,'format bar is clipped');
@@ -139,7 +139,7 @@ try {
   for(const [width,height] of [[246,188],[280,220],[320,230],[380,330]]){
     await evaluate(`document.getElementById('test').style.cssText='width:${width}px;height:${height}px'`);await settle();
     const geometry=await evaluate(`(()=>{const body=document.querySelector('.floating-card-body').getBoundingClientRect(),card=document.querySelector('.result-card').getBoundingClientRect(),bar=document.querySelector('.format-bar').getBoundingClientRect();return{columns:getComputedStyle(document.querySelector('.result-actions')).gridTemplateColumns.split(' ').length,buttonsFit:[...document.querySelectorAll('.result-actions button')].every(e=>{const r=e.getBoundingClientRect();return r.top>=body.top&&r.bottom<=body.bottom&&r.left>=body.left&&r.right<=body.right}),formatsFit:bar.bottom<=card.bottom&&bar.right<=card.right,previewHeight:body.height}})()`);
-    assert.equal(geometry.columns,3);assert.equal(geometry.buttonsFit,true,'whole native window action clipping '+width+'x'+height+JSON.stringify(geometry));assert.equal(geometry.formatsFit,true);assert.ok(geometry.previewHeight>=50);
+    assert.equal(geometry.columns,geometry.previewHeight<=240?6:3);assert.equal(geometry.buttonsFit,true,'whole native window action clipping '+width+'x'+height+JSON.stringify(geometry));assert.equal(geometry.formatsFit,true);assert.ok(geometry.previewHeight>=50);
   }
   await evaluate("document.getElementById('test').style.cssText='width:320px;height:230px'");await settle();
   await click('[data-action="quality"]');

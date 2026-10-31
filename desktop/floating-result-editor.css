@@ -50,7 +50,7 @@ html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.drop
 .integrated-result-card:hover .result-actions button,.integrated-result-card:focus-within .result-actions button{pointer-events:auto}
 .integrated-result-card .result-actions button:hover:not(:disabled){background:#fff;transform:none}
 .integrated-result-card .result-actions button:active:not(:disabled){transform:scale(.97)}
-.integrated-result-card .result-actions svg{display:block;position:static;inset:auto;margin:0;transform:none;width:calc(var(--action-size) * .56);height:calc(var(--action-size) * .56);max-width:72%;max-height:72%;flex:none}
+.integrated-result-card .result-actions svg{display:block;position:static;inset:auto;margin:0;transform:none;width:calc(var(--action-size) * .6);height:calc(var(--action-size) * .6);max-width:none;max-height:none;flex:none}
 .floating-card-bottom{position:relative;z-index:7;display:grid;grid-template-columns:25px minmax(0,1fr);align-items:center;gap:7px;padding:3px 9px 4px;background:var(--float-bar);min-width:0;border-top:0}
 .integrated-result-card .floating-card-bottom>.crop-window-trigger{width:23px;height:23px;flex-basis:23px;padding:4px;background:transparent;color:#fff;text-shadow:0 1px 3px #000a;box-shadow:none;border:0;border-radius:6px}
 .integrated-result-card .floating-card-bottom>.crop-window-trigger:hover:not(:disabled){background:#ffffff1a}
@@ -83,7 +83,7 @@ html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.drop
 .floating-results .floating-footer>div{min-width:0;max-width:64%;flex:0 1 auto;gap:1px}
 .floating-results .floating-footer button{width:22px;min-width:0;height:24px;flex:0 1 22px;padding:3px}
 .floating-results .floating-footer .automatic-badge{flex:1 1 auto;min-width:0;max-width:none;font-size:9px}
-.floating-results .floating-footer svg{width:12px;height:12px;flex-shrink:0}
+.floating-results .floating-footer svg{width:16px;height:16px;flex-shrink:0}
 @container floating-preview (max-height:120px){
   .integrated-result-card .result-hover-actions{padding:0 30px;align-content:center}
   .integrated-result-card .result-actions{--action-size:max(20px,min(22cqw,calc((100cqh - 12px)/2.4)));gap:5px}
@@ -102,7 +102,7 @@ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) :is(.floating-card-header,.floating-card-formats,.result-preview,.result-overlay){background:transparent!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{bottom:32px}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 20px var(--float-tools-space);padding:0}
-html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(20px,min(22cqw,calc((100cqh - var(--float-tools-space) - 32px)/2.35)));gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(28px,min(60px,16cqw,calc((100cqh - var(--float-tools-space) - 32px)/2.35)));gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
 /* Populated windows are one image surface, including both bottom toolbars. */
 html[data-theme] .floating-results.floating-results.has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html .floating-results.has-image.display-stack{grid-template-rows:minmax(0,1fr)}
@@ -126,4 +126,9 @@ html[data-theme] .floating-results.has-image .floating-footer button,html[data-t
 html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-header{background:transparent;box-shadow:none}
 html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-bottom{background:transparent;box-shadow:none}
 .integrated-result-card .floating-card-content.is-editing .floating-card-formats button{color:var(--float-ink);text-shadow:none}
+/* Short previews use one row instead of squeezing two rows to tiny icons. */
+@container floating-preview (max-height:240px){
+ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 8px var(--float-tools-space)}
+ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(26px,min(44px,calc((100cqw - 42px)/6),calc(100cqh - var(--float-tools-space) - 32px)));grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:4px}
+}
 @media(prefers-reduced-motion:reduce){.integrated-result-card,.integrated-result-card *,.floating-result-slot{animation:none!important;transition:none!important}}
