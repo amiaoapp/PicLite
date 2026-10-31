@@ -1,3 +1,5 @@
+import { InterfaceTypographyControls, useInterfaceTypography } from "../app/interface-typography-controls";
+import "../app/interface-typography.css";
 import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
 import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
@@ -107,6 +109,7 @@ async function ensureFontLoaded(api: PicLiteBridge, family: string, systemFonts?
 }
 
 function useDesktopSettings() {
+  useInterfaceTypography(bridge);
   const [settings, setSettingsState] = useState(loadSettings);
   useEffect(() => subscribeSettings(setSettingsState), []);
   useEffect(() => {
@@ -528,6 +531,12 @@ function resultFormat(item: ResultItem) {
   return extension === "jpg" ? "jpeg" : extension;
 }
 
+function FormatBar({ value, update }: { value?: string; update: (format: ImageFormat) => void }) {
+  return <div className="format-bar">
+    {(["keep", "jpeg", "webp", "png"] as ImageFormat[]).map((format) => <button key={format} className={(format === "keep" ? value === "auto" : value === format) ? "active" : ""} onClick={(event) => { event.stopPropagation(); update(format); }}>{format === "keep" ? "AUTO" : format.toUpperCase()}</button>)}
+  </div>;
+}
+
 export function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
   const saved = percentage(item);
   const tone = useFloatingTone(item.preview);
@@ -544,23 +553,27 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
     {!item.preview && <Icon name={item.status === "working" ? "spark" : "image"} />}
     <div className="result-overlay">
       {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
+        <strong className="result-name" title={fileName(item.source)}>{fileName(item.source)}</strong>
         <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
         {item.width && item.height ? <small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
       </>}
     </div>
     {item.status === "done" && <div className="result-hover-actions"><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
   </div>;
-  if(settings.floatingStyle === "classic") return <article data-image-tone={tone} className={`result-card classic-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={event=>{if(item.output){event.preventDefault();void api.openImage(item.output);}}}>
+  if(settings.floatingStyle === "classic") return <article data-image-tone={tone} className={`result-card classic-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={event=>{if(!item.output)return;event.preventDefault();void api.openImage(item.output);}}>
     <div className="result-preview" onPointerDown={allowWindowDrag?startWindowDrag:undefined}>
-      {item.preview?<img src={item.preview} alt={fileName(item.source)} />:<Icon name={item.status === "working"?"spark":"image"}/>}
-      <div className="result-overlay"><strong className="result-name">{fileName(item.source)}</strong>
-        {item.status === "working"?<span className="result-state">{tr(settings.language,"正在压缩…","Compressing…")}</span>:item.error?<span className="result-error">{item.error}</span>:<>
-        <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved!=null&&<em>{saved}%</em>}</div>
-        {item.width&&item.height&&<small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small>}
-        <div className="format-bar">{(["keep","jpeg","webp","png"] as ImageFormat[]).map(f=><button key={f} className={(item.formatChoice==="auto"?f==="keep":format===f)?"active":""} onClick={event=>{event.stopPropagation();updateFormat(f);}}>{f==="keep"?"Auto":f.toUpperCase()}</button>)}</div></>}
+      {item.preview?<img src={item.preview} alt={fileName(item.source)}/>:<Icon name={item.status === "working"?"spark":"image"}/>}
+      <div className="result-overlay">
+        <strong className="result-name" title={fileName(item.source)}>{fileName(item.source)}</strong>
+        {item.status === "working"?<><span className="result-state">{item.smartCompression?<T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…"/>:<T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…"/>}</span><div className="progress"><i/></div></>:item.error?<span className="result-error">{item.error}</span>:<>
+          <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved!=null&&<em className={saved<0?"bad":""}>{saved>0?`−${saved}%`:saved===0?"0%":`+${Math.abs(saved)}%`}</em>}</div>
+          {item.width&&item.height?<small className="result-dimensions"><Icon name="image"/> {item.width.toLocaleString()} × {item.height.toLocaleString()}</small>:null}
+          <FormatBar value={item.formatChoice==="auto"?"auto":format} update={updateFormat}/>
+        </>}
       </div>
-      {item.status==="done"&&<div className="result-hover-actions" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}><ResultActions {...actionProps} settings={{...settings,floatingActions:settings.floatingActions.map(action=>action==="quality"?"preview":action==="save"?"reveal":action)}}/></div>}
-    </div><button className="result-close" data-action="dismiss" title={tr(settings.language,"移除","Dismiss")} onClick={event=>{event.stopPropagation();remove();}}><Icon name="close"/></button>
+      {item.status === "done"&&<div className="result-hover-actions" onClick={event=>event.stopPropagation()}><ResultActions {...actionProps} settings={{...settings,floatingActions:settings.floatingActions.map(action=>action==="quality"?"preview":action==="save"?"reveal":action)}}/></div>}
+    </div>
+    <button className="result-close" title={tr(settings.language,"移除","Dismiss")} onClick={event=>{event.stopPropagation();remove();}}><Icon name="close"/></button>
   </article>;
   return <article data-image-tone={tone} className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onPointerDownCapture={allowWindowDrag ? startWindowDrag : undefined} onClick={select}>
     <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
@@ -864,9 +877,9 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
         const active = currentResult?.id === item.id;
         return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
       })}</div>
-      <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
+      <footer className={`floating-footer ${settings.floatingStyle === "classic" ? "classic-floating-footer" : ""}`} onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        {settings.floatingStyle === "classic" ? <div>{clickThroughToggle}<button title={tr(settings.language,"打开完整工作台","Open full workbench")} onClick={()=>void api.showMainWindow()}><Icon name="results"/></button><button title={tr(settings.language,settings.floatingDisplayMode==="stack"?"展开结果":"堆叠结果",settings.floatingDisplayMode==="stack"?"Expand results":"Stack results")} onClick={()=>setSettings(current=>({...current,floatingDisplayMode:current.floatingDisplayMode==="stack"?"list":"stack"}))}><Icon name="menu"/></button>{settings.showCopyClearButtons&&<button title={tr(settings.language,"清空","Clear all")} onClick={clear}><Icon name="clear"/></button>}<button title={tr(settings.language,"关闭悬浮窗","Close floating window")} onClick={()=>void api.hideCurrentWindow()}><Icon name="close"/></button></div> : <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>}
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -1022,7 +1035,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
     setFontStatus(tr(language, "正在读取本地字体…", "Reading local fonts…"));
     try {
       const [fonts, imported] = await Promise.all([api.listSystemFonts(), api.loadImportedFonts()]);
-      setSystemFonts([...fonts, ...imported.map((font) => ({ family: font.family, path: "", faceIndex: 0 }))]);
+      setSystemFonts([...fonts, ...imported.filter(font => !font.family.startsWith("piclite-ui-")).map((font) => ({ family: font.family, path: "", faceIndex: 0 }))]);
       await Promise.all(imported.map((font) => installFontFace(font.family, font.data).catch(() => undefined)));
       setFontStatus(tr(language, `已读取 ${new Set([...fonts.map((font) => font.family), ...imported.map((font) => font.family)]).size} 个字体`, `${new Set([...fonts.map((font) => font.family), ...imported.map((font) => font.family)]).size} fonts available`));
     } catch (error) {
@@ -1200,6 +1213,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
               ["green", tr(language, "经典绿", "Classic green")],
             ] as const).map(([value, label]) => <button type="button" className={`settings-palette ${value} ${settings.colorTheme === value ? "active" : ""}`} aria-pressed={settings.colorTheme === value} key={value} onClick={() => patch("colorTheme", value)}><span aria-hidden="true"><i /><i /><i /></span><b>{label}</b></button>)}
           </div></SettingsRow>
+          <InterfaceTypographyControls language={language} bridge={api}/>
           <SettingsRow title={<T language={language} zh="登录时启动" en="Launch at login" />}><Switch label="launch" checked={settings.launchAtLogin} onChange={(value) => void toggleAutostart(value)} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="暂停自动优化" en="Pause automatic optimisations" />} note={<T language={language} zh="保留菜单栏功能，但暂停监测和自动处理" en="Keep PicLite running without automatic processing" />}><Switch label="pause" checked={settings.pauseAutomaticOptimisations} onChange={(value) => patch("pauseAutomaticOptimisations", value)} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="在任务栏 / Dock 显示" en="Show in taskbar / Dock" />} note={settings.showInTaskbarDock ? <T language={language} zh="主窗口失焦后保持显示，可从任务栏或 Dock 随时切换回来" en="Keep the main window available from the taskbar or Dock when it loses focus" /> : <T language={language} zh="不占用任务栏或 Dock，主窗口失焦后隐藏到托盘或菜单栏" en="Hide the main window to the tray or menu bar when it loses focus" />}><Switch label="taskbar dock" checked={settings.showInTaskbarDock} onChange={(value) => patch("showInTaskbarDock", value)} /></SettingsRow>

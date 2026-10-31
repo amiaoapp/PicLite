@@ -308,7 +308,7 @@ fn parse_cover_color(s: &str) -> Result<image::Rgba<u8>, String> {
     let value = s
         .strip_prefix('#')
         .ok_or("color must be #RRGGBB or #RRGGBBAA")?;
-    if value.len() != 6 && value.len() != 8 {
+    if !value.is_ascii() || (value.len() != 6 && value.len() != 8) {
         return Err("color must be #RRGGBB or #RRGGBBAA".into());
     }
     let bytes = (0..value.len())
@@ -325,6 +325,28 @@ fn parse_cover_color(s: &str) -> Result<image::Rgba<u8>, String> {
     ]))
 }
 
+fn validate_compression_arguments(args: &Value) -> Result<(), String> {
+    if !args.is_object() {
+        return Err("arguments must be an object".into());
+    }
+    for key in ["quality", "targetSizeKb"] {
+        if args.get(key).is_some_and(|value| value.as_u64().is_none()) {
+            return Err(format!("{key} must be a non-negative integer"));
+        }
+    }
+    if args
+        .get("scale")
+        .is_some_and(|value| value.as_f64().is_none())
+    {
+        return Err("scale must be a number".into());
+    }
+    for key in ["format", "outputDirectory"] {
+        if args.get(key).is_some_and(|value| !value.is_string()) {
+            return Err(format!("{key} must be a string"));
+        }
+    }
+    Ok(())
+}
 fn call(name: &str, args: Value) -> Result<Value, String> {
     match name {
         "piclite_create_cover" => create_cover(&args),
@@ -357,6 +379,7 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
             )
         }
         "piclite_compress" => {
+            validate_compression_arguments(&args)?;
             let paths: Vec<String> =
                 serde_json::from_value(args["paths"].clone()).map_err(|e| e.to_string())?;
             if paths.is_empty()
@@ -394,6 +417,17 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
     }
 }
 fn response(request: Value, initialized: &mut bool) -> Option<Value> {
+    if !request.is_object()
+        || request["jsonrpc"] != "2.0"
+        || !request["method"].is_string()
+        || request
+            .get("id")
+            .is_some_and(|id| !id.is_null() && !id.is_string() && !id.is_number())
+    {
+        return Some(
+            json!({"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}),
+        );
+    }
     let id = request.get("id")?.clone();
     let method = request["method"].as_str().unwrap_or("");
     let result = match method {
@@ -490,17 +524,72 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn malformed_rpc_envelope_is_rejected() {
+        let mut ready = false;
+        let result = response(
+            json!({"jsonrpc":"1.0","id":7,"method":"initialize"}),
+            &mut ready,
+        )
+        .unwrap();
+        assert_eq!(result["error"]["code"], -32600);
+        assert!(!ready);
+        for request in [
+            json!([]),
+            json!(null),
+            json!({"jsonrpc":"2.0","id":{},"method":"ping"}),
+            json!({"jsonrpc":"2.0","id":1,"method":false}),
+        ] {
+            assert_eq!(
+                response(request, &mut ready).unwrap()["error"]["code"],
+                -32600
+            );
+        }
+        assert!(response(
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            &mut ready
+        )
+        .is_none());
+    }
+    #[test]
+    fn non_ascii_hex_color_returns_error_without_panicking() {
+        assert!(parse_cover_color("#aé000").is_err());
+        assert_eq!(parse_cover_color("#12345678").unwrap().0, [18, 52, 86, 120]);
+    }
+    #[test]
+    fn compression_rejects_mistyped_options_instead_of_using_defaults() {
+        for args in [
+            json!({"quality":-1}),
+            json!({"quality":"50"}),
+            json!({"scale":"50"}),
+            json!({"format":false}),
+            json!({"targetSizeKb":-1}),
+            json!({"outputDirectory":42}),
+        ] {
+            assert!(validate_compression_arguments(&args).is_err(), "{args}");
+        }
+        assert!(validate_compression_arguments(&json!({})).is_ok());
+        assert!(validate_compression_arguments(&json!({"quality":86,"scale":50.0,"format":"keep","targetSizeKb":0,"outputDirectory":"/images"})).is_ok());
+    }
+    #[test]
     fn handshake_and_tools() {
         let mut ready = false;
-        assert!(response(json!({"method":"notifications/initialized"}), &mut ready).is_none());
         assert!(response(
-            json!({"id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}),
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            &mut ready
+        )
+        .is_none());
+        assert!(response(
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}),
             &mut ready
         )
         .unwrap()["result"]["capabilities"]["tools"]
             .is_object());
         assert_eq!(
-            response(json!({"id":2,"method":"tools/list"}), &mut ready).unwrap()["result"]["tools"]
+            response(
+                json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+                &mut ready
+            )
+            .unwrap()["result"]["tools"]
                 .as_array()
                 .unwrap()
                 .len(),

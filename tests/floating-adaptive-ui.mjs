@@ -14,6 +14,7 @@ const dir='/Users/amiao/.hermes/cache/scratch/piclite-ui-v8';mkdirSync(dir,{recu
 try{
  await send('Page.enable');await send('Network.enable');await send('Network.setCacheDisabled',{cacheDisabled:true});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+ localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({theme:'dark',language:'en',floatingStyle:'immersive',interfaceFontScale:110}));
  localStorage.setItem('piclite.desktop.clop-settings.v1',JSON.stringify({appearance:'dark',language:'en',floatingCornerRadius:0,autoHideResults:false,updateCheckFrequency:'never',floatingDisplayMode:'stack'}));
  localStorage.setItem('piclite.interfaceMaterial.v1',JSON.stringify({material:'glass',transparency:'system'}));
  let api;window.calls=[];window.imageTone='light';Object.defineProperty(window,'picLite',{configurable:true,get(){return api},set(value){
@@ -27,6 +28,7 @@ try{
  for(const tone of ['light','dark']){
   await ev(`imageTone='${tone}';publishResult({type:'success',file:'/${tone}.png',output:'/${tone}.png',time:100,originalBytes:10000,outputBytes:2000})`);
   await wait(`document.querySelector('.result-card')?.dataset.imageTone==='${tone}'`);
+  await wait(`(()=>{const e=document.querySelector('.floating-card-icon'),probe=document.createElement('span');probe.style.backgroundColor=getComputedStyle(document.querySelector('.floating-results')).getPropertyValue('--overlay-button');document.body.append(probe);const expected=getComputedStyle(probe).backgroundColor;probe.remove();return e&&getComputedStyle(e).backgroundColor===expected})()`);
   const color=await ev(`(()=>{const q=s=>getComputedStyle(document.querySelector(s));return{ink:q('.result-dimensions').color,bg:q('.floating-card-icon').backgroundColor,text:q('.floating-card-icon').color}})()`);
   const nums=s=>s.match(/[\d.]+/g).slice(0,3).map(Number),brightness=s=>nums(s).reduce((a,b)=>a+b,0)/3;
   assert.ok(tone==='light'?brightness(color.ink)<80:brightness(color.ink)>220,JSON.stringify(color));assert.ok(tone==='light'?brightness(color.bg)<80:brightness(color.bg)>220,JSON.stringify(color));

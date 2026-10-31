@@ -102,7 +102,7 @@ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) :is(.floating-card-header,.floating-card-formats,.result-preview,.result-overlay){background:transparent!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{bottom:32px}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 20px var(--float-tools-space);padding:0}
-html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(28px,min(60px,16cqw,calc((100cqh - var(--float-tools-space) - 32px)/2.35)));gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:38px;gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
 /* Populated windows are one image surface, including both bottom toolbars. */
 html[data-theme] .floating-results.floating-results.has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html .floating-results.has-image.display-stack{grid-template-rows:minmax(0,1fr)}
@@ -129,6 +129,6 @@ html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-c
 /* Short previews use one row instead of squeezing two rows to tiny icons. */
 @container floating-preview (max-height:240px){
  html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 8px var(--float-tools-space)}
- html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(26px,min(44px,calc((100cqw - 42px)/6),calc(100cqh - var(--float-tools-space) - 32px)));grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:4px}
+ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:30px;grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:4px}
 }
 @media(prefers-reduced-motion:reduce){.integrated-result-card,.integrated-result-card *,.floating-result-slot{animation:none!important;transition:none!important}}

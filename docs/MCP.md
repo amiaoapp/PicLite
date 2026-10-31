@@ -33,11 +33,20 @@ PICLITE_BINARY=/Applications/PicLite.app/Contents/MacOS/piclite npm run mcp:http
 
 ChatGPT 的云端不能直接访问本机回环地址。在支持的工作区中使用 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) 将 stdio 服务或上述 HTTP 服务连接到 ChatGPT，再在自定义 MCP 连接中选择 Tunnel。需要工作区开发者模式及 Platform Tunnel 权限。这些权限与账户设置由用户完成；PicLite 不会自动开放公网或写入客户端配置。也可自行部署带认证的 HTTPS 反向代理后按 [官方接入指南](https://developers.openai.com/plugins/build/app-quickstart) 配置远程 MCP。
 
+## 参数与界面字体隔离
+
+压缩参数省略时仍使用既有默认值；显式传入错误类型（例如 `quality: -1`、`quality: "50"`、`scale: "50"` 或非字符串输出目录）会返回工具错误，不再静默套用默认值。已有数值范围与压缩引擎、预设均不变。
+
+界面字体是 UI 偏好，不属于 MCP 参数，也不会替换图片水印字体。MCP 的三个工具不读取界面字体或写入应用偏好。
+
+HTTP 桥接的版本号读取仓库 `package.json`；stdio 版本仍来自所运行二进制的 Cargo 包版本。更新源码不等于更新已安装二进制。
+
 ## 验证
 
 ```sh
 cargo build --manifest-path src-tauri/Cargo.toml
 node tests/mcp-smoke.mjs
+PICLITE_BINARY=/绝对路径/piclite node --test tests/mcp-metadata.test.mjs
 ```
 
 测试使用官方 SDK 连接真实二进制，覆盖 stdio / Streamable HTTP 的初始化、工具列表、配置驱动的透明 PNG 封面、GIF→动态 WebP、缩放、动图帧检查、参数错误和源文件保留。

@@ -1,0 +1,10 @@
+# UI Preview 12 — Clop reference and capability-correct web UI
+
+- Floating previews now separate idle and hover/focus states. Idle shows compact red/yellow filesize metrics and white dimensions; hover/focus replaces metrics with filename and small actions. Controls never cover the readouts.
+- Removed idle fills from format and utility buttons. Active format is distinguished by a fine underline; a subtle button surface appears only on interaction. Format/size text and action icons retain fixed compact proportions independently of the main text-size preference.
+- Lower preview gets masked, progressively increasing backdrop blur/darkening. The upper image stays clear. This explicitly supersedes the earlier lower-preview transparency-only requirement; output image bytes remain untouched.
+- Both classic and immersive result structures remain functional and retain paging/newest-result logic. Hover actions are 38px targets/16px glyphs, or 30px/14px in short previews.
+- The top navigation uses a single flex row. Arrows appear beside tabs only for real overflow, follow scroll limits and stay vertically centred at 100%/150% text size across classic/studio layouts. Brand width is intrinsic so it cannot overlap the first arrow/tab.
+- Browser and Docker share the same frontend. Browser typography/import, compression, comparison, clipboard image, download, conversion, resizing, cover and local gallery remain available. Native-only monitor, filesystem rename, global shortcuts, autostart, tray and native-upload preference entries are hidden. Browser conversion/resizing use the existing functioning workbench rather than native IPC placeholders.
+
+Verification: TypeScript; focused styling/geometry/capability tests; production desktop idle/hover with artwork and test pattern; 1–6 results, four native-window sizes and real pointer hits; production standalone browser imports/compression/copy/download/reload/typography. See task completion for deployment/package status; building alone does not establish publication. No compression codec, quality ladder or default preset changes.

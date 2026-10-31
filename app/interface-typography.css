@@ -1,0 +1,21 @@
+:root { --interface-font-scale: 1.1; }
+html body { font-size:calc(16px * var(--interface-font-scale,1)); }
+/* Font scaling is injected into font-size declarations, never image geometry. */
+html[data-interface-font] body, html[data-interface-font] body *:not(code):not(pre) { font-family:var(--interface-font-family,system-ui) !important; }
+.interface-typography-controls { display:grid; gap:12px; min-width:0; padding:16px; border-block:1px solid var(--line); color:var(--ink); }
+.interface-type-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; min-width:0; }
+.interface-type-row label { font-size:12px; font-weight:400; }
+.interface-type-row>div { display:flex; align-items:center; gap:10px; flex:1 1 180px; max-width:330px; }
+.interface-type-row input[type=range] { width:100%; min-width:100px; accent-color:var(--accent); }
+.interface-type-row output { flex:0 0 48px; text-align:right; font-size:12px; font-variant-numeric:tabular-nums; }
+.interface-type-row select { width:min(100%,330px); min-width:0; min-height:34px; border:1px solid var(--line); border-radius:7px; padding:5px 8px; background:var(--surface); color:var(--ink); font-size:12px; }
+.interface-type-actions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+.interface-type-actions button { min-height:32px; height:auto; padding:6px 11px; border:1px solid var(--line); border-radius:7px; background:var(--surface); color:var(--ink); font-size:12px; font-weight:400; }
+.interface-type-actions button:disabled { opacity:.5; cursor:wait; }
+.interface-typography-controls p { margin:0; overflow-wrap:anywhere; font-size:12px; line-height:1.6; }
+.interface-typography-controls .interface-type-preview { padding:12px; border-radius:8px; border:1px solid var(--line); font-size:14px; font-weight:400; }
+.interface-typography-controls small { color:var(--muted); font-size:11px; line-height:1.6; }
+/* Grow text rows, not the preview or native/canvas coordinate space. */
+.settings-row { height:auto; }
+.settings-row small,.preference-row small { overflow-wrap:anywhere; }
+@media(max-width:560px) { .interface-type-row { align-items:flex-start; flex-direction:column; } .interface-type-row>div { flex-basis:auto; width:100%; } .interface-type-row select { width:100%; } .interface-type-actions { justify-content:flex-start; } }

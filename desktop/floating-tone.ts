@@ -43,8 +43,9 @@ export function loadFloatingTone(src?: string): Promise<FloatingTone> {
   const result = new Promise<FloatingTone>((resolve) => {
     try {
       const image = new Image();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       const finish = (tone: FloatingTone) => {
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
         image.onload = null;
         image.onerror = null;
         resolve(tone);
@@ -65,7 +66,7 @@ export function loadFloatingTone(src?: string): Promise<FloatingTone> {
         }
       };
       image.onerror = () => finish("dark");
-      const timeout = setTimeout(() => finish("dark"), 15000);
+      timeout = setTimeout(() => finish("dark"), 15000);
       image.src = src;
     } catch {
       resolve("dark");

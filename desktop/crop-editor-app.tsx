@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { PicLiteBridge } from "./clop-types";
 import { loadSettings, subscribeSettings } from "./clop-store";
+import { useInterfaceTypography } from "../app/interface-typography-controls";
+import "../app/interface-typography.css";
 import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
 import { cropForAspect, translateCrop, resizeCrop, type CropRect, type CropCorner } from "./floating-editor-model";
 
@@ -11,6 +13,7 @@ const aspects = [["自由", 0], ["原始", -1], ["1:1", 1], ["4:3", 4/3], ["3:2"
 
 export function CropEditorApp({ api = window.picLite as unknown as PicLiteBridge }: { api?: PicLiteBridge }) {
   useLiquidGlassTheme();
+  useInterfaceTypography(api);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => { const settings = loadSettings(); const theme = settings.appearance === 'system' ? (media.matches ? 'dark' : 'light') : settings.appearance; document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme; document.documentElement.dataset.palette = settings.colorTheme; void api.setWindowTheme(settings.appearance).catch(() => {}); };
