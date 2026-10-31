@@ -27,6 +27,7 @@ try{
  await wait('!!document.querySelector(".settings-entry-button")');
  }
  assert.equal(await evaluate('!!window.picLite'),false,'test the real browser capability boundary');
+ if(production){await evaluate(`${seed}location.reload()`);await wait(`!!document.querySelector('[data-tool-id=convert]')`);}
  if(production)await test('production browser toolbar geometry uses the shared one-row rail',async()=>{
   for(const layout of ['classic','studio'])for(const scale of [100,150])for(const width of [820,1120,1440]){
    await evaluate(`localStorage.setItem('piclite.interfaceStyle.v1',${JSON.stringify(layout)});for(const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1'])localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)||'{}'),interfaceFontScale:${scale}}));window.dispatchEvent(new Event('piclite:interface-style'));window.dispatchEvent(new Event('piclite:interface-typography'));`);

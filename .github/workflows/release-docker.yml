@@ -21,13 +21,118 @@ concurrency:
   group: docker-publish
   cancel-in-progress: true
 
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/piclite
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/setup-qemu-action@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.title=PicLite
+            org.opencontainers.image.description=PicLite self-hosted web application
+
+      - name: Build native image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=piclite-${{ matrix.arch }}
+          cache-to: type=gha,scope=piclite-${{ matrix.arch }},mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Smoke test native image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          container="piclite-smoke-${{ matrix.arch }}"
+          trap 'docker logs "$container" || true; docker rm -f "$container" || true' EXIT
+          docker pull "$IMAGE@$DIGEST"
+          docker run -d --name "$container" "$IMAGE@$DIGEST"
+          healthy=false
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            if [ "$status" = healthy ]; then
+              healthy=true
+              break
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]; then
+              exit 1
+            fi
+            sleep 3
+          done
+          [ "$healthy" = true ]
+          docker exec "$container" node -e '
+            (async () => {
+              const origin = "http://127.0.0.1:3456";
+              const response = await fetch(origin);
+              if (!response.ok) throw new Error("Homepage HTTP " + response.status);
+              const html = await response.text();
+              if (!html.includes("PicLite")) throw new Error("Missing PicLite application");
+              const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css)(?:\?[^\"]*)?)"/g)].map(match => match[1]);
+              if (!assets.length) throw new Error("No production assets");
+              for (const asset of assets) {
+                const result = await fetch(new URL(asset, origin));
+                if (!result.ok) throw new Error("Asset HTTP " + result.status + ": " + asset);
+              }
+              console.log("PASS native container health, homepage and " + assets.length + " assets");
+            })().catch(error => { console.error(error); process.exit(1); });'
+
+      - name: Export tested digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload tested digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: image-digest-*
+          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v4
 
@@ -42,25 +147,29 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/piclite
+          images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=semver,pattern={{version}},value=${{ inputs.version || github.ref_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version || github.ref_name }}
-          labels: |
-            org.opencontainers.image.title=PicLite
-            org.opencontainers.image.description=PicLite self-hosted web application
 
-      - name: Build and push multi-platform image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
+      - name: Publish multi-platform manifest
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          mapfile -t digests < <(find . -maxdepth 1 -type f -printf '%f\n')
+          [ "${#digests[@]}" -eq 2 ]
+          args=()
+          while IFS= read -r tag; do
+            [ -z "$tag" ] || args+=(--tag "$tag")
+          done <<< "$TAGS"
+          sources=()
+          for digest in "${digests[@]}"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect "$IMAGE:latest"
