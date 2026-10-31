@@ -1,0 +1,134 @@
+/* Shared radius includes the native window shell and settings preview. */
+html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.dropzone-root.dropzone-root #root {border-radius:var(--floating-radius,10px);clip-path:inset(0 round var(--floating-radius,10px))}
+.floating-results.floating-results:not(.is-collapsed){border-radius:var(--floating-radius,10px);clip-path:inset(0 round var(--floating-radius,10px));background-image:var(--floating-backdrop,none);background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent}
+.floating-radius-control{display:flex;align-items:center;gap:12px;max-width:260px}
+.floating-radius-control input{min-width:80px;width:170px}
+.floating-radius-control output{min-width:38px;font-size:12px;font-variant-numeric:tabular-nums}
+/* One floating card. Preview sizing is handled by ResizeObserver, independent
+   of intrinsic image dimensions, the action overlay and native window scale. */
+.integrated-result-card {
+  --float-surface:var(--surface-solid,#f4f5f7);--float-ink:var(--ink,#222a32);
+  --float-muted:var(--muted,#64717d);--float-line:var(--line,#ccd2d8);
+  --float-control:var(--surface-solid,#f6f7f8);--float-button:#f6f6f4;
+  --float-button-ink:#29343d;--float-bar:transparent;--float-bar-text:var(--float-ink);
+  --float-accent:var(--accent,#376aa4);
+  min-width:0;min-height:0;color:var(--float-ink);background:transparent;
+  border:1px solid var(--float-line);border-radius:var(--floating-radius,10px);isolation:isolate;
+  box-shadow:inset 0 1px 0 #ffffff60,0 8px 22px #151a2418;
+}
+.integrated-result-card.active{transform:none}
+.floating-list.stack .floating-result-slot{min-width:0;min-height:0;width:100%;height:100%}
+.floating-list.stack .integrated-result-card{width:100%;height:100%;min-height:0}
+.floating-list.list .integrated-result-card{height:330px}
+.floating-list.list .integrated-result-card.compact{height:280px}
+.floating-card-content{position:relative;display:grid;grid-template-rows:minmax(0,1fr) 32px;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.floating-card-body{position:relative;min-width:0;min-height:0;overflow:hidden;container:floating-preview / size;background:transparent}
+.floating-card-header{position:absolute;inset:0 0 auto;z-index:8;display:flex;align-items:center;justify-content:space-between;height:34px;padding:5px 7px;pointer-events:none}
+.floating-card-header>span{font-size:10px;color:var(--float-ink);font-weight:500}
+.integrated-result-card button{font:inherit;cursor:pointer}
+.integrated-result-card button:disabled{opacity:.45;cursor:default}
+.integrated-result-card button:focus-visible,.integrated-result-card input:focus-visible{outline:2px solid var(--float-accent);outline-offset:-2px}
+.integrated-result-card .floating-card-icon{display:grid;place-items:center;width:25px;height:25px;flex:0 0 25px;padding:5px;border:1px solid #ffffff40;border-radius:50%;background:var(--float-button);color:var(--float-button-ink);box-shadow:0 2px 6px #1d283218;pointer-events:auto}
+.integrated-result-card .floating-card-icon svg{width:15px;height:15px}
+.integrated-result-card .floating-card-icon:hover:not(:disabled){background:#fff}
+.floating-results .integrated-result-card .result-preview{position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;max-height:none;background:transparent}
+.floating-image-slot{position:absolute;inset:0;min-width:0;min-height:0;overflow:hidden;pointer-events:none;background:transparent}
+.floating-image-slot>img{display:block;transition:none!important;filter:none!important}
+.integrated-result-card .result-preview>svg{position:absolute;left:calc(50% - 15px);top:calc(50% - 15px)}
+.integrated-result-card .result-overlay{z-index:2;height:46px;min-height:46px;padding:6px;gap:3px;background:transparent;text-shadow:0 1px 3px #000a,0 0 8px #0008;box-sizing:border-box;overflow:hidden;pointer-events:none}
+.integrated-result-card .result-metrics{font-size:14px;gap:7px;font-variant-numeric:tabular-nums}
+.integrated-result-card .result-metrics b:first-child{color:#fff;font-weight:500}
+.integrated-result-card .result-metrics b:nth-of-type(2){color:#fff;font-weight:650}
+.integrated-result-card .result-metrics span{color:#fff;font-size:15px}
+.integrated-result-card .result-metrics em{font-size:8px;color:#deefcf;background:#294032}
+.integrated-result-card .result-metrics em.bad{color:#ffd9d5;background:#60322b}
+.integrated-result-card .result-dimensions{color:#fff;font-size:9px;font-weight:400}
+.integrated-result-card .result-hover-actions{z-index:5;inset:0;padding:28px 26px 44px;display:grid;align-items:center;justify-items:center;background:transparent;backdrop-filter:none;opacity:0;pointer-events:none}
+.integrated-result-card:hover .result-hover-actions,.integrated-result-card:focus-within .result-hover-actions{opacity:1}
+.integrated-result-card .result-actions{--action-size:max(22px,min(22cqw,calc((100cqh - 76px) / 2.35)));display:grid;grid-template-columns:repeat(3,var(--action-size));grid-template-rows:repeat(2,var(--action-size));gap:clamp(5px,3cqw,22px);justify-content:center;align-content:center;pointer-events:none}
+.integrated-result-card .result-actions button{width:var(--action-size);height:var(--action-size);min-width:0;min-height:0;display:grid;place-items:center;padding:0;box-sizing:border-box;line-height:1;place-content:center;border:1px solid #ffffff50;border-radius:34%;background:var(--float-button);color:var(--float-button-ink);box-shadow:inset 0 1px 0 #ffffffc0,0 2px 6px #12223326;backdrop-filter:none;pointer-events:none;transition:background .12s}
+.integrated-result-card:hover .result-actions button,.integrated-result-card:focus-within .result-actions button{pointer-events:auto}
+.integrated-result-card .result-actions button:hover:not(:disabled){background:#fff;transform:none}
+.integrated-result-card .result-actions button:active:not(:disabled){transform:scale(.97)}
+.integrated-result-card .result-actions svg{display:block;position:static;inset:auto;margin:0;transform:none;width:calc(var(--action-size) * .6);height:calc(var(--action-size) * .6);max-width:none;max-height:none;flex:none}
+.floating-card-bottom{position:relative;z-index:7;display:grid;grid-template-columns:25px minmax(0,1fr);align-items:center;gap:7px;padding:3px 9px 4px;background:var(--float-bar);min-width:0;border-top:0}
+.integrated-result-card .floating-card-bottom>.crop-window-trigger{width:23px;height:23px;flex-basis:23px;padding:4px;background:transparent;color:#fff;text-shadow:0 1px 3px #000a;box-shadow:none;border:0;border-radius:6px}
+.integrated-result-card .floating-card-bottom>.crop-window-trigger:hover:not(:disabled){background:#ffffff1a}
+.integrated-result-card .floating-card-formats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0;width:100%;min-width:0;background:transparent;border:0}
+.integrated-result-card .floating-card-formats button{min-width:0;height:22px;min-height:22px;padding:0 3px;font-size:10px;font-weight:400;letter-spacing:0;text-shadow:none;line-height:22px;color:#fff;text-shadow:0 1px 3px #000a;background:transparent;border:0;border-radius:6px;opacity:1}
+.integrated-result-card .floating-card-formats button.active{background:#fff;color:#202020;text-shadow:none}
+.integrated-result-card .floating-card-formats button:disabled{opacity:.6}
+.floating-card-content.is-editing{grid-template-rows:30px minmax(0,1fr) 32px}
+.floating-card-content.is-editing .floating-card-header{position:relative;grid-row:1;height:30px;background:var(--float-surface)}
+.floating-card-content.is-editing .floating-card-body{grid-row:2}
+.integrated-result-card .floating-editor-panel{height:100%;min-height:0;min-width:0;display:flex;flex-direction:column;gap:8px;padding:8px;overflow:hidden;color:var(--float-ink);background:var(--float-surface);font-size:11px}
+.floating-editor-parameters{display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0;flex:1;overflow:auto;scrollbar-width:thin}
+.floating-quality-preview{display:grid;justify-items:center;align-content:center;gap:8px;flex:1;min-height:0;overflow:hidden}
+.floating-quality-preview img{width:100%;max-height:100px;object-fit:contain;min-height:0}
+.floating-quality-preview p{margin:0;max-width:240px;font-size:10px;line-height:1.5;color:var(--float-muted);text-align:center}
+.floating-editor-quality{display:grid;gap:5px;flex-shrink:0}
+.floating-editor-quality>span{display:flex;justify-content:space-between;font-size:10px}
+.floating-editor-quality output{font-weight:500;font-variant-numeric:tabular-nums}
+.floating-editor-quality input{display:block;width:100%;height:18px;min-width:0;margin:0;accent-color:var(--float-accent)}
+.floating-editor-footer{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-shrink:0}
+.floating-editor-footer button{min-height:25px;padding:4px 10px;border:1px solid var(--float-line);border-radius:7px;background:var(--float-control);color:var(--float-ink);font-size:10px}
+.floating-editor-footer .primary{background:var(--float-ink);color:var(--float-control);border-color:transparent}
+.floating-overflow-menu{position:absolute;z-index:10;top:31px;right:6px;width:min(205px,calc(100% - 12px));max-height:calc(100% - 40px);overflow:auto;padding:5px;background:var(--float-control);border:1px solid var(--float-line);border-radius:12px;box-shadow:0 10px 28px #182b3a33;scrollbar-width:thin}
+.floating-menu-actions{display:contents}
+.floating-overflow-menu button{display:flex;gap:8px;align-items:center;width:100%;min-height:30px;padding:5px 7px;border:0;border-radius:6px;background:transparent;color:var(--float-ink);text-align:left;font-size:11px}
+.floating-overflow-menu button:hover:not(:disabled){background:color-mix(in srgb,var(--float-ink) 9%,transparent)}
+.floating-overflow-menu svg{width:15px;height:15px;flex-shrink:0}
+.floating-footer .floating-collapse-button{position:static;opacity:1;pointer-events:auto;transform:none;border-radius:7px;box-shadow:none;background:transparent;color:var(--ink)}
+.floating-results .floating-footer{gap:4px;padding:3px 14px 3px 7px;min-height:32px}
+.floating-results .floating-footer>div{min-width:0;max-width:64%;flex:0 1 auto;gap:1px}
+.floating-results .floating-footer button{width:22px;min-width:0;height:24px;flex:0 1 22px;padding:3px}
+.floating-results .floating-footer .automatic-badge{flex:1 1 auto;min-width:0;max-width:none;font-size:9px}
+.floating-results .floating-footer svg{width:16px;height:16px;flex-shrink:0}
+@container floating-preview (max-height:120px){
+  .integrated-result-card .result-hover-actions{padding:0 30px;align-content:center}
+  .integrated-result-card .result-actions{--action-size:max(20px,min(22cqw,calc((100cqh - 12px)/2.4)));gap:5px}
+  .integrated-result-card .result-overlay{height:46px;min-height:46px;padding:6px 5px}
+  .integrated-result-card .result-metrics{font-size:12px}
+  .integrated-result-card .result-metrics em{display:none}
+  .integrated-result-card .floating-card-header{height:29px;padding:4px 6px}
+  .integrated-result-card .floating-card-header>.floating-card-icon{width:22px;height:22px;flex-basis:22px;padding:4px}
+}
+@media(hover:none){.integrated-result-card .result-hover-actions{opacity:1}.integrated-result-card .result-actions button{pointer-events:auto}}
+@media(prefers-reduced-transparency:reduce){.integrated-result-card .result-hover-actions{background:transparent}}
+/* Preview owns the whole card; formats are an overlay, never a separate slab. */
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing){display:block;--float-tools-space:78px}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing)>.floating-card-body{position:absolute;inset:0;background:transparent!important}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing)>.floating-card-bottom{position:absolute;inset:auto 0 0;height:32px;background:transparent!important;border:0;box-shadow:none}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) :is(.floating-card-header,.floating-card-formats,.result-preview,.result-overlay){background:transparent!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{bottom:32px}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 20px var(--float-tools-space);padding:0}
+html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(28px,min(60px,16cqw,calc((100cqh - var(--float-tools-space) - 32px)/2.35)));gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
+/* Populated windows are one image surface, including both bottom toolbars. */
+html[data-theme] .floating-results.floating-results.has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results.has-image.display-stack{grid-template-rows:minmax(0,1fr)}
+html .floating-results.has-image .floating-list.stack{padding:0;z-index:1;isolation:isolate}
+html .floating-results.has-image .floating-list.stack .floating-result-slot{transform:none;z-index:auto}
+.floating-window-image{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.floating-window-image .floating-image-slot{visibility:visible!important}
+.floating-results .floating-footer .floating-result-next{width:auto;flex:0 0 auto;min-width:30px;font-size:9px}
+html .floating-results.has-image .result-overlay,html .floating-results.has-image .result-hover-actions{background:transparent!important;filter:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results.has-image .floating-footer{z-index:30;isolation:isolate;pointer-events:auto}
+html .floating-results.has-image.display-stack>.floating-footer{position:absolute;inset:auto 0 0;height:32px;z-index:9}
+html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing)>.floating-card-bottom{bottom:32px}
+html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing) .result-overlay{bottom:64px}
+html[data-theme] .floating-results.has-image.display-stack .floating-card-content.has-preview:not(.is-editing){--float-tools-space:110px}
+html .floating-results.has-image.display-stack .floating-card-content.is-editing{padding-bottom:32px}
+html .floating-results.has-image.display-stack .integrated-result-card{border:0;box-shadow:none;border-radius:0}
+html .floating-results.has-image.display-stack .floating-image-slot{visibility:hidden}
+html[data-theme] .floating-results.has-image :is(.floating-footer,.floating-card-header,.floating-card-bottom,.floating-card-formats,.result-preview,.result-overlay,.integrated-result-card){background:transparent!important;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results.has-image .floating-footer{color:white;border-top:0;text-shadow:0 1px 4px #000a}
+html[data-theme] .floating-results.has-image .floating-footer button,html[data-theme] .floating-results.has-image .floating-footer .automatic-badge{color:white}
+html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-header{background:transparent;box-shadow:none}
+html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-bottom{background:transparent;box-shadow:none}
+.integrated-result-card .floating-card-content.is-editing .floating-card-formats button{color:var(--float-ink);text-shadow:none}
+/* Short previews use one row instead of squeezing two rows to tiny icons. */
+@container floating-preview (max-height:240px){
+ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 8px var(--float-tools-space)}
+ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:max(26px,min(44px,calc((100cqw - 42px)/6),calc(100cqh - var(--float-tools-space) - 32px)));grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:4px}
+}
+@media(prefers-reduced-motion:reduce){.integrated-result-card,.integrated-result-card *,.floating-result-slot{animation:none!important;transition:none!important}}

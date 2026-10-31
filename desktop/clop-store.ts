@@ -1,3 +1,4 @@
+import { floatingRadius } from "./floating-appearance.ts";
 import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, OptimisationPreset, UpdateCheckFrequency } from "./clop-types";
 
 const SETTINGS_KEY = "piclite.desktop.clop-settings.v1";
@@ -33,6 +34,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   batchThreshold: 30,
   enableFloatingResults: true,
   allowFloatingCapture: false,
+  floatingStyle: "immersive",
   floatingLayout: "compact",
   floatingDisplayMode: "stack",
   floatingMaxResults: 5,
@@ -40,7 +42,8 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingCorner: "bottom-right",
   floatingWidth: 320,
   floatingHeight: 230,
-  floatingActions: ["downscale", "watermark", "undo", "copy", "preview", "reveal"],
+  floatingCornerRadius: 10,
+  floatingActions: ["downscale", "undo", "quality", "copy", "upload", "save"],
   floatingWatermark: {
     text: "PicLite",
     fontFamily: "Microsoft YaHei",
@@ -87,7 +90,7 @@ function validAppearance(value: unknown): value is Appearance {
 }
 
 function validColorTheme(value: unknown): value is ColorTheme {
-  return value === "graphite" || value === "mist" || value === "violet" || value === "green";
+  return value === "graphite" || value === "mist" || value === "violet" || value === "green" || value === "white";
 }
 
 function validUpdateCheckFrequency(value: unknown): value is UpdateCheckFrequency {
@@ -163,7 +166,9 @@ export function loadSettings(): DesktopSettings {
       shortcutUploadCurrent: mainPreferences.shortcutUpload || parsed.shortcutUploadCurrent || DEFAULT_SETTINGS.shortcutUploadCurrent,
       floatingWidth: Math.max(280, Number(parsed.floatingWidth) || DEFAULT_SETTINGS.floatingWidth),
       floatingHeight: Math.max(220, Number(parsed.floatingHeight) || DEFAULT_SETTINGS.floatingHeight),
-      floatingActions: Array.isArray(parsed.floatingActions) ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
+      floatingStyle: (mainPreferences as Record<string, unknown>).floatingStyle === "classic" ? "classic" : (mainPreferences as Record<string, unknown>).floatingStyle === "immersive" ? "immersive" : parsed.floatingStyle === "classic" ? "classic" : "immersive",
+      floatingCornerRadius: floatingRadius(parsed.floatingCornerRadius),
+      floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
       floatingWatermark: { ...DEFAULT_SETTINGS.floatingWatermark, ...(parsed.floatingWatermark || {}) },
       watchProfiles: Array.isArray(parsed.watchProfiles) ? parsed.watchProfiles : (parsed.watchFolders || []).map((path, index) => ({
         id: `migrated-${index}`, name: fileName(path), enabled: true,
@@ -191,6 +196,7 @@ export function saveSettings(settings: DesktopSettings) {
       ...mainPreferences,
       language: settings.language,
       theme: settings.appearance,
+      floatingStyle: settings.floatingStyle,
       colorTheme: settings.colorTheme,
       autoCheckUpdates: settings.updateCheckFrequency !== "never",
       updateCheckFrequency: settings.updateCheckFrequency,

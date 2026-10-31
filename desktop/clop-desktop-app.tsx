@@ -1,9 +1,15 @@
+import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
 import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
+import { FloatingResultEditor } from "./floating-result-editor";
+import { FloatingPreviewImage } from "./floating-preview-image";
+import { useFloatingTone } from "./use-floating-tone";
+import { promoteFloatingResult } from "./floating-result-order";
+import { floatingRadius } from "./floating-appearance";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
@@ -13,6 +19,7 @@ type ResultItem = QuickCompressResult & {
   id: string;
   originalSource?: string;
   reencodeSource?: string;
+  editorQuality?: number;
   preview?: string;
   width?: number;
   height?: number;
@@ -102,6 +109,17 @@ async function ensureFontLoaded(api: PicLiteBridge, family: string, systemFonts?
 function useDesktopSettings() {
   const [settings, setSettingsState] = useState(loadSettings);
   useEffect(() => subscribeSettings(setSettingsState), []);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const theme = settings.appearance === "system" ? (media.matches ? "dark" : "light") : settings.appearance;
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.palette = settings.colorTheme;
+      document.documentElement.style.colorScheme = theme;
+    };
+    apply(); media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [settings.appearance, settings.colorTheme]);
   const setSettings = useCallback((next: DesktopSettings | ((current: DesktopSettings) => DesktopSettings)) => {
     setSettingsState((current) => {
       const value = typeof next === "function" ? next(current) : next;
@@ -209,10 +227,11 @@ async function attachPreviews(items: ResultItem[], api: PicLiteBridge) {
   }
 }
 
-function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings) {
+function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings, onFocus?: (id:string)=>void) {
   const [results, setResults] = useState<ResultItem[]>([]);
   const resultsRef = useRef<ResultItem[]>([]);
   const [working, setWorking] = useState(false);
+
   const resultLimit = Math.max(1, Math.min(20, settings.floatingMaxResults || 5));
 
   useEffect(() => { resultsRef.current = results; }, [results]);
@@ -237,6 +256,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     setWorking(true);
     const smartCompression = effectiveSettings.preset.mode === "auto";
     const placeholders: ResultItem[] = unique.map((source) => ({ id: `${source}-${Date.now()}-${Math.random()}`, source, keptOriginal: false, smartCompression, formatChoice: smartCompression ? "auto" : undefined, status: "working" }));
+    onFocus?.(placeholders[0].id);
     setResults((current) => {
       const next = (replace ? placeholders : [...placeholders, ...current]).slice(0, resultLimit);
       if (!replace) current.filter((item) => !next.some((candidate) => candidate.id === item.id)).forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
@@ -244,8 +264,10 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     });
     try {
       const output = await api.quickCompressPaths(unique, nativeSettings(effectiveSettings));
-      const finished = await attachPreviews(output.map((item, index) => ({ ...item, originalSource: item.source, id: placeholders[index].id, smartCompression, formatChoice: smartCompression ? "auto" : undefined, status: item.error ? "error" : "done" })), api);
-      setResults((current) => current.map((item) => finished.find((candidate) => candidate.id === item.id) || item));
+      const finished = await attachPreviews(output.map((item,index)=>({...item,originalSource:item.source,id:placeholders[index].id,smartCompression,formatChoice:smartCompression?"auto":undefined,status:item.error?"error":"done"})),api);
+      setResults(current=>current.map(item=>finished.find(candidate=>candidate.id===item.id)||item));
+      const latest=finished.slice(0,resultLimit).filter(item=>item.status==="done").at(-1);
+      if(latest){onFocus?.(latest.id);setResults(current=>promoteFloatingResult(current,latest.id));}
       return finished;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -254,7 +276,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     } finally {
       setWorking(false);
     }
-  }, [api, resultLimit, settings]);
+  }, [api, resultLimit, settings, onFocus]);
 
   const reoptimise = useCallback(async (item: ResultItem, overrides: Partial<OptimisationPreset> = {}, sourceOverride?: string) => {
     if (!api || item.status === "working") return;
@@ -263,10 +285,11 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     const effectiveSettings = { ...settings, preset: { ...settings.preset, ...overrides } };
     const smartCompression = effectiveSettings.preset.mode === "auto";
     setWorking(true);
+    onFocus?.(item.id);
     setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, smartCompression, status: "working", error: undefined } : candidate));
     try {
       const [output] = await api.quickCompressPaths([source], nativeSettings(effectiveSettings));
-      if (!output) throw new Error(tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
+      if (!output || output.error || !output.output) throw new Error(output?.error || tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
       const snapshot: ResultItem = { ...item, history: undefined };
       const history = [...(item.history || []), snapshot];
       const provisional: ResultItem = {
@@ -274,6 +297,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
         ...output,
         source: originalSource,
         originalSource,
+        editorQuality: overrides.quality ?? item.editorQuality,
         // A structural edit (resize/watermark) becomes the baseline for every
         // later format switch. Keeping the pre-edit source here caused the UI
         // to re-encode the larger image and made the result grow again.
@@ -285,6 +309,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
         status: output.error ? "error" : "done",
         history,
       };
+      onFocus?.(item.id);
       // Native compression already knows the exact byte size. Publish those
       // metrics immediately instead of keeping the old result visible while
       // the new preview image is read and decoded.
@@ -312,7 +337,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings)
     } finally {
       setWorking(false);
     }
-  }, [api, settings]);
+  }, [api, settings, onFocus]);
 
   const remove = useCallback((id: string) => setResults((current) => {
     const target = current.find((item) => item.id === id);
@@ -416,7 +441,7 @@ function DropSurface({ language, active, compact = false }: { language: Language
   </div>;
 }
 
-function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void }) {
+function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, onQuality, onSave, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; onQuality?: () => void; onSave?: () => void; menu?: boolean }) {
   const language = settings.language;
   const copy = () => copyImageWithFeedback(api.copyImagePath, item.output, language, notify);
   const runWithNotice = async (operation: () => Promise<unknown>, success: string) => {
@@ -439,6 +464,8 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     await runWithNotice(() => api.revealPath(output), tr(language, "已在文件夹中定位", "Shown in folder"));
   };
   const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; run: () => void }> = {
+    quality: { title: tr(language,"调整压缩质量","Compression quality"), icon: "sliders", disabled:!onQuality, run:()=>onQuality?.() },
+    save: { title: tr(language,"保存副本","Save copy"), icon: "save", disabled:!onSave, run:()=>onSave?.() },
     downscale: { title: tr(language, "再缩小一半", "Downscale by half again"), icon: "minus", run: onDownscale },
     watermark: { title: tr(language, "按已保存参数添加水印", "Apply the saved watermark"), icon: "watermark", run: onWatermark },
     undo: { title: tr(language, "撤销上一次处理", "Undo last operation"), icon: "undo", disabled: !item.history?.length, run: onUndo },
@@ -448,7 +475,9 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     gallery: { title: tr(language, "打开图库", "Open library"), icon: "gallery", run: () => void runWithNotice(() => api.showGalleryWindow(), tr(language, "已打开图库", "Library opened")) },
     upload: { title: tr(language, "上传图床并复制链接", "Upload and copy URL"), icon: "upload", run: onUpload },
   };
-  return <div className="result-actions">{settings.floatingActions.slice(0, 6).map((id) => { const action = actions[id]; return <button key={id} disabled={action.disabled} title={action.title} onClick={action.run}><Icon name={action.icon} /></button>; })}</div>;
+  const configured = [...new Set(settings.floatingActions)].slice(0, 6);
+  const ids = menu ? (Object.keys(actions) as FloatingAction[]).filter(id => !configured.includes(id)) : configured;
+  return <div className={menu ? "floating-menu-actions" : "result-actions"}>{ids.map((id) => { const action = actions[id]; return <button key={id} data-action={id} role={menu ? "menuitem" : undefined} disabled={!item.output || item.status !== "done" || action.disabled} title={action.title} aria-label={action.title} onClick={(event) => { if (!menu) event.stopPropagation(); action.run(); }}><Icon name={action.icon} />{menu && <span>{floatingActionLabel(language, id)}</span>}</button>; })}</div>;
 }
 
 async function makeWatermarkedImage(api: PicLiteBridge, item: ResultItem, watermark: FloatingWatermark) {
@@ -499,48 +528,55 @@ function resultFormat(item: ResultItem) {
   return extension === "jpg" ? "jpeg" : extension;
 }
 
-function FormatBar({ value, update }: { value?: string; update: (format: ImageFormat) => void }) {
-  return <div className="format-bar">
-    {(["keep", "jpeg", "webp", "png"] as ImageFormat[]).map((format) => <button key={format} className={(format === "keep" ? value === "auto" : value === format) ? "active" : ""} onClick={(event) => { event.stopPropagation(); update(format); }}>{format === "keep" ? "AUTO" : format.toUpperCase()}</button>)}
-  </div>;
-}
-
-function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void }) {
+export function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
   const saved = percentage(item);
+  const tone = useFloatingTone(item.preview);
   const format = resultFormat(item);
+  const feedback = notify || (() => undefined);
+  const actionProps = {item, api, settings, notify: feedback, onDownscale: downscale, onWatermark: watermark, onUndo: undo, onUpload: upload};
   const startWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, select, a")) return;
     event.preventDefault();
+    event.stopPropagation();
     void api.startDragging();
   };
-  return <article className={`result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={(event) => { if (!item.output) return; event.preventDefault(); void api.openImage(item.output); }}>
-    <div className="result-preview" onPointerDown={allowWindowDrag ? startWindowDrag : undefined}>
-      {item.preview ? <img src={item.preview} alt={fileName(item.source)} /> : <Icon name={item.status === "working" ? "spark" : "image"} />}
-      <div className="result-overlay">
-        <strong className="result-name" title={fileName(item.source)}>{fileName(item.source)}</strong>
-        {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
-          <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
-          {(item.width && item.height) ? <small className="result-dimensions"><Icon name="image" /> {item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
-          <FormatBar value={item.formatChoice === "auto" ? "auto" : format} update={updateFormat} />
-        </>}
-      </div>
-      {item.status === "done" && <div className="result-hover-actions" onClick={(event) => event.stopPropagation()}>
-        <ResultActions item={item} api={api} settings={settings} notify={notify || (() => undefined)} onDownscale={downscale} onWatermark={watermark} onUndo={undo} onUpload={upload} />
-      </div>}
+  const preview = (controls: {quality:()=>void;save:()=>void}) => <div className="result-preview">
+    {!item.preview && <Icon name={item.status === "working" ? "spark" : "image"} />}
+    <div className="result-overlay">
+      {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
+        <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
+        {item.width && item.height ? <small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
+      </>}
     </div>
-    <button className="result-close" title={tr(settings.language, "移除", "Dismiss")} onClick={(event) => { event.stopPropagation(); remove(); }}><Icon name="close" /></button>
+    {item.status === "done" && <div className="result-hover-actions"><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
+  </div>;
+  if(settings.floatingStyle === "classic") return <article data-image-tone={tone} className={`result-card classic-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={event=>{if(item.output){event.preventDefault();void api.openImage(item.output);}}}>
+    <div className="result-preview" onPointerDown={allowWindowDrag?startWindowDrag:undefined}>
+      {item.preview?<img src={item.preview} alt={fileName(item.source)} />:<Icon name={item.status === "working"?"spark":"image"}/>}
+      <div className="result-overlay"><strong className="result-name">{fileName(item.source)}</strong>
+        {item.status === "working"?<span className="result-state">{tr(settings.language,"正在压缩…","Compressing…")}</span>:item.error?<span className="result-error">{item.error}</span>:<>
+        <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved!=null&&<em>{saved}%</em>}</div>
+        {item.width&&item.height&&<small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small>}
+        <div className="format-bar">{(["keep","jpeg","webp","png"] as ImageFormat[]).map(f=><button key={f} className={(item.formatChoice==="auto"?f==="keep":format===f)?"active":""} onClick={event=>{event.stopPropagation();updateFormat(f);}}>{f==="keep"?"Auto":f.toUpperCase()}</button>)}</div></>}
+      </div>
+      {item.status==="done"&&<div className="result-hover-actions" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}><ResultActions {...actionProps} settings={{...settings,floatingActions:settings.floatingActions.map(action=>action==="quality"?"preview":action==="save"?"reveal":action)}}/></div>}
+    </div><button className="result-close" data-action="dismiss" title={tr(settings.language,"移除","Dismiss")} onClick={event=>{event.stopPropagation();remove();}}><Icon name="close"/></button>
+  </article>;
+  return <article data-image-tone={tone} className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onPointerDownCapture={allowWindowDrag ? startWindowDrag : undefined} onClick={select}>
+    <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
   </article>;
 }
 
-function FloatingResults({ api }: { api: PicLiteBridge }) {
+export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const [settings, setSettings] = useDesktopSettings();
-  const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings, setSelectedId);
   const [dragging, setDragging] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseBusy, setCollapseBusy] = useState(false);
   const collapsedRef = useRef(false);
   const collapseTransition = useRef(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const [updateNotice, setUpdateNotice] = useState<{ text: string; url?: string } | null>(null);
   const [operationNotice, setOperationNotice] = useState<{ text: string; tone: OperationFeedbackTone } | null>(null);
   const timer = useRef<number | null>(null);
@@ -550,6 +586,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   const wheelLocked = useRef(false);
   const autoUpdateCheckStartedRef = useRef(false);
   const cleanupRetentionSeconds = cleanupSeconds(settings);
+  const watcherArrival = useRef(0);
 
   const showOperationNotice = useCallback((text: string, tone: OperationFeedbackTone = "success") => {
     if (operationNoticeTimer.current) window.clearTimeout(operationNoticeTimer.current);
@@ -589,6 +626,14 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     });
     return () => { disposed = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    document.documentElement.style.setProperty('--floating-radius', `${floatingRadius(settings.floatingCornerRadius)}px`);
+    return () => { document.documentElement.style.removeProperty('--floating-radius'); };
+  }, [settings.floatingCornerRadius]);
+  useEffect(() => {
+    document.documentElement.dataset.floatingCollapsed = String(collapsed);
+    window.dispatchEvent(new Event('piclite:floating-collapsed'));
+  }, [collapsed]);
   useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => { void api.setContentProtected(!settings.allowFloatingCapture).catch(() => undefined); }, [api, settings.allowFloatingCapture]);
   useEffect(() => { void ensureFontLoaded(api, settings.floatingWatermark.fontFamily).catch(() => undefined); }, [api, settings.floatingWatermark.fontFamily]);
@@ -639,7 +684,8 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       keptOriginal: false,
       status: "done",
     };
-    void attachPreviews([item], api).then((items) => setResults((current) => [...items, ...current]));
+    const arrival=++watcherArrival.current;
+    void attachPreviews([item], api).then((items) => {setResults((current) => [...items, ...current]);if(arrival===watcherArrival.current)setSelectedId(item.id);});
   }), [api, setResults]);
   const checkUpdates = useCallback(async (showResult: boolean) => {
     try {
@@ -705,12 +751,22 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       await optimise(paths, false, overrides);
     });
   }), [api, checkUpdates, optimise, results, selectedId, setSettings, settings.preset.scale, uploadResult]);
+  const [editorInteracting, setEditorInteracting] = useState(false);
+  const [pointerInside, setPointerInside] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
   useEffect(() => {
-    if (collapsed || !settings.autoHideResults || !results.length || working) return;
+    const refresh = () => setEditorInteracting(!!document.querySelector('.floating-card-content[data-interacting="true"]'));
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-interacting"]});
+    refresh();
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (collapsed || pointerInside || focusInside || editorInteracting || !settings.autoHideResults || !results.length || working) return;
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void api.hideCurrentWindow(), Math.max(1, settings.autoHideSeconds) * 1000);
+    timer.current = window.setTimeout(() => { void api.hideCurrentWindow(); }, Math.max(1, settings.autoHideSeconds) * 1000);
     return () => { if (timer.current) window.clearTimeout(timer.current); };
-  }, [api, collapsed, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
+  }, [api, collapsed, pointerInside, focusInside, editorInteracting, results.length, settings.autoHideResults, settings.autoHideSeconds, working]);
 
   const updateFormat = async (item: ResultItem, format: ImageFormat) => {
     const smartCompression = format === "keep";
@@ -718,7 +774,7 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
       mode: smartCompression ? "auto" : "manual",
       format,
       scale: 100,
-      preventLarger: true,
+      preventLarger: smartCompression,
     });
   };
   const undo = (item: ResultItem) => setResults((current) => current.map((candidate) => {
@@ -751,6 +807,9 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
     setSelectedId(next[0].id);
     return next;
   });
+  const currentResult = results.find(item => item.id === selectedId) || results[0];
+  const visibleResults = settings.floatingDisplayMode === "stack" ? (currentResult ? [currentResult] : []) : results;
+  const imageTone = useFloatingTone(currentResult?.preview);
   const compressionNotice = operationNotice?.text || updateNotice?.text;
   const smartCompressionEnabled = settings.preset.mode === "auto";
   const toggleCompressionMode = () => {
@@ -786,8 +845,8 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : ""} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => timer.current && window.clearTimeout(timer.current)}>
-    {results.length > 0 && <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />}
+  return <main data-image-tone={imageTone} data-floating-style={settings.floatingStyle} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : settings.floatingStyle === "classic" ? "has-classic-image" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+    {settings.floatingStyle !== "classic" && settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -801,13 +860,13 @@ function FloatingResults({ api }: { api: PicLiteBridge }) {
         </div>
       </div>
     </section> : <>
-      <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{results.map((item, index) => {
-        const active = selectedId ? selectedId === item.id : index === 0;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag={settings.floatingDisplayMode !== "stack"} notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} /></div>;
+      <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{visibleResults.map((item, index) => {
+        const active = currentResult?.id === item.id;
+        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{clickThroughToggle}<button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -882,10 +941,12 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
-const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "watermark", "undo", "copy", "preview", "reveal", "gallery", "upload"];
+const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "watermark", "preview", "reveal", "gallery"];
 
 function floatingActionLabel(language: Language, action: FloatingAction) {
   return ({
+    quality: tr(language,"压缩质量","Quality"),
+    save: tr(language,"保存副本","Save copy"),
     downscale: tr(language, "减半", "Half"),
     watermark: tr(language, "水印", "Watermark"),
     undo: tr(language, "撤销", "Undo"),
@@ -898,7 +959,7 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
 }
 
 function floatingActionIcon(action: FloatingAction) {
-  return ({ downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
+  return ({ quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
 }
 
 function SettingsRow({ title, note, children }: { title: React.ReactNode; note?: React.ReactNode; children: React.ReactNode }) {
@@ -1132,6 +1193,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="外观" en="Appearance" />}><Select label={tr(language, "外观", "Appearance")} value={settings.appearance} onChange={(value) => patch("appearance", value)}><option value="system">{tr(language, "跟随系统", "System")}</option><option value="light">{tr(language, "浅色", "Light")}</option><option value="dark">{tr(language, "深色", "Dark")}</option></Select></SettingsRow>
           <SettingsRow title={<T language={language} zh="界面配色" en="Colour theme" />} note={<T language={language} zh="选择一套你看着舒服的主色调" en="Choose the colour palette you prefer" />}><div className="settings-palette-picker">
             {([
+              ["white", tr(language, "纯白", "Pure white")],
               ["graphite", tr(language, "石墨蓝", "Graphite")],
               ["mist", tr(language, "雾蓝", "Mist blue")],
               ["violet", tr(language, "紫晶", "Violet")],
@@ -1212,6 +1274,8 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </div>
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
+        <SettingsRow title={<T language={language} zh="新版悬浮窗" en="New floating window" />} note={<T language={language} zh="关闭后使用旧版经典浮窗" en="Turn off to use the classic floating window" />}><Switch label={tr(language,"新版悬浮窗","New floating window")} checked={settings.floatingStyle !== "classic"} onChange={value=>patch("floatingStyle",value?"immersive":"classic")} /></SettingsRow>
+        <SettingsRow title={<T language={language} zh="圆角弧度" en="Corner radius" />} note={<T language={language} zh="0 为直角，调整后即时应用并自动保存" en="0 gives square corners; changes apply immediately and are saved" />}><span className="floating-radius-control"><input aria-label={tr(language, "悬浮窗圆角", "Floating corner radius")} type="range" min="0" max="28" step="1" value={settings.floatingCornerRadius} onChange={event => patch("floatingCornerRadius", floatingRadius(Number(event.target.value)))} /><output>{settings.floatingCornerRadius} px</output></span></SettingsRow>
         <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后图片区域的点击会传递给下方窗口；悬浮窗底栏的穿透按钮始终可点击" en="Clicks reach the window below; the toggle in the floating footer remains clickable." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
@@ -1293,6 +1357,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
 }
 
 export function PicLiteDesktopApp() {
+  useLiquidGlassTheme();
   if (!bridge) return <div className="fatal">PicLite desktop bridge is unavailable.</div>;
   if (bridge.windowLabel === "preferences") return <Preferences api={bridge} />;
   if (bridge.windowLabel === "dropzone") return <FloatingResults api={bridge} />;

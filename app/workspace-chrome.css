@@ -1,0 +1,105 @@
+/* Shared desktop chrome. One row, one appearance entry, scrollable tool rail.
+   Material is a web approximation; image preview pixels are never filtered. */
+.app-shell .topbar.topbar{margin:0;width:100%;border-radius:0;--desktop-bar:64px;height:64px;padding:0 16px;grid-template-columns:170px minmax(0,1fr) auto;column-gap:16px;isolation:isolate;overflow:visible}
+.app-shell.desktop-app{--desktop-bar:64px}
+.app-shell .brand{min-width:0;gap:5px}
+.app-shell .brand strong{font-size:18px;letter-spacing:-.6px}
+.app-shell .brand small{font-size:11px}
+.app-shell .brand-version{font-size:9px;margin:0}
+.app-shell .topbar .topbar-actions{display:flex;gap:6px;min-width:0;max-width:none;justify-self:end;flex-shrink:0}
+.app-shell .topbar-quick-controls{gap:4px}
+.app-shell .topbar-quick-controls button{width:30px;height:30px;flex:0 0 30px;border:0;box-shadow:none;background:transparent;color:var(--ink);border-radius:9px}
+.app-shell .topbar-quick-controls button:hover{background:color-mix(in srgb,var(--deep) 10%,transparent);transform:none}
+.app-shell .topbar-quick-controls .sponsor-entry-button{display:grid;color:var(--deep)}
+.app-shell .tool-navigation{display:grid;grid-template-columns:18px minmax(0,1fr) 18px;gap:2px;align-items:center;min-width:0;width:100%;height:100%}
+.app-shell .main-nav.tool-tabs{display:flex;justify-self:stretch;align-items:center;gap:3px;height:100%;width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-y;scroll-behavior:auto}
+.app-shell .tool-tabs::-webkit-scrollbar{display:none}
+.app-shell .main-nav.tool-tabs button{display:flex;align-items:center;justify-content:center;flex:0 0 auto;white-space:nowrap;user-select:none;-webkit-user-select:none;touch-action:none;min-height:34px;height:34px;padding:0 12px;border:1px solid transparent;border-radius:10px;font-size:12px;font-weight:600;color:var(--muted);cursor:grab;transition:background-color .12s ease,color .12s ease}
+.app-shell .main-nav.tool-tabs button:hover{background:color-mix(in srgb,var(--deep) 6%,transparent);color:var(--ink)}
+.app-shell .main-nav.tool-tabs button.active{background:color-mix(in srgb,var(--deep) 10%,var(--surface));border-color:color-mix(in srgb,var(--deep) 10%,transparent);color:var(--deep);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 80%,transparent)}
+.app-shell .main-nav.tool-tabs button.reordering{background:var(--deep);color:var(--surface);cursor:grabbing;box-shadow:0 3px 10px #182a3c22}
+.app-shell .nav-scroll{display:grid;place-items:center;border:0;background:transparent;color:var(--muted);padding:0;width:18px;height:30px;font-size:20px;cursor:pointer}
+.app-shell .nav-scroll:hover{color:var(--deep)}
+.appearance-menu{position:relative;display:flex;flex-shrink:0}
+.appearance-panel{position:absolute;z-index:60;right:0;top:calc(100% + 14px);width:288px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 90px);overflow-y:auto;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);box-shadow:0 16px 48px #152b432e}
+.appearance-panel header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.appearance-panel header strong{font-size:14px;font-weight:650}
+.app-shell .appearance-panel header button{width:24px;height:24px;flex-basis:24px;font-size:18px;color:var(--muted)}
+.appearance-panel fieldset{min-width:0;border:0;padding:0;margin:0 0 16px}
+.appearance-panel legend{padding:0;margin-bottom:7px;font-size:11px;font-weight:600;color:var(--muted)}
+.appearance-segments{display:flex;gap:3px;border:1px solid var(--line);border-radius:10px;padding:3px;background:var(--paper)}
+.app-shell .appearance-segments button{width:auto;height:30px;min-width:0;flex:1;border-radius:7px;padding:0 7px;font-size:11px;white-space:nowrap}
+.app-shell .appearance-segments button[aria-pressed=true]{background:var(--surface);color:var(--deep);box-shadow:0 1px 4px #182a3c18;font-weight:650}
+.appearance-swatches{display:flex;gap:12px}
+.app-shell .appearance-swatches button{position:relative;width:32px;height:32px;border-radius:50%;border:2px solid transparent;padding:3px}
+.appearance-swatches button i{display:block;border-radius:50%;width:22px;height:22px;background:#526b85}
+.appearance-swatches button[data-palette=mist] i{background:#6b8eaa}
+.appearance-swatches button[data-palette=violet] i{background:#837492}
+.appearance-swatches button[data-palette=green] i{background:#477565}
+.appearance-swatches button[data-palette=white] i{background:#fff;box-shadow:inset 0 0 0 1px #b8b8b8}
+.appearance-swatches button[data-palette=white] span{color:#202020}
+html[data-palette="white"][data-theme][data-material="standard"] .app-shell.desktop-app .workspace>:is(.queue-panel,.settings-panel,.preview-panel){background:var(--surface)}
+.app-shell .appearance-swatches button[aria-pressed=true]{border-color:var(--deep)}
+.appearance-swatches span{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:12px}
+.appearance-reduce{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;padding-top:12px;border-top:1px solid var(--line)}
+.appearance-reduce input{accent-color:var(--deep)}
+.app-shell.desktop-app .workspace{grid-template-columns:210px minmax(260px,1fr) 278px;gap:12px;padding:12px;min-height:calc(100dvh - 64px);height:calc(100dvh - 64px);width:100%;max-width:none}
+.app-shell.desktop-app .workspace>.queue-panel,.app-shell.desktop-app .workspace>.settings-panel,.app-shell.desktop-app .workspace>.preview-panel{min-width:0;border:1px solid var(--line);border-radius:16px;box-shadow:0 2px 8px #1a2d4010;overflow:hidden}
+.app-shell.desktop-app .workspace>.queue-panel{height:100%;background:var(--surface)}
+.app-shell.desktop-app .workspace>.settings-panel{position:relative;top:auto;height:100%;align-self:stretch;background:var(--surface);overflow-y:auto;padding-bottom:12px}
+.app-shell.desktop-app .workspace>.preview-panel{height:100%;background:color-mix(in srgb,var(--paper) 75%,var(--surface));grid-template-rows:58px minmax(0,1fr) auto}
+.app-shell.desktop-app .workspace .panel-heading{min-height:58px;padding:12px 14px;border-color:var(--line)}
+.app-shell.desktop-app .workspace .panel-heading strong{font-size:13px}
+.app-shell.desktop-app .workspace .eyebrow{font-size:9px;letter-spacing:.4px}
+.app-shell.desktop-app .workspace .preview-stage{min-height:0;padding:14px}
+.app-shell.desktop-app .workspace .hero-dropzone{min-height:0;border-radius:14px;border:1px dashed color-mix(in srgb,var(--deep) 25%,transparent);background:color-mix(in srgb,var(--surface) 50%,transparent);box-shadow:none}
+.app-shell.desktop-app .workspace .queue-empty{min-height:160px;padding:24px 14px}
+.app-shell.desktop-app .workspace .import-actions{margin:12px 10px 10px;gap:6px}
+.app-shell.desktop-app .workspace .import-button,.app-shell.desktop-app .workspace .folder-import-button{font-size:11px;padding-inline:4px}
+.app-shell.desktop-app .workspace .result-strip{padding:10px 12px;gap:8px;background:var(--surface);grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) minmax(0,.7fr) 38px max-content}
+.app-shell.desktop-app .workspace .result-strip > .icon-button{width:38px;min-width:38px;height:38px;padding:0}
+.app-shell.desktop-app .workspace .result-strip > .export-button{width:auto;min-width:78px;max-width:none;padding-inline:10px;white-space:nowrap}
+.app-shell.desktop-app .workspace .result-strip > div{min-width:0}
+.app-shell.desktop-app .workspace .result-strip > div > :is(span,strong){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-shell.desktop-app .workspace .result-strip .unused-saving-info{display:none}
+html[data-material=glass] .app-shell.desktop-app{background:var(--glass-depth)}
+html[data-material=glass][data-theme] .app-shell .topbar.topbar{background:linear-gradient(115deg,color-mix(in srgb,var(--surface) 80%,transparent),color-mix(in srgb,var(--surface) 55%,transparent));box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--surface) 80%,transparent);border-color:color-mix(in srgb,var(--line) 60%,transparent)}
+html[data-material=glass][data-theme] .app-shell.desktop-app .workspace>.queue-panel,html[data-material=glass][data-theme] .app-shell.desktop-app .workspace>.settings-panel{background:linear-gradient(140deg,color-mix(in srgb,var(--surface) 88%,transparent),color-mix(in srgb,var(--surface) 65%,transparent));border-color:color-mix(in srgb,var(--surface) 85%,var(--line));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 95%,transparent),0 8px 24px #2038520c}
+html[data-material=glass][data-theme] .app-shell.desktop-app .workspace>.preview-panel{background:linear-gradient(145deg,color-mix(in srgb,var(--surface) 50%,transparent),color-mix(in srgb,var(--paper) 65%,transparent));border-color:color-mix(in srgb,var(--surface) 85%,var(--line))}
+html[data-material=glass][data-transparency=reduce][data-theme] .app-shell .topbar.topbar,html[data-material=glass][data-transparency=reduce][data-theme] .app-shell.desktop-app .workspace>:is(.queue-panel,.settings-panel,.preview-panel){background:var(--surface)}
+@media(prefers-reduced-transparency:reduce),(forced-colors:active){html[data-material=glass][data-theme] .app-shell .topbar.topbar,html[data-material=glass][data-theme] .app-shell.desktop-app .workspace>:is(.queue-panel,.settings-panel,.preview-panel){background:var(--surface)}}
+@media(max-width:1000px){.app-shell .topbar.topbar{grid-template-columns:142px minmax(0,1fr) auto;column-gap:8px;padding-inline:12px}.app-shell .brand small{display:none}.app-shell.desktop-app .workspace{grid-template-columns:180px minmax(230px,1fr) 252px;gap:8px;padding:8px}.app-shell .main-nav.tool-tabs button{padding-inline:10px}.app-shell .topbar-quick-controls{gap:2px}}
+@media(max-width:680px){.app-shell .topbar.topbar{grid-template-columns:90px minmax(0,1fr) auto;gap:4px;padding-inline:8px}.app-shell .brand-version,.app-shell .brand-mark,.app-shell .topbar .privacy-badge,.app-shell .topbar .settings-entry-button,.app-shell .topbar .floating-entry-button,.app-shell .topbar .language-entry-button{display:none}.app-shell .topbar-actions{display:flex}.app-shell.desktop-app .workspace{height:auto;display:flex;flex-direction:column}.app-shell.desktop-app .workspace>.queue-panel{max-height:260px}.app-shell.desktop-app .workspace>.preview-panel{height:520px}.app-shell.desktop-app .workspace>.settings-panel{height:500px}}
+@media(prefers-reduced-motion:reduce){.app-shell .tool-tabs button{transition:none}}
+
+@media(max-width:1000px){.app-shell.desktop-app .workspace .result-strip{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 38px max-content;gap:6px}.app-shell.desktop-app .workspace .result-strip .savings-pill,.app-shell.desktop-app .workspace .result-strip .result-arrow{display:none}.app-shell.desktop-app .workspace .export-button{font-size:10px;padding:0 8px;min-width:78px}.app-shell.desktop-app .workspace .result-strip>div>span{font-size:9px}}
+
+html .app-shell.studio-shell .topbar.topbar{height:64px;grid-template-columns:170px minmax(0,1fr) auto;grid-template-rows:none;padding:0 16px;gap:16px}
+html .app-shell.studio-shell .tool-navigation{grid-column:auto;grid-row:auto}
+html .app-shell.studio-shell .topbar-actions{grid-row:auto;grid-column:auto}
+@media(max-width:1000px){html .app-shell.studio-shell .topbar.topbar{grid-template-columns:142px minmax(0,1fr) auto;gap:8px;padding-inline:12px}}
+
+html[data-density] .app-shell.desktop-app .workspace>:is(.queue-panel,.preview-panel,.settings-panel){min-height:0;height:100%;max-height:100%}
+html[data-density] .app-shell.desktop-app .workspace .preview-panel{grid-template-rows:50px minmax(0,1fr) auto}
+html[data-density] .app-shell.desktop-app .workspace .preview-stage{min-height:0}
+html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0;max-height:100%}
+
+.app-shell .toast{top:76px;right:18px;left:auto;bottom:auto;transform:none;max-width:min(360px,calc(100vw - 36px));white-space:normal;animation:none}
+.app-shell.desktop-app .workspace .live-size-card{height:auto;min-height:88px;max-height:none;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px}
+.app-shell.desktop-app .workspace .live-size-card>strong{font-size:16px;align-self:stretch;line-height:1.4}
+.app-shell.desktop-app .workspace .live-size-card>span{color:#e3edf7;font-size:10px}
+.app-shell.desktop-app .workspace .live-size-card>small{font-size:10px;color:#cfdfef;line-height:1.5;height:auto;display:block;white-space:normal}
+.app-shell.desktop-app .workspace .setting-hint{font-size:10px;line-height:1.65;color:var(--muted)}
+.app-shell .encoding-help{margin-top:10px;color:var(--muted);font-size:11px}
+.app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
+.app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
+.app-shell.desktop-app .workspace .settings-panel{padding-bottom:24px}
+
+/* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */
+html[data-density] .app-shell .topbar.topbar{grid-template-columns:170px minmax(0,1fr) 168px;column-gap:12px}
+html[data-density] .app-shell .topbar .topbar-actions{width:168px;min-width:168px;max-width:168px;display:flex;overflow:visible;grid-column:3;grid-row:1;justify-content:flex-end}
+html[data-density] .app-shell .topbar-quick-controls{display:flex;width:168px;min-width:168px;flex-wrap:nowrap;gap:4px;align-items:center}
+html[data-density] .app-shell .topbar-quick-controls>.appearance-menu{display:flex;flex:0 0 30px;min-width:30px;width:30px}
+html[data-density] .app-shell .topbar-quick-controls>button,html[data-density] .app-shell .topbar-quick-controls .appearance-trigger{display:grid;flex:0 0 30px;width:30px;height:30px;min-width:30px}
+@media(max-width:1000px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:140px minmax(0,1fr) 168px;gap:8px}}
+@media(max-width:680px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:88px minmax(0,1fr) 98px;gap:4px}html[data-density] .app-shell .topbar .topbar-actions,html[data-density] .app-shell .topbar-quick-controls{width:98px;min-width:98px;max-width:98px}html[data-density] .app-shell .topbar-quick-controls>.floating-entry-button,html[data-density] .app-shell .topbar-quick-controls>.language-entry-button{display:none}}

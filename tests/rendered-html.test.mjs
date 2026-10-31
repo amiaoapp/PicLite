@@ -19,9 +19,8 @@ test("renders the PicLite product shell", async () => {
   assert.match(html, /<title>PicLite 图轻/);
   assert.match(html, /压缩工作台/);
   assert.match(html, /classic-shell/);
-  assert.match(html, /界面样式/);
-  assert.match(html, /经典旧版/);
-  assert.match(html, /新版界面/);
+  assert.match(html, /外观设置/);
+  assert.doesNotMatch(html, /液态玻璃|Liquid Glass/);
   assert.doesNotMatch(html, />文件夹监测</);
   assert.doesNotMatch(html, />批量重命名</);
   assert.match(html, /导入文件夹/);

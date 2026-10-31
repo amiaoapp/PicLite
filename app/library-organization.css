@@ -1,0 +1,14 @@
+.library-folder-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:18px 0;margin-bottom:12px;border-bottom:1px solid var(--border,#a4b0af55)}
+.library-folder-tabs{display:flex;gap:6px;flex-wrap:wrap;flex:1 0 100%}
+.library-folder-toolbar button,.library-folder-toolbar select,.library-folder-toolbar input,.gallery-folder-picker select,.gallery-bulk-toolbar select{font:inherit;border:1px solid var(--border,#a4b0af55);border-radius:10px;background:var(--surface,var(--panel,#f1f4f3));color:inherit;padding:8px 12px;min-height:36px}
+.library-folder-tabs button{display:flex;gap:10px;align-items:center;cursor:pointer}
+.library-folder-tabs button[aria-pressed=true]{background:var(--accent,#44796d);color:#fff;border-color:transparent}
+.library-folder-tabs small{opacity:.75;font-variant-numeric:tabular-nums}
+.library-folder-toolbar form,.library-folder-toolbar label{display:flex;gap:8px;align-items:center;font-size:12px}
+.library-folder-toolbar input{width:160px}
+.gallery-folder-picker{display:flex;align-items:center;gap:10px;font-size:12px;margin:10px 0}
+.gallery-folder-picker select{min-width:0;max-width:100%;flex:1}
+.main-nav button[draggable=true]{cursor:grab}
+.main-nav button[draggable=true]:active{cursor:grabbing}
+.library-folder-toolbar :focus-visible{outline:2px solid var(--accent,#44796d);outline-offset:3px}
+@media(max-width:768px){.library-folder-toolbar form,.library-folder-toolbar label{flex-wrap:wrap}.library-folder-toolbar input{width:140px}.library-folder-tabs{flex-wrap:nowrap;overflow:auto}}

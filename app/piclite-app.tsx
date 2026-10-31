@@ -1,4 +1,11 @@
 "use client";
+import { loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
+import "./library-organization.css";
+import "./workspace-chrome.css";
+import { ToolNavigation } from "./tool-navigation";
+import { TOOL_ORDER_KEY, readToolOrder, mergeToolOrder, reorderTool } from "./tool-order";
+import { AppearanceMenu } from "./appearance-menu";
+import { useLiquidGlassTheme } from "./liquid-glass-theme";
 /* eslint-disable @next/next/no-img-element -- Blob URLs are created and revoked locally. */
 
 import {
@@ -13,7 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { InterfaceStyleSwitch, useInterfaceStyle } from "./interface-style";
+import { useInterfaceStyle } from "./interface-style";
 import { StudioWelcome, StudioStatus } from "./studio-ui";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
@@ -23,6 +30,7 @@ import { Icon as HeaderIcon } from "../desktop/clop-icons";
 import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 import { FormatConverterPlugin, ResizePlugin, type NativeOutputFormat } from "./builtin-image-tools";
 import { BannerMaker } from "./banner-maker";
+import { BrowserFloatingResult } from "./browser-floating-result";
 
 type CompressionMode = "lossless" | "balanced" | "small" | "manual";
 type OutputFormat = "keep" | "image/jpeg" | "image/png" | "image/webp";
@@ -33,7 +41,7 @@ type ExportMode = "download" | "overwrite" | "same-folder" | "fixed-folder";
 type WatermarkLayout = "tile" | "single";
 type WatermarkKind = "text" | "image" | "blind";
 type ThemeMode = "system" | "light" | "dark";
-type ColorTheme = "graphite" | "mist" | "violet" | "green";
+type ColorTheme = "graphite" | "mist" | "violet" | "green" | "white";
 type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 type UiDensity = "auto" | "comfortable" | "compact";
 type ShortcutPreferenceKey = "shortcutShow" | "shortcutPaste" | "shortcutDock" | "shortcutGallery" | "shortcutUpload";
@@ -214,6 +222,7 @@ type NativeBridge = {
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
   updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
   setWindowTheme: (theme: ThemeMode) => Promise<void>;
+  setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<import("../desktop/clop-types").WindowMaterialState>;
   startDragging: () => Promise<void>;
   startResizeDragging: (direction: "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West") => Promise<void>;
   showMainWindow: () => Promise<void>;
@@ -340,6 +349,7 @@ type DesktopPreferences = {
   shortcutGallery: string;
   shortcutUpload: string;
   dockLayout: DockLayout;
+  floatingStyle: "immersive" | "classic";
   floatingResultSeconds: number;
   clipboardWatcherEnabled: boolean;
   autoCheckUpdates: boolean;
@@ -390,6 +400,7 @@ type QuickCompressResult = {
 };
 
 type GalleryRecord = {
+  folderId?: string;
   id: string;
   name: string;
   createdAt: number;
@@ -435,7 +446,8 @@ function loadWorkspacePlugins(): WorkspacePlugin[] {
     const saved = JSON.parse(current || "[]") as WorkspacePlugin[];
     const legacy = current ? [] : JSON.parse(window.localStorage.getItem(LEGACY_WORKSPACE_PLUGINS_KEY) || "[]") as WorkspacePlugin[];
     const builtins = BUILTIN_WORKSPACE_PLUGINS.map((plugin) => ({ ...plugin, enabled: saved.find((item) => item.id === plugin.id)?.enabled ?? false }));
-    return [...builtins, ...(current ? saved : legacy).filter((plugin) => plugin.kind !== "builtin")];
+    const all = [...builtins, ...(current ? saved : legacy).filter((plugin) => plugin.kind !== "builtin")];
+    return all.sort((a,b) => { const ai=saved.findIndex(p=>p.id===a.id), bi=saved.findIndex(p=>p.id===b.id); return (ai<0?999:ai)-(bi<0?999:bi); });
   } catch { return BUILTIN_WORKSPACE_PLUGINS; }
 }
 
@@ -750,6 +762,7 @@ const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
   shortcutGallery: "CommandOrControl+Alt+L",
   shortcutUpload: "CommandOrControl+Alt+U",
   dockLayout: "compact",
+  floatingStyle: "immersive",
   floatingResultSeconds: 10,
   clipboardWatcherEnabled: true,
   autoCheckUpdates: true,
@@ -786,13 +799,13 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
     } catch { /* keep the main-window value when the old desktop key is malformed */ }
     const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled } as DesktopPreferences & { dockLayout?: string };
     // 0.11 之前的“桌宠”偏好自动迁移到紧凑压缩坞。
-    const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green"].includes(preferences.colorTheme)
+    const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green", "white"].includes(preferences.colorTheme)
       ? preferences.colorTheme
       : "graphite";
     const updateCheckFrequency: UpdateCheckFrequency = ["startup", "daily", "weekly", "never"].includes(preferences.updateCheckFrequency)
       ? preferences.updateCheckFrequency
       : preferences.autoCheckUpdates === false ? "never" : "startup";
-    return { ...preferences, colorTheme, updateCheckFrequency, autoCheckUpdates: updateCheckFrequency !== "never", dockLayout: preferences.dockLayout === "full" ? "full" : "compact", language: preferences.language === "en" ? "en" : "zh" };
+    return { ...preferences, floatingStyle: preferences.floatingStyle === "classic" ? "classic" : "immersive", colorTheme, updateCheckFrequency, autoCheckUpdates: updateCheckFrequency !== "never", dockLayout: preferences.dockLayout === "full" ? "full" : "compact", language: preferences.language === "en" ? "en" : "zh" };
   } catch {
     return DEFAULT_DESKTOP_PREFERENCES;
   }
@@ -926,7 +939,10 @@ async function galleryPut(record: GalleryRecord) {
   const database = await openGalleryDb();
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(GALLERY_STORE_NAME, "readwrite");
-    transaction.objectStore(GALLERY_STORE_NAME).put(record);
+    const store = transaction.objectStore(GALLERY_STORE_NAME);
+    const previous = store.get(record.id);
+    previous.onsuccess = () => store.put({ ...record, folderId: chooseFolderForWrite(record.folderId, previous.result, loadLibraryFolders().defaultFolderId) });
+    previous.onerror = () => reject(previous.error);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error || new Error("图库写入失败"));
   });
@@ -2339,6 +2355,7 @@ function CornerDropTarget({ bridge }: { bridge: NativeBridge }) {
 }
 
 export function PicLiteApp() {
+  useLiquidGlassTheme();
   const bridge = typeof window !== "undefined" ? window.picLite : undefined;
   if (bridge?.windowLabel === "dropzone") return <TrayDropDock bridge={bridge} />;
   if (bridge?.windowLabel === "corner-drop-target") return <CornerDropTarget bridge={bridge} />;
@@ -2350,6 +2367,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [interfaceStyle, setInterfaceStyle] = useInterfaceStyle();
   const [items, setItems] = useState<ImageItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [floatingResultId, setFloatingResultId] = useState<string | null>(null);
+  const dismissBrowserResult = useCallback(() => setFloatingResultId(null), []);
   const [settings, setSettings] = useState<CompressionSettings>(loadStoredSettings);
   const [presets, setPresets] = useState<SavedPreset[]>(loadStoredPresets);
   const [activePresetId, setActivePresetId] = useState(() => typeof window === "undefined" ? "current" : window.localStorage.getItem("piclite.activePreset.v1") || "current");
@@ -2393,6 +2412,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [watchProfileName, setWatchProfileName] = useState(() => typeof window === "undefined" ? "" : (loadDesktopSettings().watchProfiles[0]?.name || ""));
   const [watcherActive, setWatcherActive] = useState(false);
   const [watcherEvents, setWatcherEvents] = useState<WatcherEvent[]>([]);
+  const [libraryFolders, setLibraryFolders] = useState(loadLibraryFolders);
+  const [activeFolder, setActiveFolder] = useState("all");
+  const [newFolderName, setNewFolderName] = useState("");
   const [galleryItems, setGalleryItems] = useState<GalleryViewItem[]>([]);
   const [galleryRevision, setGalleryRevision] = useState(0);
   const [gallerySelectedId, setGallerySelectedId] = useState<string | null>(null);
@@ -2444,13 +2466,25 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     if (builtin && !builtin.enabled) setView("workspace");
     if (view.startsWith("plugin:") && !workspacePlugins.some((plugin) => `plugin:${plugin.id}` === view && plugin.enabled)) setView("workspace");
   }, [view, workspacePlugins]);
+  const movePluginInSettings = (id: string, direction: number) => {
+    const all=mergeToolOrder(readToolOrder(), ["workspace","banner",...workspacePlugins.map(p=>p.id)]);
+    const pluginIds=all.filter(item=>workspacePlugins.some(p=>p.id===item));
+    const target=pluginIds[pluginIds.indexOf(id)+direction];
+    if(!target)return;
+    const order=reorderTool(all,id,target);
+    window.localStorage.setItem(TOOL_ORDER_KEY,JSON.stringify(order));
+    window.dispatchEvent(new Event("piclite:tool-order"));
+    setWorkspacePlugins(items=>[...items].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id)));
+  };
+  useEffect(() => {
+    if(view!=="preferences"||preferenceSection!=="plugins")return;
+    const ids=mergeToolOrder(readToolOrder(),workspacePlugins.map(p=>p.id));
+    if(ids.join("|")!==workspacePlugins.map(p=>p.id).join("|"))setWorkspacePlugins(items=>[...items].sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id)));
+  },[view,preferenceSection,workspacePlugins]);
   const desktopPlatform = nativeBridge
     ? ({ win32: "Windows", darwin: "macOS", linux: "Linux" }[nativeBridge.platform] || "Desktop")
     : "Desktop";
   const t = useCallback((zh: string, en: string) => desktopPreferences.language === "en" ? en : zh, [desktopPreferences.language]);
-  const toggleHeaderTheme = useCallback(() => {
-    setDesktopPreferences((current) => ({ ...current, theme: resolveTheme(current.theme) === "dark" ? "light" : "dark" }));
-  }, []);
   const toggleHeaderLanguage = useCallback(() => {
     setDesktopPreferences((current) => ({ ...current, language: current.language === "zh" ? "en" : "zh" }));
   }, []);
@@ -2513,6 +2547,18 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     const scale = Math.max(0.1, Math.min(100, value / original * 100));
     setSettings((current) => ({ ...current, scale, resize: false }));
   }, [selected]);
+  const visibleGalleryItems = useMemo(() => galleryItems.filter(item => activeFolder === "all" || (item.folderId || "") === activeFolder), [galleryItems, activeFolder]);
+  useEffect(() => { window.localStorage.setItem(LIBRARY_FOLDERS_KEY, JSON.stringify(libraryFolders)); }, [libraryFolders]);
+  useEffect(() => {
+    const sync = (event: StorageEvent) => { if (event.key === LIBRARY_FOLDERS_KEY) setLibraryFolders(loadLibraryFolders()); };
+    window.addEventListener("storage", sync); return () => window.removeEventListener("storage", sync);
+  }, []);
+  async function moveGalleryToFolder(ids: string[], folderId: string) {
+    try { await Promise.all(galleryItems.filter(item => ids.includes(item.id)).map(async item => {
+      const { previewUrl: _previewUrl, ...record } = item;
+      await galleryPut({ ...record, folderId });
+    })); await refreshGallery(); } catch (error) { showToast(error instanceof Error ? error.message : String(error)); }
+  }
   const galleryPreview = useMemo(() => galleryItems.find((item) => item.id === galleryPreviewId) || null, [galleryItems, galleryPreviewId]);
   const selectedMetrics = useMemo(() => {
     const original = selected?.originalBytes || 0;
@@ -2771,14 +2817,23 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [nativeBridge]);
 
   useEffect(() => {
-    if (!nativeBridge) return;
+    if (!nativeBridge || !("__TAURI_INTERNALS__" in window)) return;
     void isAutostartEnabled()
       .then((enabled) => setDesktopPreferences((current) => current.launchAtStartup === enabled ? current : { ...current, launchAtStartup: enabled }))
       .catch(() => showToast(t("无法读取系统开机启动状态", "Could not read the launch-at-login setting")));
   }, [nativeBridge, showToast, t]);
 
   useEffect(() => {
-    if (!nativeBridge || !desktopPreferencesReadyRef.current) return;
+    if (!nativeBridge) {
+      window.localStorage.setItem("piclite.desktopPreferences.v1", JSON.stringify(desktopPreferences));
+      const key = "piclite.desktop.clop-settings.v1";
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(key) || "{}");
+        window.localStorage.setItem(key, JSON.stringify({ ...stored, floatingStyle: desktopPreferences.floatingStyle }));
+      } catch { /* malformed legacy settings must not block browser preferences */ }
+      return;
+    }
+    if (!desktopPreferencesReadyRef.current) return;
     window.localStorage.setItem("piclite.desktopPreferences.v1", JSON.stringify(desktopPreferences));
     setExportMode(desktopPreferences.exportMode);
     setExportSuffix(desktopPreferences.exportSuffix);
@@ -2928,6 +2983,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 status: "done",
               };
             }));
+            if (!nativeBridge) setFloatingResultId(job.id);
           } catch (error) {
             if (job.generation !== livePreviewGenerationRef.current) continue;
             setItems((current) => current.map((candidate) => candidate.id === job.id ? {
@@ -3012,6 +3068,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
         return { ...completed, fileHandle: candidate.fileHandle, sourcePath: candidate.sourcePath };
       }));
+      if (!nativeBridge) setFloatingResultId(completed.id);
       await saveItemToGallery(completed, result.blob);
     } catch (error) {
       setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("压缩失败", "Optimisation failed") } : candidate));
@@ -3063,17 +3120,17 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     await navigator.clipboard.write([new ClipboardItem({ "image/png": clipboardBlob })]);
   }, [nativeBridge]);
 
-  const copySelectedResult = useCallback(async () => {
-    if (!selected) return;
+  const copyResult = useCallback(async (item: ImageItem) => {
     try {
-      const blob = selected.outputBlob || selected.file;
-      await copyBlobToClipboard(blob, outputName(selected, cleanSuffix(exportSuffix), desktopPreferences.renameTemplate));
-      await saveItemToGallery(selected, blob);
+      const blob = item.outputBlob || item.file;
+      await copyBlobToClipboard(blob, outputName(item, cleanSuffix(exportSuffix), desktopPreferences.renameTemplate));
+      await saveItemToGallery(item, blob);
       showToast(nativeBridge ? t(`已复制压缩文件 · ${formatBytes(blob.size)}`, `Optimised file copied · ${formatBytes(blob.size)}`) : t("结果图已复制，可直接粘贴到其他软件", "Result copied and ready to paste"));
     } catch (error) {
       showToast(error instanceof Error ? error.message : t("复制结果图失败", "Could not copy the result"));
     }
-  }, [copyBlobToClipboard, desktopPreferences.renameTemplate, exportSuffix, nativeBridge, saveItemToGallery, selected, showToast, t]);
+  }, [copyBlobToClipboard, desktopPreferences.renameTemplate, exportSuffix, nativeBridge, saveItemToGallery, showToast, t]);
+  const copySelectedResult = useCallback(async () => { if (selected) await copyResult(selected); }, [copyResult, selected]);
 
   const copyGalleryResult = useCallback(async (record: GalleryRecord) => {
     try {
@@ -3883,15 +3940,18 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [nativeBridge, pluginName, pluginUrl, showToast, t]);
 
   const addDemo = useCallback(async () => addFiles([await createDemoFile()]), [addFiles]);
+  const floatingItem = items.find((item) => item.id === floatingResultId && item.outputBlob);
+  const completedItems = items.filter((item) => item.outputBlob);
 
   return (
     <main
       className={`app-shell ${interfaceStyle === "studio" ? "studio-shell" : "classic-shell"} ${nativeBridge ? "desktop-app" : "web-app"} ${standalonePreferences ? "preferences-window" : ""}`}
-      onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+      onDragEnter={(event) => { if(event.dataTransfer.types.includes("Files")){event.preventDefault();setDragging(true);} }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={onDrop}
     >
+      {!nativeBridge && floatingItem && <BrowserFloatingResult item={floatingItem} count={completedItems.length} style={desktopPreferences.floatingStyle} seconds={desktopPreferences.floatingResultSeconds} language={desktopPreferences.language} busy={floatingItem.status === "processing" || exporting} onDismiss={dismissBrowserResult} onNext={() => { const next = completedItems[(completedItems.findIndex((item) => item.id === floatingItem.id) + 1) % completedItems.length]; if (next) { setFloatingResultId(next.id); setSelectedId(next.id); } }} onCopy={() => void copyResult(floatingItem)} onSave={() => void exportItems([floatingItem])} onProcess={() => void processOne(floatingItem.id)} onInspect={() => { setSelectedId(floatingItem.id); setView("workspace"); setPreviewMode("compare"); setFloatingResultId(null); }} onSettings={() => { setPreferenceSection("floating"); setView("preferences"); setFloatingResultId(null); }} />}
       <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.jfif,.heic,.heif" multiple onChange={onFilesSelected} />
       <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept="image/*,.jfif,.heic,.heif" multiple onChange={onFolderFilesSelected} />
       <input ref={fontInputRef} className="visually-hidden" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={onFontSelected} />
@@ -3906,19 +3966,17 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           </button>
           {nativeBridge && <button className="brand-version" type="button" title={t("检查更新并显示结果", "Check for updates and show the result")} aria-label={t(`当前版本 ${APP_VERSION}，检查更新`, `Version ${APP_VERSION}; check for updates`)} disabled={checkingUpdate} onClick={() => void checkForUpdates(true)}>v{APP_VERSION}</button>}
         </div>
-        {standalonePreferences ? <div className="standalone-window-title"><span className="eyebrow">PREFERENCES</span><strong>{t("应用设置", "Preferences")}</strong></div> : <nav className="main-nav" aria-label={t("主要功能", "Main navigation")}>
-          <button className={view === "workspace" ? "active" : ""} type="button" onClick={() => setView("workspace")}>{t(nativeBridge ? "工作台" : "压缩工作台", "Workspace")}</button>
-          <button className={view === "banner" ? "active" : ""} type="button" onClick={() => setView("banner")}>{t("封面制作", "Cover maker")}</button>
-          {workspacePlugins.find((plugin) => plugin.id === "watcher")?.enabled && <button className={view === "watcher" ? "active" : ""} type="button" onClick={() => setView("watcher")}>{t("文件夹监测", "Folder watch")}{watcherActive && <span className="live-dot" aria-label={t("监测中", "Watching")} />}</button>}
-          {workspacePlugins.find((plugin) => plugin.id === "gallery")?.enabled && <button className={view === "gallery" ? "active" : ""} type="button" onClick={() => setView("gallery")}>{t("图库", "Library")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "rename")?.enabled && <button className={view === "rename" ? "active" : ""} type="button" onClick={() => setView("rename")}>{t("批量重命名", "Batch rename")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "convert")?.enabled && <button className={view === "convert" ? "active" : ""} type="button" onClick={() => setView("convert")}>{t("格式转换", "Convert")}</button>}
-          {nativeBridge && workspacePlugins.find((plugin) => plugin.id === "resize")?.enabled && <button className={view === "resize" ? "active" : ""} type="button" onClick={() => setView("resize")}>{t("尺寸调整", "Resize")}</button>}
-          {workspacePlugins.filter((plugin) => plugin.kind !== "builtin" && plugin.enabled).map((plugin) => <button key={plugin.id} className={view === `plugin:${plugin.id}` ? "active" : ""} type="button" onClick={() => setView(`plugin:${plugin.id}`)}>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</button>)}
-        </nav>}
+        {standalonePreferences ? <div className="standalone-window-title"><span className="eyebrow">PREFERENCES</span><strong>{t("应用设置", "Preferences")}</strong></div> : <ToolNavigation language={desktopPreferences.language} items={[
+          { id:"workspace", label:t("工作台", "Workspace"), active:view==="workspace", select:()=>setView("workspace") },
+          { id:"banner", label:t("封面制作", "Cover maker"), active:view==="banner", select:()=>setView("banner") },
+          ...workspacePlugins.map(plugin=>{
+            const destination=(plugin.kind==="builtin"?plugin.id:`plugin:${plugin.id}`) as ViewName;
+            const shortZh:Record<string,string>={rename:"批量命名",resize:"尺寸与扩图",convert:"格式转换",watcher:"文件夹监测",gallery:"图库"};
+            return {id:plugin.id,visible:plugin.enabled&&!!(plugin.kind!=="builtin"||nativeBridge||plugin.id==="watcher"||plugin.id==="gallery"),label:desktopPreferences.language==="zh"?(shortZh[plugin.id]||plugin.nameZh):plugin.nameEn,active:view===destination,live:plugin.id==="watcher"&&watcherActive,select:()=>setView(destination)};
+          }),
+        ]} />}
         <div className="topbar-actions">
-          {!standalonePreferences && <InterfaceStyleSwitch value={interfaceStyle} onChange={setInterfaceStyle} language={desktopPreferences.language} />}
-          {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{nativeBridge && <button type="button" className="sponsor-entry-button" title={t("赞助支持", "Support PicLite")} aria-label={t("打开赞助支持", "Open support options")} onClick={() => void nativeBridge.showPreferencesWindow("sponsor")}><HeaderIcon name="heart" /></button>}{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><HeaderIcon name="gear" /></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><HeaderIcon name="floating" /></button>}<button type="button" title={t("切换浅色 / 深色主题", "Toggle light / dark theme")} aria-label={t("切换主题", "Toggle theme")} onClick={toggleHeaderTheme}><HeaderIcon name={resolveTheme(desktopPreferences.theme) === "dark" ? "sun" : "moon"} /></button><button className="language-entry-button" type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
+          {standalonePreferences ? <IconButton label={t("关闭设置窗口", "Close preferences")} symbol="×" onClick={() => void nativeBridge?.hideCurrentWindow()} /> : <>{!nativeBridge && <span className="privacy-badge"><i /> {t("本地处理，图片不上传", "Local processing")}</span>}<span className="topbar-quick-controls">{!nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => { setPreferenceSection("general"); setView("preferences"); }}><HeaderIcon name="gear" /></button>}{nativeBridge && <button type="button" className="sponsor-entry-button" title={t("赞助支持", "Support PicLite")} aria-label={t("打开赞助支持", "Open support options")} onClick={() => void nativeBridge.showPreferencesWindow("sponsor")}><HeaderIcon name="heart" /></button>}{nativeBridge && <button type="button" className="settings-entry-button" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={() => void nativeBridge.showPreferencesWindow("general")}><HeaderIcon name="gear" /></button>}{nativeBridge && <button type="button" className="floating-entry-button" title={t("打开悬浮压缩窗", "Open floating optimiser")} aria-label={t("打开悬浮压缩窗", "Open floating optimiser")} onClick={() => void nativeBridge.showDropzoneWindow()}><HeaderIcon name="floating" /></button>}<AppearanceMenu language={desktopPreferences.language} theme={desktopPreferences.theme} onTheme={theme=>setDesktopPreferences(current=>({...current,theme}))} layout={interfaceStyle} onLayout={setInterfaceStyle} palette={desktopPreferences.colorTheme} onPalette={colorTheme=>setDesktopPreferences(current=>({...current,colorTheme}))}/><button className="language-entry-button" type="button" title={t("切换中文 / English", "Switch Chinese / English")} aria-label={t("切换语言", "Switch language")} onClick={toggleHeaderLanguage}>{desktopPreferences.language === "zh" ? "EN" : "中"}</button></span></>}
         </div>
       </header>
 
@@ -4127,7 +4185,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <strong>{selected?.status === "processing" ? t("计算中…", "Calculating…") : selected?.outputBytes ? formatBytes(selected.outputBytes) : t("导入图片后显示", "Shown after import")}</strong>
                 <small>{selected?.outputBytes ? selected.keptOriginal ? settings.mode === "lossless" ? t("高画质候选没有减小体积，已保留原文件", "High-quality candidates were not smaller, so the original was kept") : selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
               </div>
-              <p className="setting-hint"><i /> {t("三档预设会并行实测原格式、WebP、JPG 和 PNG，并采用体积最小的有效结果；透明图片会自动跳过 JPG。无损优先使用肉眼高质量参数，智能平衡保持原尺寸，更小体积会同时降低画质和尺寸。", "The three presets measure the source format, WebP, JPEG and PNG in parallel and use the smallest valid result; JPEG is skipped for transparent images. Lossless priority uses visually high-quality settings, Smart balance keeps the original dimensions, and Smaller files reduces both quality and dimensions.")}</p>
+              <details className="encoding-help"><summary>{t("智能方案如何选择格式？", "How does smart format selection work?")}</summary><p className="setting-hint"><i /> {t("三档预设会并行实测原格式、WebP、JPG 和 PNG，并采用体积最小的有效结果；透明图片会自动跳过 JPG。无损优先使用肉眼高质量参数，智能平衡保持原尺寸，更小体积会同时降低画质和尺寸。", "The three presets measure the source format, WebP, JPEG and PNG in parallel and use the smallest valid result; JPEG is skipped for transparent images. Lossless priority uses visually high-quality settings, Smart balance keeps the original dimensions, and Smaller files reduces both quality and dimensions.")}</p></details>
             </div>
 
             <div className="setting-section target-size-section">
@@ -4340,10 +4398,20 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             <div className="gallery-summary"><strong>{galleryItems.length}</strong><span>{t("张结果图", "results")}</span><button type="button" onClick={() => void refreshGallery()}>↻ {t("刷新", "Refresh")}</button></div>
           </header>
 
+          <div className="library-folder-toolbar">
+            <div className="library-folder-tabs" role="group" aria-label={t("图库文件夹", "Library folders")}>
+              {[{id:"all",name:t("全部图片", "All images")},{id:"",name:t("未分类", "Uncategorized")},...libraryFolders.folders].map(folder => <button key={folder.id} type="button" aria-pressed={activeFolder === folder.id} onClick={()=>{setActiveFolder(folder.id);setGalleryCheckedIds([]);}}>{folder.name}<small>{galleryItems.filter(item=>folder.id==="all"||(item.folderId||"")===folder.id).length}</small></button>)}
+            </div>
+            <form onSubmit={event=>{event.preventDefault();const name=newFolderName.trim();if(!name||libraryFolders.folders.some(f=>f.name===name))return;const id=crypto.randomUUID();setLibraryFolders(current=>({...current,folders:[...current.folders,{id,name}]}));setNewFolderName("");setActiveFolder(id);}}>
+              <input aria-label={t("新文件夹名称", "New folder name")} placeholder={t("新文件夹名称", "New folder name")} value={newFolderName} maxLength={60} onChange={event=>setNewFolderName(event.target.value)}/><button type="submit" disabled={!newFolderName.trim()}>{t("新建文件夹", "Create folder")}</button>
+            </form>
+            <label>{t("新压缩结果自动归入", "Automatically file new results in")}<select value={libraryFolders.defaultFolderId} onChange={event=>setLibraryFolders(current=>({...current,defaultFolderId:event.target.value}))}><option value="">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+            {activeFolder!=="all"&&activeFolder!==""&&<button type="button" onClick={async()=>{ const id=activeFolder;await moveGalleryToFolder(galleryItems.filter(i=>i.folderId===id).map(i=>i.id),"");setLibraryFolders(current=>({folders:current.folders.filter(f=>f.id!==id),defaultFolderId:current.defaultFolderId===id?"":current.defaultFolderId}));setActiveFolder("all");}}>{t("移除文件夹（图片保留）", "Remove folder (keep images)")}</button>}
+          </div>
           {galleryItems.length ? (
             <>
             <div className="gallery-bulk-toolbar">
-              <button type="button" onClick={() => setGalleryCheckedIds((current) => current.length === galleryItems.length ? [] : galleryItems.map((item) => item.id))}>{galleryCheckedIds.length === galleryItems.length ? t("取消全选", "Clear selection") : t("全选", "Select all")}</button>
+              <button type="button" onClick={() => setGalleryCheckedIds((current) => current.length === visibleGalleryItems.length ? [] : visibleGalleryItems.map((item) => item.id))}>{galleryCheckedIds.length === visibleGalleryItems.length ? t("取消全选", "Clear selection") : t("全选", "Select all")}</button>
               <span>{t(`已选择 ${galleryCheckedIds.length} 张`, `${galleryCheckedIds.length} selected`)}</span>
               <select aria-label={t("批量删除范围", "Bulk delete range")} value={galleryDeleteScope} onChange={(event) => setGalleryDeleteScope(event.target.value as typeof galleryDeleteScope)}>
                 <option value="selected">{t("删除勾选项", "Selected entries")}</option>
@@ -4354,9 +4422,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               </select>
               <button className="danger" type="button" onClick={() => void deleteGalleryBatch()}>{t("批量移除", "Remove batch")}</button>
               <small>{t("只删除图库记录，不删除本地图片", "Library records only; local images are kept")}</small>
+              <select aria-label={t("将勾选图片移到文件夹", "Move selected images to folder")} value="" disabled={!galleryCheckedIds.length} onChange={event=>{if(event.target.value)void moveGalleryToFolder(galleryCheckedIds,event.target.value==="uncategorized"?"":event.target.value);}}><option value="">{t("移动到文件夹…", "Move to folder…")}</option><option value="uncategorized">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>
             </div>
             <div className="gallery-grid">
-              {galleryItems.map((record) => (
+              {visibleGalleryItems.map((record) => (
                 <article className={`gallery-card ${gallerySelectedId === record.id ? "selected" : ""} ${galleryCheckedIds.includes(record.id) ? "checked" : ""}`} key={record.id} tabIndex={0} onClick={() => setGallerySelectedId(record.id)} onDoubleClick={() => { setGallerySelectedId(record.id); setGalleryPreviewId(record.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setGallerySelectedId(record.id); setGalleryPreviewId(record.id); } }}>
                   <label className="gallery-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={galleryCheckedIds.includes(record.id)} onChange={(event) => setGalleryCheckedIds((current) => event.target.checked ? [...new Set([...current, record.id])] : current.filter((id) => id !== record.id))} /><span>{t("选择", "Select")}</span></label>
                   <button className="gallery-preview" type="button" tabIndex={-1} onClick={() => setGallerySelectedId(record.id)} onDoubleClick={() => setGalleryPreviewId(record.id)} aria-label={t(`预览 ${record.name}`, `Preview ${record.name}`)}><img src={record.previewUrl} alt={record.name} /><span>{record.width} × {record.height}</span><em>{t("双击预览", "Double-click to preview")}</em></button>
@@ -4364,6 +4433,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                     <strong title={record.name}>{record.name}</strong>
                     <small>{new Date(record.createdAt).toLocaleString(desktopPreferences.language === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} · {formatBytes(record.outputBytes)} · {sizeChangeLabel(record.originalBytes, record.outputBytes)}</small>
                     {record.remoteUrl && <button className="gallery-link" type="button" title={record.remoteUrl} onClick={() => void copyRemoteUrl(record.remoteUrl!)}><span>↗</span><b>{record.remoteUrl}</b><em>{t("复制链接", "Copy URL")}</em></button>}
+                    <label className="gallery-folder-picker">{t("文件夹", "Folder")}<select aria-label={t(`分类 ${record.name}`, `Folder for ${record.name}`)} value={record.folderId || ""} onClick={event=>event.stopPropagation()} onChange={event=>void moveGalleryToFolder([record.id],event.target.value)}><option value="">{t("未分类", "Uncategorized")}</option>{libraryFolders.folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
                     <div className="gallery-actions">
                       <button type="button" onClick={() => void copyGalleryResult(record)}>⧉ {t("复制图片", "Copy image")}</button>
                       <button type="button" onClick={() => downloadGalleryResult(record)}>↓ {t("保存文件", "Save file")}</button>
@@ -4374,6 +4444,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   </div>
                 </article>
               ))}
+              {!visibleGalleryItems.length && <p className="gallery-empty">{t("此文件夹尚无图片，可将现有图片移入，或将它设为自动归类目标。", "This folder is empty. Move images here or select it as the automatic destination.")}</p>}
             </div>
             </>
           ) : (
@@ -4445,6 +4516,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             {(preferenceSection === "general" || preferenceSection === "floating") && <section className="preference-card">
               <div className="preference-card-heading"><span>{preferenceSection === "floating" ? t("悬浮结果", "Floating Results") : t("外观与通用", "Appearance and general")}</span><small>{preferenceSection === "floating" ? t("外观与交互", "Appearance and behaviour") : t("窗口、系统与界面偏好", "Window, system and appearance preferences")}</small></div>
+              <label className="preference-row clickable"><div><strong>{t("新版悬浮窗", "New floating window")}</strong><small>{t("图片铺满悬浮窗，控件随图片明暗调整；关闭使用经典版", "Fill the floating window with the image and adapt controls to its brightness; turn off for classic")}</small></div><button className={`switch ${desktopPreferences.floatingStyle === "immersive" ? "on" : ""}`} type="button" role="switch" aria-label={t("新版悬浮窗", "New floating window")} aria-checked={desktopPreferences.floatingStyle === "immersive"} onClick={() => setDesktopPreferences((current) => ({ ...current, floatingStyle: current.floatingStyle === "immersive" ? "classic" : "immersive" }))}><i /></button></label>
               {preferenceSection === "general" && <>
                 <label className="preference-row clickable"><div><strong>{t("在任务栏 / Dock 显示", "Show in taskbar / Dock")}</strong><small>{desktopPreferences.showInTaskbarDock ? t("开启后主窗口失焦不隐藏，可从任务栏或 Dock 随时切换回来", "Keep the main window visible after focus changes and return from the taskbar or Dock") : t("关闭后不占用任务栏或 Dock，主窗口失焦时隐藏到托盘 / 菜单栏", "Hide the main window to the tray or menu bar when it loses focus")}</small></div><button className={`switch ${desktopPreferences.showInTaskbarDock ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.showInTaskbarDock} onClick={() => setDesktopPreferences((current) => ({ ...current, showInTaskbarDock: !current.showInTaskbarDock }))}><i /></button></label>
                 <div className="preference-row"><div><strong>{t("自动检查更新", "Automatic update checks")}</strong><small>{t("按设定频率检查 GitHub Releases；手动检查始终显示结果", "Check GitHub Releases at the selected interval; manual checks always show a result")}</small></div><select value={desktopPreferences.updateCheckFrequency} onChange={(event) => { const updateCheckFrequency = event.target.value as UpdateCheckFrequency; setDesktopPreferences((current) => ({ ...current, updateCheckFrequency, autoCheckUpdates: updateCheckFrequency !== "never" })); }}><option value="startup">{t("打开软件时", "When PicLite opens")}</option><option value="daily">{t("每天", "Daily")}</option><option value="weekly">{t("每周", "Weekly")}</option><option value="never">{t("不自动检查", "Never")}</option></select></div>
@@ -4456,9 +4528,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 </div>
               </div>
               <div className="preference-row column">
-                <div><strong>{t("界面配色", "Colour theme")}</strong><small>{t("石墨蓝更清爽，也可以随时切回经典绿色", "Graphite is cleaner, and the classic green remains available")}</small></div>
+                <div><strong>{t("界面配色", "Colour theme")}</strong><small>{t("纯白与多种配色可选；液态玻璃使用中性透明材质", "Choose pure white or a colour palette; Liquid Glass stays neutral")}</small></div>
                 <div className="palette-picker">
                   {([
+                    ['white', t('纯白', 'Pure white'), t('纯净 · 中性', 'Clean · neutral')],
                     ['graphite', t('石墨蓝', 'Graphite'), t('克制 · 清晰', 'Neutral · crisp')],
                     ['mist', t('雾蓝', 'Mist blue'), t('轻盈 · 通透', 'Light · airy')],
                     ['violet', t('紫晶', 'Violet'), t('柔和 · 现代', 'Soft · modern')],
@@ -4527,7 +4600,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             {preferenceSection === "plugins" && <section className="preference-card plugin-preference-card">
               <div className="preference-card-heading"><span>{t("工作台插件", "Workbench plugins")}</span><small>{t("HTML / JavaScript 直接在可信插件容器中运行，不再使用 iframe", "HTML / JavaScript runs directly in a trusted plugin container, without iframes")}</small></div>
-              {workspacePlugins.map((plugin) => <div className="preference-row plugin-row" key={plugin.id}><div>{plugin.kind === "builtin" ? <strong>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</strong> : <input className="plugin-name-input" aria-label={t("插件名称", "Plugin name")} value={desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn} onChange={(event) => { const name = event.target.value; setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, nameZh: name, nameEn: name } : item)); }} />}<small>{plugin.kind === "builtin" ? t("内置插件", "Built-in plugin") : plugin.kind === "url" ? plugin.url : t("本地可信插件", "Local trusted plugin")}</small></div><div className="plugin-row-actions"><button className={`switch ${plugin.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={plugin.enabled} onClick={() => setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, enabled: !item.enabled } : item))}><i /></button>{plugin.kind !== "builtin" && <button className="preference-action danger" type="button" onClick={() => setWorkspacePlugins((current) => current.filter((item) => item.id !== plugin.id))}>{t("移除", "Remove")}</button>}</div></div>)}
+              {workspacePlugins.map((plugin) => <div className="preference-row plugin-row" key={plugin.id}><div>{plugin.kind === "builtin" ? <strong>{desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn}</strong> : <input className="plugin-name-input" aria-label={t("插件名称", "Plugin name")} value={desktopPreferences.language === "zh" ? plugin.nameZh : plugin.nameEn} onChange={(event) => { const name = event.target.value; setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, nameZh: name, nameEn: name } : item)); }} />}<small>{plugin.kind === "builtin" ? t("内置插件", "Built-in plugin") : plugin.kind === "url" ? plugin.url : t("本地可信插件", "Local trusted plugin")}</small></div><div className="plugin-row-actions"><button type="button" aria-label={t("上移插件", "Move plugin up")} disabled={workspacePlugins[0]?.id===plugin.id} onClick={()=>movePluginInSettings(plugin.id,-1)}>↑</button><button type="button" aria-label={t("下移插件", "Move plugin down")} disabled={workspacePlugins[workspacePlugins.length-1]?.id===plugin.id} onClick={()=>movePluginInSettings(plugin.id,1)}>↓</button><button className={`switch ${plugin.enabled ? "on" : ""}`} type="button" role="switch" aria-checked={plugin.enabled} onClick={() => setWorkspacePlugins((current) => current.map((item) => item.id === plugin.id ? { ...item, enabled: !item.enabled } : item))}><i /></button>{plugin.kind !== "builtin" && <button className="preference-action danger" type="button" onClick={() => setWorkspacePlugins((current) => current.filter((item) => item.id !== plugin.id))}>{t("移除", "Remove")}</button>}</div></div>)}
               <div className="plugin-import-panel"><button className="preference-action" type="button" onClick={() => pluginInputRef.current?.click()}>{t("导入 HTML / JS / manifest.json", "Import HTML / JS / manifest.json")}</button><span>{t("或添加网页插件", "or add a web plugin")}</span><input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder={t("自定义插件名称", "Custom plugin name")} /><input value={pluginUrl} onChange={(event) => setPluginUrl(event.target.value)} placeholder="https://banner.xmit.dev/" /><button className="preference-action" type="button" onClick={() => void addUrlPlugin()}>{t("读取并添加", "Fetch and add")}</button></div>
               <p className="plugin-security-note">{t("非 iframe 插件拥有页面脚本执行能力，只安装你信任的 HTML / JavaScript。插件需要宿主能力时可调用 window.PicLitePlugin.post()。", "Non-iframe plugins can execute page scripts. Install only HTML / JavaScript you trust. Plugins can request host capabilities with window.PicLitePlugin.post().")}</p>
             </section>}

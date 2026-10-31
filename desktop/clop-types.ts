@@ -1,13 +1,13 @@
 export type Language = "zh" | "en";
 export type Appearance = "system" | "light" | "dark";
-export type ColorTheme = "graphite" | "mist" | "violet" | "green";
+export type ColorTheme = "graphite" | "mist" | "violet" | "green" | "white";
 export type UpdateCheckFrequency = "startup" | "daily" | "weekly" | "never";
 export type ResultLayout = "compact" | "full";
 export type ResultDisplayMode = "stack" | "list";
 export type FilePlacement = "same-folder" | "fixed-folder";
 export type ImageFormat = "keep" | "jpeg" | "png" | "webp";
 export type CleanupUnit = "hours" | "days" | "months";
-export type FloatingAction = "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
+export type FloatingAction = "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
 
 export type FloatingWatermark = {
   text: string;
@@ -75,6 +75,7 @@ export type DesktopSettings = {
   batchThreshold: number;
   enableFloatingResults: boolean;
   allowFloatingCapture: boolean;
+  floatingStyle: "immersive" | "classic";
   floatingLayout: ResultLayout;
   floatingDisplayMode: ResultDisplayMode;
   floatingMaxResults: number;
@@ -82,6 +83,7 @@ export type DesktopSettings = {
   floatingCorner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   floatingWidth: number;
   floatingHeight: number;
+  floatingCornerRadius: number;
   floatingActions: FloatingAction[];
   floatingWatermark: FloatingWatermark;
   autoHideResults: boolean;
@@ -217,6 +219,13 @@ export type WatcherSettings = {
 
 export type NativeImage = { name: string; type: string; path: string; data: Uint8Array; previewData?: Uint8Array; previewType?: string; width?: number; height?: number };
 
+export type WindowMaterialState = {
+  backend: "nsglass-regular" | "nsglass-clear" | "nsvisualeffect" | "opaque" | "unsupported";
+  enabled: boolean;
+  reducedTransparency: boolean;
+  radius: number;
+};
+
 export type PicLiteBridge = {
   platform: string;
   windowLabel: string;
@@ -226,6 +235,11 @@ export type PicLiteBridge = {
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;
   cacheImageData: (data: Uint8Array, fileName: string) => Promise<string>;
+  editFloatingImage: (path: string, edit: { x: number; y: number; width: number; height: number; outputWidth: number; outputHeight: number }) => Promise<string>;
+  saveFloatingResult: (path: string, folder: string) => Promise<string>;
+  openCropEditor: (path: string) => Promise<string | null>;
+  getCropEditorSource: (request: string) => Promise<{ path: string; name: string; width: number; height: number; preview: string }>;
+  finishCropEditor: (request: string, edit: { x: number; y: number; width: number; height: number; outputWidth: number; outputHeight: number } | null) => Promise<void>;
   copyImagePath: (path: string) => Promise<void>;
   selectImages: () => Promise<NativeImage[]>;
   readImagesFromPaths: (paths: string[]) => Promise<NativeImage[]>;
@@ -255,6 +269,7 @@ export type PicLiteBridge = {
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
   updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock?: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
   setWindowTheme: (theme: Appearance) => Promise<void>;
+  setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<WindowMaterialState>;
   startDragging: () => Promise<void>;
   startResizeDragging: (direction: "SouthEast") => Promise<void>;
   showMainWindow: () => Promise<void>;
