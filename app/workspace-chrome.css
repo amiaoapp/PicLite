@@ -83,8 +83,17 @@ html .app-shell.studio-shell .topbar-actions{grid-row:auto;grid-column:auto}
 @media(max-width:1000px){html .app-shell.studio-shell .topbar.topbar{grid-template-columns:minmax(142px,max-content) minmax(0,1fr) auto;gap:8px;padding-inline:12px}}
 
 html[data-density] .app-shell.desktop-app .workspace>:is(.queue-panel,.preview-panel,.settings-panel){min-height:0;height:100%;max-height:100%}
-html[data-density] .app-shell.desktop-app .workspace .preview-panel{grid-template-rows:50px minmax(0,1fr) auto}
+/* Typography can grow independently of the image canvas. Reserve the actual
+   toolbar content height instead of painting it into a fixed 50px grid row. */
+html[data-density] .app-shell:is(.desktop-app,.web-app) .workspace>.preview-panel{grid-template-rows:minmax(50px,max-content) minmax(0,1fr) auto}
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;min-width:0}
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-toolbar>div:first-child{display:flex;flex:1 1 180px;min-width:0}
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-toolbar>div:first-child>strong{max-width:100%}
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-mode-tabs,
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-tools{flex:0 0 auto}
+html[data-density] .app-shell:is(.classic-shell,.studio-shell) .workspace .preview-tools{margin-left:auto}
 html[data-density] .app-shell.desktop-app .workspace .preview-stage{min-height:0}
+html[data-density] .app-shell:is(.desktop-app,.web-app) .workspace .preview-stage>:is(.compare-canvas,.image-inspector){min-height:0;max-height:100%}
 html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0;max-height:100%}
 
 .app-shell .toast{top:76px;right:18px;left:auto;bottom:auto;transform:none;max-width:min(360px,calc(100vw - 36px));white-space:normal;animation:none}

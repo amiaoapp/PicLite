@@ -19,6 +19,6 @@ test('metrics, dimensions and tools retain compact fixed proportions',()=>{
  assert.match(css,/\.result-metrics\{font-size:18px!important/);
  assert.match(css,/\.result-dimensions\{[^}]*font-size:10px!important/);
  assert.ok(css.includes('--action-size:38px'));
- assert.ok(css.includes('--action-size:30px'));
+ assert.ok(css.includes('--action-size:26px'));
  assert.ok(css.includes('width:16px!important;height:16px!important'));
 });

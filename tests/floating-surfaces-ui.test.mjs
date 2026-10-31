@@ -70,7 +70,7 @@ const rgba = color => color.match(/[\d.]+/g).map(Number);
 const luminance = rgb => rgb.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
 const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
 
-test('floating controls keep idle backgrounds absent and hover readable in both themes', async () => {
+test('floating controls hide idle surfaces and remain readable on hover/focus in both themes', async () => {
  await withStyles(async ({ send, evaluate }) => {
   // CSS import order can differ between direct desktop and bundled entrypoints.
   for (const order of [[0, 1, 2, 3], [1, 2, 0, 3]]) {
@@ -80,18 +80,30 @@ test('floating controls keep idle backgrounds absent and hover readable in both 
     await evaluate(`(()=>{document.documentElement.dataset.theme='${theme}'; for(const e of document.querySelectorAll('[data-image-tone]'))e.dataset.imageTone='${tone}';document.querySelector('main').dataset.floatingStyle='${style}';const card=document.querySelector('.result-card');card.className='result-card ${style === 'classic' ? 'classic' : 'integrated'}-result-card';document.querySelector('.floating-footer').classList.toggle('classic-floating-footer','${style}'==='classic');const browser=document.querySelector('aside');browser.dataset.tone='${tone}';browser.className='browser-floating-result style-${style}';})()`);
     const { root } = await send('DOM.getDocument');
     const { nodeIds } = await send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: desktopButtons + ',' + browserButtons });
+    const { nodeId: browserId } = await send('DOM.querySelector', { nodeId: root.nodeId, selector: '.browser-floating-result' });
     for (const state of [[], ['hover'], ['active'], ['focus-visible']]) {
      for (const nodeId of nodeIds) await send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: state });
-     const buttons = await evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(desktopButtons + ',' + browserButtons)})).filter(e=>!e.closest('.result-card') || (document.querySelector('main').dataset.floatingStyle==='classic' ? !e.matches('.floating-card-icon,.floating-card-formats button,.crop-window-trigger,.floating-editor-footer button,.floating-overflow-menu button') : !e.matches('.result-close,.format-bar button'))).map(e=>{const s=getComputedStyle(e);return{label:e.className+' '+e.textContent,background:s.backgroundColor,ink:s.color,outline:s.outlineWidth,outlineStyle:s.outlineStyle,shadow:s.boxShadow,filter:s.filter,blur:s.backdropFilter,disabled:e.disabled}})`);
+     await send('CSS.forcePseudoState', { nodeId: browserId, forcedPseudoClasses: state.length ? [state.includes('focus-visible') ? 'focus-within' : 'hover'] : [] });
+     const buttons = await evaluate(`Array.from(document.querySelectorAll(${JSON.stringify(desktopButtons + ',' + browserButtons)})).filter(e=>!e.closest('.result-card') || (document.querySelector('main').dataset.floatingStyle==='classic' ? !e.matches('.floating-card-icon,.floating-card-formats button,.crop-window-trigger,.floating-editor-footer button,.floating-overflow-menu button') : !e.matches('.result-close,.format-bar button'))).map(e=>{const s=getComputedStyle(e);let visibleOpacity=1;for(let p=e;p;p=p.parentElement)visibleOpacity*=Number(getComputedStyle(p).opacity);return{browser:!!e.closest('.browser-floating-result'),visibleOpacity,label:e.className+' '+e.textContent,background:s.backgroundColor,ink:s.color,outline:s.outlineWidth,outlineStyle:s.outlineStyle,shadow:s.boxShadow,filter:s.filter,blur:s.backdropFilter,disabled:e.disabled}})`);
      for (const button of buttons) {
       const label = `${context}/${state}/${button.label}`;
       const bg = rgba(button.background), ink = rgba(button.ink);
-      if (!state.length && !button.label.includes('primary') && !button.label.includes('Apply') && !button.label.includes('Cancel') && !button.label.includes('Save copy') && !button.label.includes('Open image')) assert.ok(bg.length===4 && bg[3]===0, `${label}: no idle button fill, got ${button.background}`);
+      if (button.browser) {
+       if (!state.length) assert.equal(button.visibleOpacity,0,`${label}: filled browser controls are hidden at idle`);
+       else {
+        assert.ok(button.visibleOpacity>0,`${label}: browser controls revealed on hover/focus`);
+        assert.ok(bg.length===3||bg[3]===1,`${label}: browser controls have opaque neutral fill`);
+        assert.ok(luminance(bg.slice(0,3))>.8,`${label}: browser controls use light fill`);
+        assert.ok(luminance(ink.slice(0,3))<.08,`${label}: browser controls use dark ink`);
+        assert.ok(contrast(ink.slice(0,3),bg.slice(0,3))>=7,`${label}: browser glyph contrast >=7`);
+       }
+      }
+      if (!button.browser && !state.length && !button.label.includes('primary') && !button.label.includes('Apply') && !button.label.includes('Cancel') && !button.label.includes('Save copy') && !button.label.includes('Open image')) assert.ok(bg.length===4 && bg[3]===0, `${label}: no idle button fill, got ${button.background}`);
       if(state.includes('hover') && !button.disabled && bg[3]>0 && !button.label.includes('Open image') && !button.label.includes('Cancel') && !button.label.includes('Apply')) {
        const composite=bg.slice(0,3).map(value=>value*bg[3]+32*(1-bg[3]));
        assert.ok(contrast(ink,composite)>=3, `${label}: hover text remains readable`);
       }
-      assert.ok(button.outlineStyle === 'none' || parseFloat(button.outline) <= 1, `${label}: no thick outlines`);
+      assert.ok(button.outlineStyle === 'none' || parseFloat(button.outline) <= (button.browser ? 2 : 1), `${label}: bounded focus outline`);
       assert.doesNotMatch(button.shadow, /inset.* 2px/, `${label}: no heavy inset ring`);
       assert.equal(button.filter, 'none', `${label}: no brightness filter`);
       assert.equal(button.blur, 'none', `${label}: no glass blur`);

@@ -1,0 +1,10 @@
+# UI Preview 13
+
+- Comparison heading and empty-state subtitle grow with interface typography. The toolbar reserves content height and wraps controls rather than allowing the canvas to cover text. Verified 72 real production cases across Chinese/English, classic/studio, 90/110/150%, empty/image states and three viewport sizes.
+- Floating hover/focus now follows the new Clop reference: always two rows of three light neutral rounded-square controls with dark icons, a full-preview frosted layer, close/more at upper corners, crop/filename badge at lower corners above output formats. At the reference size targets reach 68px with 16px gaps. Small windows retain both rows with smaller targets and separate filename space.
+- Idle preview retains the previous compact filesize/dimension readouts and lower-only progressive blur. Hover frost affects preview layers only; compression, image export pixels and preset parameters are unchanged.
+- Secondary immersive window commands remain reachable in More rather than a crowded duplicate footer. Classic retains its distinct layout; its footer now has stable dark backing and light text/icons regardless of source tone or application theme.
+- Pointer/focus state is mirrored into a data attribute as well as CSS pseudo-classes, so inactive WKWebView focus events still reveal controls. macOS WKWebView verified real focus activation, 18px blur and light targets/dark glyphs.
+- Browser/Docker in-page floating results use matching 3×2 targets, full hover frost, functional close/more, and theme-aware classic captions/menu. Browser output format remains a truthful readout and native-only controls are not fabricated.
+
+Production verification: 16 desktop layout/pointer cases at four sizes, actual More/workbench callbacks, 72 comparison heading cases, eight browser style/theme/image-tone cases, browser real import/compression/copy/download/next/reprocess/compare/settings. Snapshot and source styling checks do not replace final package or deployment verification; see delivery reports for those results.

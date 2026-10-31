@@ -67,6 +67,7 @@ export function FloatingResultEditor(p:Props){
         <footer className="floating-editor-footer"><button disabled={busy} onClick={close}>{t('取消','Cancel')}</button><button data-action="apply-edit" className="primary" disabled={busy} onClick={()=>void apply()}>{busy?t('处理中…','Processing…'):t('应用','Apply')}</button></footer>
       </section>}
     </div>
+    {!qualityMode && <span className="floating-filename-badge" title={p.filename}>{p.filename}</span>}
     <div className="floating-card-bottom" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
       <button data-action="crop" className="floating-card-icon crop-window-trigger" disabled={busy||!canEdit} aria-label={t('打开裁切编辑器','Open crop editor')} title={t('裁切与尺寸（独立窗口）','Crop and resize in a separate window')} onClick={()=>void crop()}><Crop/></button>
       <div className="format-bar floating-card-formats" aria-label={t('输出格式','Output format')}>
