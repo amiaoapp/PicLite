@@ -1,34 +1,20 @@
-import glassCss from "./liquid-glass.css?raw";
-
 const coverCss = `
-html[data-material="glass"] { --bg: var(--glass-solid); --card: var(--glass-tint); --muted: var(--glass-muted); --accent: var(--glass-accent); }
-html[data-material="glass"] body { background:var(--glass-depth); color:var(--ink); }
-html[data-material="glass"] .panel { background:var(--glass-wash),var(--glass-tint); border:1px solid var(--glass-edge); box-shadow:var(--glass-shadow); }
-html[data-material="glass"] :is(.module-group,.preset-bar,.uploader) { background:var(--glass-wash),var(--glass-tint); border-color:var(--glass-edge); }
-html[data-material="glass"] .editor-toolbar { background:var(--glass-wash),var(--glass-popover); border-color:var(--glass-edge); box-shadow:var(--glass-shadow); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); }
-/* Editor canvas and its surround retain the source editor's pixel treatment. */
-html[data-material="glass"] :is(.module-title,.control-row label) { color:var(--ink); }
-html[data-material="glass"] :is(input[type=number],input[type=text],select,.btn) { background:var(--glass-solid); color:var(--ink); border:1px solid var(--glass-edge); }
-html[data-material="glass"] .btn.primary { background:var(--deep); color:var(--paper); }
-html[data-material="glass"] :is(button,input,select):focus-visible { outline:2px solid var(--deep); outline-offset:3px; }
-@media(prefers-reduced-motion:reduce) { html[data-material="glass"] * { transition:none; } }
+:root { --bg:var(--paper); --card:var(--surface); --muted:var(--host-muted); --accent:var(--deep); }
+.theme-inline .theme-btn,.theme-inline .theme-label { display:none!important; }
 `;
 
-/** Bind only to PicLite's trusted same-origin srcDoc cover iframe, after load.
- * Returns cleanup; never access or inject into arbitrary plugin/external frames.
- * Presentation CSS never touches the canvas drawing or exported cover pixels. */
+/** Synchronize the trusted same-origin cover iframe without changing export pixels. */
 export function bindCoverMaterial(frame: HTMLIFrameElement, source = document.documentElement): () => void {
   const target = frame.contentDocument;
   if (!target) return () => {};
   const root = target.documentElement;
-  const previous = target.getElementById("piclite-cover-material");
-  previous?.remove();
+  target.getElementById("piclite-cover-material")?.remove();
   const style = target.createElement("style");
   style.id = "piclite-cover-material";
-  style.textContent = glassCss + coverCss + " .theme-inline .theme-btn,.theme-inline .theme-label{display:none!important}";
+  style.textContent = coverCss;
   target.head.appendChild(style);
   const tokens = ["--ink", "--paper", "--deep", "--surface", "--line"];
-  const attributes = ["data-theme", "data-palette", "data-material", "data-transparency", "data-platform", "data-native-material"];
+  const attributes = ["data-theme", "data-palette", "data-platform"];
   const sync = () => {
     for (const attribute of attributes) {
       const value = source.getAttribute(attribute);
@@ -36,6 +22,7 @@ export function bindCoverMaterial(frame: HTMLIFrameElement, source = document.do
     }
     const computed = getComputedStyle(source);
     for (const token of tokens) root.style.setProperty(token, computed.getPropertyValue(token));
+    root.style.setProperty("--host-muted", computed.getPropertyValue("--muted"));
     root.style.colorScheme = source.dataset.theme === "dark" ? "dark" : "light";
   };
   sync();

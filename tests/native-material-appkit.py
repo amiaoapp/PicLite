@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run the production AppKit helpers in a disposable native window (no package build).
-Requires macOS 26+, an interactive desktop, and compiled debug Rust dependencies.
+Requires macOS, an interactive desktop, and compiled debug Rust dependencies.
 """
 from pathlib import Path
 import subprocess
@@ -14,9 +14,7 @@ scratch = Path.home() / ".hermes/cache/scratch/piclite-appkit-test"
 scratch.mkdir(parents=True, exist_ok=True)
 rust = r'''
 use objc2::{msg_send, rc::Retained, runtime::{AnyClass, AnyObject}, MainThreadMarker};
-use objc2_app_kit::{NSAutoresizingMaskOptions, NSGlassEffectView, NSGlassEffectViewStyle,
-    NSUserInterfaceItemIdentification, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSColor, NSUserInterfaceItemIdentification, NSView, NSWindow};
 use objc2_foundation::{NSString, NSRect, NSPoint, NSSize};
 use std::ffi::CStr;
 '''+helpers+r'''
@@ -71,7 +69,9 @@ fn main() { unsafe {
     println!("TITLEBAR {} frame={:?} bounds={:?} layout={:?} style={:?} web={:?} content={:?}", host.class().name().to_string_lossy(), host.frame(), host.bounds(), layout, style, web.frame(), content.frame());
     // Transparent Tauri/Wry windows implicitly enable FullSizeContentView.
     // A native titlebar must never obscure the first 32 points of the DOM.
-    titlebar_material(&window, mtm, true);
+    standard_backing(&window, false, 18.).unwrap();
+    assert!(window.isOpaque());
+    assert_eq!(window.backgroundColor().alphaComponent(), 1.);
     assert_eq!(window.styleMask().0 & 32768, 0, "Tauri full-size content overlaps native titlebar");
     assert_eq!(content.frame().size.height, window.contentLayoutRect().size.height);
     assert_eq!(web.frame().size.height, content.bounds().size.height);
@@ -80,10 +80,12 @@ fn main() { unsafe {
         let cls = AnyClass::get(CStr::from_bytes_with_nul(b"NSAppearance\0").unwrap()).unwrap();
         let appearance: Retained<AnyObject> = msg_send![cls, appearanceNamed: &*NSString::from_str(appearance)];
         let _: () = msg_send![&window, setAppearance: &*appearance];
-        for enabled in [false, true, true, false] {
+        for repeat in 0..4 {
             for (width, height) in [(820.,540.), (1120.,700.)] {
                 window.setContentSize(NSSize::new(width,height));
-                titlebar_material(&window, mtm, enabled);
+                standard_backing(&window, false, 18.).unwrap();
+                assert!(window.isOpaque());
+                assert_eq!(window.backgroundColor().alphaComponent(), 1.);
                 window.contentView().unwrap().superview().unwrap().layoutSubtreeIfNeeded();
                 assert_eq!(window.styleMask().0 & 32768, 0);
                 assert!(!window.titlebarAppearsTransparent());
@@ -93,25 +95,17 @@ fn main() { unsafe {
                 let web_rect: NSRect = msg_send![&web, convertRect: web.bounds(), toView: std::ptr::null::<NSView>()];
                 let title_rect: NSRect = msg_send![&host, convertRect: host.bounds(), toView: std::ptr::null::<NSView>()];
                 assert!(web_rect.origin.y + web_rect.size.height <= title_rect.origin.y + 0.01, "native titlebar must not intersect WKWebView");
-                println!("BOUNDARY enabled={enabled} web={web_rect:?} titlebar={title_rect:?} style={:?}", window.styleMask());
+                println!("BOUNDARY repeat={repeat} web={web_rect:?} titlebar={title_rect:?} style={:?}", window.styleMask());
                 assert!(!host.subviews().iter().any(|v| v.identifier().is_some_and(|id| id.to_string().starts_with(TITLEBAR_IDENTIFIER))));
             }
         }
     }
     assert_eq!(button.frame().size, button_frame.size);
-    let material = make_material(mtm, &content, 10., true);
-    let glass = material.downcast_ref::<NSGlassEffectView>().unwrap();
-    assert_eq!(glass.style(), NSGlassEffectViewStyle::Regular);
-    assert!(glass.tintColor().is_none());
-    material.setIdentifier(Some(&NSString::from_str(IDENTIFIER)));
-    fit_material(&material, &content);
-    fit_material(&material, &content);
-    assert_eq!(content.subviews().len(), 2);
-    assert_eq!(content.subviews().objectAtIndex(0), material);
+    assert!(!content.subviews().iter().any(|v| v.identifier().is_some_and(|id| id.to_string() == IDENTIFIER)));
     assert_eq!(web.superview().unwrap(), content);
     for radius in [10., 0., 24., 0.] {
         clip_floating_tree(&content, radius);
-        for view in [&*content, &*web, &*material] {
+        for view in [&*content, &*web] {
             let layer: Retained<AnyObject> = msg_send![view, layer];
             let actual: f64 = msg_send![&layer, cornerRadius];
             let masks: bool = msg_send![&layer, masksToBounds];
@@ -119,8 +113,7 @@ fn main() { unsafe {
             assert_eq!(masks, radius > 0.);
         }
     }
-    // Remove glass: standard/off still updates the root and actual WebView clip.
-    material.removeFromSuperview();
+    // Standard backing still updates the root and actual WebView clip.
     for radius in [24., 0.] {
         clip_floating_tree(&content, radius);
         for view in [&*content, &*web] {
@@ -138,7 +131,7 @@ fn main() { unsafe {
     let floating_web: Retained<NSView> = msg_send![allocated, initWithFrame: floating_root.bounds()];
     floating_root.addSubview(&floating_web);
     for radius in [10., 0.] {
-        clip_floating_tree(&floating_root, radius);
+        standard_backing(&floating, true, radius).unwrap();
         let frame = floating_root.superview().unwrap();
         clip_view(&frame, radius);
         floating.invalidateShadow();
@@ -155,14 +148,10 @@ fn main() { unsafe {
     assert!(!floating.isOpaque());
     let floating_style = floating.styleMask();
     let floating_bounds = floating_root.bounds();
-    titlebar_material(&floating, mtm, true);
+    titlebar_material(&floating);
     assert_eq!(floating.styleMask(), floating_style);
     assert_eq!(floating_root.bounds(), floating_bounds);
-    let fallback = make_material(mtm, &content, 0., false);
-    let fallback = fallback.downcast_ref::<NSVisualEffectView>().unwrap();
-    assert_eq!(fallback.material(), NSVisualEffectMaterial::Popover);
-    assert_eq!(fallback.blendingMode(), NSVisualEffectBlendingMode::BehindWindow);
-    println!("PASS real Tauri/Wry window: no titlebar/WKWebView intersection, preserved content sizes 820x540/1120x700, Aqua/Dark Aqua, repeated standard/glass toggles; Regular nil-tint single sibling; native floating radius10/0/24/0 and standard/off24/0");
+    println!("PASS real Tauri/Wry: opaque backing, no titlebar/WKWebView intersection, preserved 820x540/1120x700 viewports, Aqua/Dark Aqua, repeated standard application; transparent floating backing and native radius10/0/24/0");
 }}
 '''
 path = scratch / "probe.rs"

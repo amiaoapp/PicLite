@@ -106,7 +106,13 @@ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(
 /* Populated windows are one image surface, including both bottom toolbars. */
 html[data-theme] .floating-results.floating-results.has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html .floating-results.has-image.display-stack{grid-template-rows:minmax(0,1fr)}
-html .floating-results.has-image .floating-list.stack{padding:0}
+html .floating-results.has-image .floating-list.stack{padding:0;z-index:1;isolation:isolate}
+html .floating-results.has-image .floating-list.stack .floating-result-slot{transform:none;z-index:auto}
+.floating-window-image{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.floating-window-image .floating-image-slot{visibility:visible!important}
+.floating-results .floating-footer .floating-result-next{width:auto;flex:0 0 auto;min-width:30px;font-size:9px}
+html .floating-results.has-image .result-overlay,html .floating-results.has-image .result-hover-actions{background:transparent!important;filter:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results.has-image .floating-footer{z-index:30;isolation:isolate;pointer-events:auto}
 html .floating-results.has-image.display-stack>.floating-footer{position:absolute;inset:auto 0 0;height:32px;z-index:9}
 html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing)>.floating-card-bottom{bottom:32px}
 html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing) .result-overlay{bottom:64px}

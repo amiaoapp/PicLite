@@ -6,6 +6,7 @@ import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
+import { FloatingPreviewImage } from "./floating-preview-image";
 import { floatingRadius } from "./floating-appearance";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
@@ -106,6 +107,17 @@ async function ensureFontLoaded(api: PicLiteBridge, family: string, systemFonts?
 function useDesktopSettings() {
   const [settings, setSettingsState] = useState(loadSettings);
   useEffect(() => subscribeSettings(setSettingsState), []);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const theme = settings.appearance === "system" ? (media.matches ? "dark" : "light") : settings.appearance;
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.palette = settings.colorTheme;
+      document.documentElement.style.colorScheme = theme;
+    };
+    apply(); media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [settings.appearance, settings.colorTheme]);
   const setSettings = useCallback((next: DesktopSettings | ((current: DesktopSettings) => DesktopSettings)) => {
     setSettingsState((current) => {
       const value = typeof next === "function" ? next(current) : next;
@@ -771,6 +783,8 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     setSelectedId(next[0].id);
     return next;
   });
+  const currentResult = results.find(item => item.id === selectedId) || results[0];
+  const visibleResults = settings.floatingDisplayMode === "stack" ? (currentResult ? [currentResult] : []) : results;
   const compressionNotice = operationNotice?.text || updateNotice?.text;
   const smartCompressionEnabled = settings.preset.mode === "auto";
   const toggleCompressionMode = () => {
@@ -807,6 +821,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
   return <main style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+    {settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -820,13 +835,13 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
         </div>
       </div>
     </section> : <>
-      <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{results.map((item, index) => {
-        const active = selectedId ? selectedId === item.id : index === 0;
+      <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{visibleResults.map((item, index) => {
+        const active = currentResult?.id === item.id;
         return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />

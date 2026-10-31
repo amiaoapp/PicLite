@@ -49,11 +49,12 @@ try{
  await evaluate(`(()=>{const plugins=JSON.parse(localStorage.getItem('piclite.workspacePlugins.v2'));plugins.find(p=>p.id==='gallery').enabled=true;localStorage.setItem('piclite.workspacePlugins.v2',JSON.stringify(plugins));window.dispatchEvent(new StorageEvent('storage',{key:'piclite.workspacePlugins.v2'}));})()`);await pause(100);
  assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-tool-id]')].map(e=>e.dataset.toolId)`),order);
  await evaluate(`document.querySelector('.appearance-trigger').click()`);await wait('!!document.querySelector(".appearance-panel")');
- assert.equal(await evaluate(`document.querySelector('.appearance-panel').querySelectorAll('fieldset').length`),4);
+ assert.equal(await evaluate(`document.querySelector('.appearance-panel').querySelectorAll('fieldset').length`),3);
+ assert.equal(await evaluate(`document.querySelector('.appearance-panel').textContent.includes('液态玻璃')||document.querySelector('.appearance-panel').textContent.includes('Liquid Glass')`),false);
  // Switch to dark and Studio using the real controls.
  await evaluate(`document.querySelectorAll('.appearance-segments')[0].querySelectorAll('button')[2].click()`);await pause(100);
  assert.equal(await evaluate('document.documentElement.dataset.theme'),'dark');
- await evaluate(`document.querySelectorAll('.appearance-segments')[2].querySelectorAll('button')[1].click()`);await pause(200);
+ await evaluate(`document.querySelectorAll('.appearance-segments')[1].querySelectorAll('button')[1].click()`);await pause(200);
  for(const [width,height] of [[820,540],[1120,700]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await pause(100);
   const geom=await evaluate(`(()=>{const n=document.querySelector('.tool-navigation').getBoundingClientRect(),a=document.querySelector('.topbar-actions').getBoundingClientRect(),h=document.querySelector('.topbar').getBoundingClientRect();return {navRight:n.right,navBottom:n.bottom,actionsX:a.x,headerHeight:h.height,overflow:document.documentElement.scrollWidth>innerWidth};})()`);console.log('studio',width,geom);

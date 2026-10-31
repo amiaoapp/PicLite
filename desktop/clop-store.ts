@@ -1,4 +1,4 @@
-import { floatingRadius } from "./floating-appearance";
+import { floatingRadius } from "./floating-appearance.ts";
 import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, OptimisationPreset, UpdateCheckFrequency } from "./clop-types";
 
 const SETTINGS_KEY = "piclite.desktop.clop-settings.v1";

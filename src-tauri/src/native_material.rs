@@ -1,5 +1,4 @@
-//! Native AppKit materials. Independently implemented against Apple's public APIs.
-//! The material is a sibling below the existing content, never a replacement for it.
+//! Standard native backing, floating clipping, and decorated titlebar safety.
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -17,6 +16,8 @@ pub async fn set_window_material(
     enabled: bool,
     radius: Option<f64>,
 ) -> Result<MaterialState, String> {
+    // Keep the old IPC signature, but the retired feature cannot be enabled.
+    let _ = enabled;
     let radius = radius
         .filter(|n| n.is_finite())
         .unwrap_or(18.0)
@@ -27,19 +28,19 @@ pub async fn set_window_material(
         let target = window.clone();
         window
             .run_on_main_thread(move || {
-                let _ = send.try_send(macos::apply(&target, enabled, radius));
+                let _ = send.try_send(macos::apply(&target, radius));
             })
             .map_err(|error| error.to_string())?;
         receive
             .recv()
             .await
-            .ok_or("Native material dispatcher closed")?
+            .ok_or("Native appearance dispatcher closed")?
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (window, enabled);
+        let _ = window;
         Ok(MaterialState {
-            backend: "unsupported",
+            backend: "opaque",
             enabled: false,
             reduced_transparency: false,
             radius,
@@ -50,58 +51,11 @@ pub async fn set_window_material(
 #[cfg(target_os = "macos")]
 mod macos {
     use super::MaterialState;
-    use objc2::{
-        msg_send,
-        rc::Retained,
-        runtime::{AnyClass, AnyObject},
-        MainThreadMarker,
-    };
-    use objc2_app_kit::{
-        NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSGlassEffectViewStyle,
-        NSUserInterfaceItemIdentification, NSView, NSVisualEffectBlendingMode,
-        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-        NSWindowOrderingMode, NSWorkspace,
-    };
-    use objc2_foundation::NSString;
-    use std::ffi::CStr;
+    use objc2::{msg_send, rc::Retained, runtime::AnyObject, MainThreadMarker};
+    use objc2_app_kit::{NSColor, NSUserInterfaceItemIdentification, NSView, NSWindow};
 
     const IDENTIFIER: &str = "com.piclite.native-material";
     const TITLEBAR_IDENTIFIER: &str = "com.piclite.native-titlebar";
-
-    fn make_material(
-        mtm: MainThreadMarker,
-        host: &NSView,
-        radius: f64,
-        glass: bool,
-    ) -> Retained<NSView> {
-        if glass {
-            let effect = NSGlassEffectView::initWithFrame(mtm.alloc(), host.bounds());
-            // Regular softens desktop lettering; Clear is intended for unobstructed backgrounds.
-            effect.setStyle(NSGlassEffectViewStyle::Regular);
-            effect.setTintColor(None);
-            effect.setCornerRadius(radius);
-            let surface = NSView::initWithFrame(mtm.alloc(), host.bounds());
-            effect.setContentView(Some(&surface));
-            effect.into_super()
-        } else {
-            let effect = NSVisualEffectView::initWithFrame(mtm.alloc(), host.bounds());
-            effect.setMaterial(NSVisualEffectMaterial::Popover);
-            effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-            effect.setState(NSVisualEffectState::Active);
-            effect.into_super()
-        }
-    }
-
-    fn fit_material(view: &NSView, host: &NSView) {
-        view.setFrame(host.bounds());
-        view.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewWidthSizable
-                | NSAutoresizingMaskOptions::ViewHeightSizable,
-        );
-        if unsafe { view.superview() }.is_none() {
-            host.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Below, None);
-        }
-    }
 
     fn clip_view(view: &NSView, radius: f64) {
         view.setWantsLayer(true);
@@ -115,8 +69,7 @@ mod macos {
     }
 
     fn clip_floating_tree(view: &NSView, radius: f64) {
-        // Wry may put a rounded backing layer above the material. Reset every
-        // full-size ancestor/child, including WKWebView, so numeric zero is square.
+        // Reset full-size ancestors and WKWebView descendants, including zero.
         clip_view(view, radius);
         for child in view.subviews().iter() {
             if child.frame().size == view.bounds().size {
@@ -125,21 +78,19 @@ mod macos {
         }
     }
 
-    fn titlebar_material(window: &NSWindow, _mtm: MainThreadMarker, _enabled: bool) {
-        // Wry's transparent(true) implicitly enables FullSizeContentView, even
-        // with the default decorated titlebar. Its WKWebView then occupies the
-        // titlebar's 32-point strip. Preserve the current viewport while moving
-        // it below native chrome; never install a material above application UI.
+    fn titlebar_material(window: &NSWindow) {
+        // Wry transparent(true) can put WKWebView under decorated native chrome.
+        // Preserve its viewport while moving it below the titlebar.
         let button: Option<Retained<NSView>> =
             unsafe { msg_send![window, standardWindowButton: 0usize] };
         let Some(host) = button.and_then(|button| unsafe { button.superview() }) else {
-            return; // Borderless floating windows retain their own geometry.
+            return;
         };
         for view in host.subviews().iter() {
-            if view.identifier().is_some_and(|id| {
-                let id = id.to_string();
-                id == TITLEBAR_IDENTIFIER || id == format!("{TITLEBAR_IDENTIFIER}.transparent")
-            }) {
+            if view
+                .identifier()
+                .is_some_and(|id| id.to_string().starts_with(TITLEBAR_IDENTIFIER))
+            {
                 view.removeFromSuperview();
             }
         }
@@ -151,97 +102,63 @@ mod macos {
                 window.setContentSize(size);
             }
         }
-        // Let AppKit draw and clip its appearance-aware native titlebar material.
         window.setTitlebarAppearsTransparent(false);
+    }
+
+    fn standard_backing(window: &NSWindow, floating: bool, radius: f64) -> Result<(), String> {
+        let content = window
+            .contentView()
+            .ok_or("Window has no native content view")?;
+        // Clean up an old tagged sibling if a pre-removal caller installed one.
+        for view in content.subviews().iter() {
+            if view
+                .identifier()
+                .is_some_and(|id| id.to_string() == IDENTIFIER)
+            {
+                view.removeFromSuperview();
+            }
+        }
+        titlebar_material(window);
+        if floating {
+            clip_floating_tree(&content, radius);
+            if let Some(frame) = unsafe { content.superview() } {
+                clip_view(&frame, radius);
+            }
+            window.invalidateShadow();
+        }
+        window.setOpaque(!floating);
+        let background = if floating {
+            NSColor::clearColor()
+        } else {
+            NSColor::windowBackgroundColor()
+        };
+        window.setBackgroundColor(Some(&background));
+        Ok(())
     }
 
     pub(super) fn apply(
         window: &tauri::WebviewWindow,
-        requested: bool,
         radius: f64,
     ) -> Result<MaterialState, String> {
-        let mtm = MainThreadMarker::new().ok_or("AppKit material must run on the main thread")?;
-        let reduced = NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency();
-        let enabled = requested && !reduced;
-        // The floating logo/card shell always needs a clear backing, even without glass.
-        let transparent_shell = window.label() == "dropzone";
-        // set_background_color changes both the Wry backing store and native background.
+        let _mtm =
+            MainThreadMarker::new().ok_or("AppKit appearance must run on the main thread")?;
+        let floating = window.label() == "dropzone";
         window
             .set_background_color(Some(tauri::window::Color(
                 0,
                 0,
                 0,
-                if enabled || transparent_shell { 0 } else { 255 },
+                if floating { 0 } else { 255 },
             )))
             .map_err(|error| error.to_string())?;
-        let ns_window = unsafe {
+        let native = unsafe {
             &*(window.ns_window().map_err(|error| error.to_string())? as *const NSWindow)
         };
-        let content = ns_window
-            .contentView()
-            .ok_or("Window has no native content view")?;
-        let identifier = NSString::from_str(IDENTIFIER);
-        let existing = content
-            .subviews()
-            .iter()
-            .find(|view| view.identifier().as_deref() == Some(&identifier))
-            .map(|v| v.clone());
-        if transparent_shell {
-            clip_floating_tree(&content, radius);
-            // NSThemeFrame may carry its own rounded mask above the content root.
-            if let Some(frame) = unsafe { content.superview() } {
-                clip_view(&frame, radius);
-            }
-            ns_window.invalidateShadow();
-        }
-        if !enabled {
-            titlebar_material(ns_window, mtm, false);
-            if let Some(view) = existing {
-                view.removeFromSuperview();
-            }
-            ns_window.setOpaque(!transparent_shell);
-            let background = if transparent_shell {
-                NSColor::clearColor()
-            } else {
-                NSColor::windowBackgroundColor()
-            };
-            ns_window.setBackgroundColor(Some(&background));
-            return Ok(MaterialState {
-                backend: "opaque",
-                enabled: false,
-                reduced_transparency: reduced,
-                radius,
-            });
-        }
-        ns_window.setOpaque(false);
-        ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
-        let glass_available =
-            AnyClass::get(CStr::from_bytes_with_nul(b"NSGlassEffectView\0").unwrap()).is_some();
-        titlebar_material(ns_window, mtm, true);
-        let material: Retained<NSView> =
-            existing.unwrap_or_else(|| make_material(mtm, &content, radius, glass_available));
-        if glass_available {
-            if let Some(glass) = material.downcast_ref::<NSGlassEffectView>() {
-                glass.setStyle(NSGlassEffectViewStyle::Regular);
-                glass.setTintColor(None);
-                glass.setCornerRadius(radius);
-            }
-        } else {
-            clip_view(&material, radius);
-        }
-        material.setIdentifier(Some(&identifier));
-        fit_material(&material, &content);
-        if transparent_shell {
-            clip_floating_tree(&content, radius);
-        }
+        standard_backing(native, floating, radius)?;
         Ok(MaterialState {
-            backend: if glass_available {
-                "nsglass-regular"
-            } else {
-                "nsvisualeffect"
-            },
-            enabled: true,
-            reduced_transparency: reduced,
+            backend: "opaque",
+            enabled: false,
+            reduced_transparency: false,
             radius,
         })
     }
