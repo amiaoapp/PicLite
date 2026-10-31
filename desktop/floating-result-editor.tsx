@@ -7,6 +7,7 @@ import type { ImageFormat, Language, OptimisationPreset, PicLiteBridge } from ".
 import { tr } from "./clop-store";
 import { editorCompressionSettings } from "./floating-editor-model";
 import "./floating-result-editor.css";
+import "./floating-adaptive.css";
 
 type Actions={quality:()=>void;save:()=>void};
 type Props={

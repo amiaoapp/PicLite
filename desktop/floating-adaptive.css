@@ -1,0 +1,29 @@
+/* Image-dependent overlay colours; never filter the preview itself. */
+[data-image-tone="dark"]{--overlay-ink:#fafafa;--overlay-button:#f4f4f2;--overlay-button-ink:#202124;--overlay-shadow:0 1px 3px #000b;--overlay-chip:#243429;--overlay-chip-ink:#d9f4df}
+[data-image-tone="light"]{--overlay-ink:#17191d;--overlay-button:#25282e;--overlay-button-ink:#fafafa;--overlay-shadow:0 1px 2px #fff9;--overlay-chip:#d8ebd9;--overlay-chip-ink:#18381e}
+html .floating-results[data-image-tone] .integrated-result-card{--float-button:var(--overlay-button);--float-button-ink:var(--overlay-button-ink)}
+html .floating-results[data-image-tone] .floating-list.list{isolation:isolate;z-index:0}
+html .result-card[data-image-tone] .result-metrics :is(b,span),html .result-card[data-image-tone] :is(.result-dimensions,.result-name,.result-state){color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
+html .result-card[data-image-tone] .result-metrics em{background:var(--overlay-chip);color:var(--overlay-chip-ink);text-shadow:none}
+html .integrated-result-card[data-image-tone] .floating-card-formats button,html .integrated-result-card[data-image-tone] .floating-card-bottom>.crop-window-trigger{color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
+html .integrated-result-card[data-image-tone] .floating-card-formats button.active{background:var(--overlay-button);color:var(--overlay-button-ink);text-shadow:none}
+html[data-theme] .floating-results.has-image[data-image-tone] .floating-footer button,html[data-theme] .floating-results.has-image[data-image-tone] .floating-footer .automatic-badge{color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
+html .floating-results.has-image[data-image-tone] .floating-footer button:hover{background:var(--overlay-button);color:var(--overlay-button-ink)}
+html .result-card[data-image-tone] :is(.floating-card-icon,.result-actions button){background:var(--overlay-button);color:var(--overlay-button-ink)}
+html .result-card[data-image-tone] :is(.floating-card-icon,.result-actions button):hover:not(:disabled){background:var(--overlay-button);color:var(--overlay-button-ink);box-shadow:inset 0 0 0 2px var(--overlay-button-ink)}
+html .floating-results[data-floating-style="classic"]{background-image:none;background-color:var(--surface-solid,#f1f2f4);backdrop-filter:none;grid-template-rows:minmax(0,1fr) auto}
+html .floating-results[data-floating-style="classic"] .floating-list{z-index:0;isolation:isolate}
+html .classic-result-card{border-radius:var(--floating-radius,10px);background:var(--surface-solid,#202124)}
+html .classic-result-card.active{transform:none}
+html .classic-result-card .result-preview{height:100%;min-height:150px;overflow:hidden;display:block}
+html .classic-result-card .result-preview>img{width:100%;height:100%;object-fit:cover}
+html .classic-result-card .result-overlay{min-height:106px;padding:8px;background:transparent;text-shadow:var(--overlay-shadow);z-index:2}
+html .classic-result-card .result-name{display:block;font-weight:500}
+html .classic-result-card .format-bar button{color:var(--overlay-ink)}
+html .classic-result-card .format-bar button.active{background:var(--overlay-button);color:var(--overlay-button-ink)}
+html .classic-result-card .result-hover-actions{inset:0 0 110px;background:transparent;z-index:3}
+html .classic-result-card .result-actions{grid-template-columns:repeat(3,36px);gap:6px}
+html .classic-result-card .result-actions button{width:36px;height:36px;padding:7px}
+html .classic-result-card .result-close{background:var(--overlay-button);color:var(--overlay-button-ink)}
+html .floating-results[data-floating-style="classic"] .floating-footer{position:relative;z-index:2;color:var(--ink)}
+html .floating-results[data-floating-style="classic"] .floating-footer button{color:var(--ink)}

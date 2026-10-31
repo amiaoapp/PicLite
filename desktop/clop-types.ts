@@ -75,6 +75,7 @@ export type DesktopSettings = {
   batchThreshold: number;
   enableFloatingResults: boolean;
   allowFloatingCapture: boolean;
+  floatingStyle: "immersive" | "classic";
   floatingLayout: ResultLayout;
   floatingDisplayMode: ResultDisplayMode;
   floatingMaxResults: number;
