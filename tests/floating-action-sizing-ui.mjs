@@ -15,6 +15,7 @@ try{
  await send('Page.enable');
  await send('Network.enable');await send('Network.setCacheDisabled',{cacheDisabled:true});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+ localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({theme:'dark',language:'en',floatingStyle:'immersive',interfaceFontScale:110}));
  localStorage.setItem('piclite.desktop.clop-settings.v1',JSON.stringify({appearance:'dark',language:'en',floatingCornerRadius:0,autoHideResults:false,updateCheckFrequency:'never',floatingDisplayMode:'stack'}));
  localStorage.setItem('piclite.interfaceMaterial.v1',JSON.stringify({material:'glass',transparency:'system'}));
  let api;window.calls=[];Object.defineProperty(window,'picLite',{configurable:true,get(){return api},set(value){
@@ -31,18 +32,18 @@ try{
   assert.equal(await ev('document.querySelectorAll(".result-metrics").length'),1);
   const shot=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${dir}/production-${count}.png`,Buffer.from(shot.data,'base64'));
   const {data,info}=await sharp(Buffer.from(shot.data,'base64')).raw().toBuffer({resolveWithObject:true});
-  for(const [x,y,expected] of [[50,75,[35,165,255]],[210,75,[35,165,255]],[375,75,[255,228,50]],[5,285,[35,165,255]]]){const k=(y*info.width+x)*info.channels,rgb=[...data.subarray(k,k+3)];assert.ok(rgb.every((v,i)=>Math.abs(v-expected[i])<12),'actual production image darkened: '+JSON.stringify({count,x,y,rgb}));}
+  for(const [x,y,expected] of [[50,75,[35,165,255]],[210,75,[35,165,255]],[375,75,[255,228,50]]]){const k=(y*info.width+x)*info.channels,rgb=[...data.subarray(k,k+3)];assert.ok(rgb.every((v,i)=>Math.abs(v-expected[i])<12),'actual production image darkened: '+JSON.stringify({count,x,y,rgb}));}
   await click('.floating-footer button[title="Open full workbench"]');assert.equal(await ev('calls.filter(c=>c==="workbench").length'),count);
  }
- for(const [width,height,minButton,minIcon] of [[246,188,30,18],[320,230,40,24],[488,372,55,33],[680,480,55,33]]){
+ for(const [width,height,minButton,minIcon] of [[246,188,30,14],[320,230,30,14],[488,372,38,16],[680,480,38,16]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await new Promise(r=>setTimeout(r,100));
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:width/2,y:height*.35});await new Promise(r=>setTimeout(r,100));
   const actions=await ev(`([...document.querySelectorAll('.result-actions button')].map(b=>{let r=b.getBoundingClientRect(),i=b.querySelector('svg').getBoundingClientRect(),s=getComputedStyle(b);return{w:r.width,h:r.height,icon:i.width,x:r.x,y:r.y,ix:i.x,iy:i.y,ih:i.height,variable:s.getPropertyValue('--action-size')}}))`);
-  assert.equal(await ev(`getComputedStyle(document.querySelector('.result-actions')).gridTemplateColumns.split(' ').length`),height<=240?6:3);console.log('ACTION LAYOUT',width,height,height<=240?'one row':'two rows',actions[0]);assert.equal(actions.length,6);for(const a of actions){assert.ok(a.w>=minButton,'button too small '+JSON.stringify(a));assert.ok(a.icon>=minIcon,'icon too small '+JSON.stringify(a));assert.ok(Math.abs(a.x+a.w/2-a.ix-a.icon/2)<1);assert.ok(Math.abs(a.y+a.h/2-a.iy-a.ih/2)<1);}
+  assert.equal(await ev(`getComputedStyle(document.querySelector('.result-actions')).gridTemplateColumns.split(' ').length`),height<=240?6:3);console.log('ACTION LAYOUT',width,height,height<=240?'one row':'two rows',actions[0]);assert.equal(actions.length,6);for(const a of actions){assert.ok(a.w>=minButton&&a.w<=40,'button proportion invalid '+JSON.stringify(a));assert.ok(a.icon>=minIcon,'icon too small '+JSON.stringify(a));assert.ok(Math.abs(a.x+a.w/2-a.ix-a.icon/2)<1);assert.ok(Math.abs(a.y+a.h/2-a.iy-a.ih/2)<1);}
   const image=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${dir}/large-actions-${width}.png`,Buffer.from(image.data,'base64'));
 
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await new Promise(r=>setTimeout(r,100));
-  const hits=await ev(`([...document.querySelectorAll('.floating-footer button,.floating-card-bottom button,.floating-card-header button')].filter(e=>!e.disabled).map(e=>{const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{label:e.title||e.textContent,hit:hit===e||e.contains(hit)}}))`);assert.ok(hits.every(h=>h.hit),JSON.stringify({width,hits}));
+  const hits=await ev(`([...document.querySelectorAll('.floating-footer button,.floating-card-bottom button,.floating-card-header button')].filter(e=>!e.disabled).map(e=>{const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{label:e.title||e.textContent,hit:hit===e||e.contains(hit),inBounds:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}}))`);assert.ok(hits.every(h=>h.hit&&h.inBounds),JSON.stringify({width,hits}));
  }
  const beforeNext=await ev('document.querySelector(".result-metrics").textContent');
  await click('.floating-result-next');await new Promise(r=>setTimeout(r,100));assert.equal(await ev('document.querySelectorAll("[data-action=dismiss]").length'),1);assert.notEqual(await ev('document.querySelector(".result-metrics").textContent'),beforeNext,'next must change displayed result');
@@ -51,5 +52,5 @@ try{
  await click('[data-action=dismiss]');await wait('document.querySelector(".floating-result-next")?.textContent.endsWith("/5")');
  assert.equal(await ev('document.documentElement.dataset.material'),'standard','saved glass migrates to standard');
  assert.ok(await ev('calls.filter(c=>typeof c==="object").every(c=>c.enabled===false)'));
- console.log('PASS production bundle: 1–6 images undimmed, single controls, real footer click, 3 sizes all control hits, next/list/stack/dismiss, saved glass disabled');
+ console.log('PASS production bundle: 1–6 images upper preview unchanged, lower preview intentionally blurred, single controls, real footer click, 3 sizes all control hits, next/list/stack/dismiss, saved glass disabled');
 }finally{ws.close();}

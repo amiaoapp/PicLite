@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict';
+import {mkdirSync,writeFileSync} from 'node:fs';
+const origin=process.env.ORIGIN||'http://127.0.0.1:1439';
+const cdp=process.env.CDP||'9443';
+const clients=[];
+const dir='/Users/amiao/.hermes/cache/scratch/piclite-typography';mkdirSync(dir,{recursive:true});
+async function client(){
+ const target=await fetch(`http://127.0.0.1:${cdp}/json/new?about:blank`,{method:'PUT'}).then(r=>r.json());
+ const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let seq=0;const jobs=new Map();
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(jobs.has(m.id)){const [ok,fail]=jobs.get(m.id);jobs.delete(m.id);m.error?fail(Error(JSON.stringify(m.error))):ok(m.result);}};
+ const send=(method,params={})=>new Promise((ok,fail)=>{const id=++seq;jobs.set(id,[ok,fail]);ws.send(JSON.stringify({id,method,params}));});
+ const ev=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result?.value;};
+ const wait=async expression=>{for(let i=0;i<160;i++){if(await ev(expression))return;await new Promise(r=>setTimeout(r,75));}throw Error('Timeout '+expression);};
+ const click=async selector=>{const p=await ev(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...p});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...p});};
+ await send('Page.enable');await send('Network.enable');await send('Network.setCacheDisabled',{cacheDisabled:true});
+ const api={ws,send,ev,wait,click};clients.push(api);return api;
+}
+try{
+ const main=await client();
+ await main.send('Page.addScriptToEvaluateOnNewDocument',{source:`Object.defineProperty(window,'picLite',{configurable:true,get(){return undefined},set(){}});`});
+ await main.send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+ await main.send('Page.navigate',{url:origin});await main.wait(`!!document.querySelector('.app-shell')`);
+ await main.ev(`localStorage.clear();location.reload()`);await main.wait(`!!document.querySelector('.app-shell')`);
+ await main.click('.settings-entry-button');await main.wait(`!!document.querySelector('#interface-font-scale')`);
+ const probe=()=>main.ev(`(()=>{const e=document.querySelector('.interface-type-preview'),r=document.querySelector('.interface-typography-controls').getBoundingClientRect();return{size:parseFloat(getComputedStyle(e).fontSize),width:r.width,zoom:getComputedStyle(document.body).zoom,scale:document.querySelector('#interface-font-scale').value}})()`);
+ const initial=await probe();assert.equal(initial.scale,'110');assert.ok(Math.abs(initial.size-15.4)<.1,JSON.stringify(initial));
+ await main.ev(`(()=>{const e=document.querySelector('#interface-font-scale');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(e,'150');e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await main.wait(`document.documentElement.style.getPropertyValue('--interface-font-scale')==='1.5'`);
+ const large=await probe();assert.ok(Math.abs(large.size-21)<.1,JSON.stringify(large));assert.equal(large.width,initial.width);assert.equal(large.zoom,'1');
+ assert.equal(await main.ev(`JSON.parse(localStorage.getItem('piclite.desktop.clop-settings.v1')).interfaceFontScale`),150);
+ assert.equal(await main.ev(`document.querySelector('.interface-typography-controls').scrollWidth<=document.querySelector('.interface-typography-controls').clientWidth+1`),true);
+ console.log('PASS default110, slider150, real computed text size, no geometry zoom, both preference keys');
+ const snapshot=await main.send('Page.captureScreenshot',{format:'png'});writeFileSync(dir+'/text150.png',Buffer.from(snapshot.data,'base64'));
+ const doc=await main.send('DOM.getDocument');const input=await main.send('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'[data-interface-font-input]'});
+ await main.send('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[process.env.FONT_FILE||'/System/Library/Fonts/Supplemental/Arial.ttf']});
+ await main.wait(`document.documentElement.dataset.interfaceFont==='ready'`);
+ const selected=await main.ev(`JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1'))`);assert.equal(selected.interfaceFontFamily,'Arial');assert.match(selected.interfaceFontId,/^piclite-ui-[a-f0-9]{64}$/);
+ assert.equal(await main.ev(`[...document.fonts].some(f=>f.family===${JSON.stringify(selected.interfaceFontId)}&&f.status==='loaded')`),true);
+ assert.ok(await main.ev(`getComputedStyle(document.querySelector('.interface-type-preview')).fontFamily.includes(${JSON.stringify(selected.interfaceFontId)})`));
+ await main.send('Page.reload',{ignoreCache:true});await main.wait(`document.documentElement.dataset.interfaceFont==='ready'`);
+ assert.ok(await main.ev(`[...document.fonts].some(f=>f.family===${JSON.stringify(selected.interfaceFontId)}&&f.status==='loaded')`));
+ console.log('PASS real local TTF import, document FontFace applied, IndexedDB reload restore');
+ const prefs=await client();
+ await prefs.send('Page.navigate',{url:origin+'/?window=preferences'});await prefs.wait(`!!document.querySelector('#interface-font-scale')||!!document.querySelector('.app-shell')`);if(!await prefs.ev(`!!document.querySelector('#interface-font-scale')`))await prefs.click('.settings-entry-button');await prefs.wait(`!!document.querySelector('#interface-font-scale')`);
+ assert.equal(await prefs.ev(`document.querySelector('#interface-font-scale').value`),'150');
+ await main.ev(`(()=>{localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({...JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')),interfaceFontScale:125}));})()`);
+ await prefs.wait(`document.querySelector('#interface-font-scale').value==='125'`);
+ assert.ok(Math.abs(await prefs.ev(`parseFloat(getComputedStyle(document.querySelector('.interface-type-preview')).fontSize)`)-17.5)<.1);
+ console.log('PASS independent preferences document applies cross-window text size change');
+ await prefs.ev(`(()=>{const e=document.querySelector('.interface-type-actions button:last-child');e.click()})()`);await prefs.wait(`document.querySelector('#interface-font-scale').value==='110'`);
+ await main.wait(`document.documentElement.style.getPropertyValue('--interface-font-scale')==='1.1'`);
+ assert.equal(await prefs.ev(`JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')).interfaceFontFamily`),'');
+ console.log('PASS reset default and cross-window synchronization');
+ const end=await prefs.send('Page.captureScreenshot',{format:'png'});writeFileSync(dir+'/preferences.png',Buffer.from(end.data,'base64'));
+}finally{for(const c of clients)c.ws.close();}

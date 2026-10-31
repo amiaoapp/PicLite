@@ -1,3 +1,4 @@
+import { DEFAULT_INTERFACE_TYPOGRAPHY, normalizeInterfaceTypography } from "../app/interface-typography.ts";
 import { floatingRadius } from "./floating-appearance.ts";
 import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, OptimisationPreset, UpdateCheckFrequency } from "./clop-types";
 
@@ -10,6 +11,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   language: "zh",
   appearance: "system",
   colorTheme: "graphite",
+  ...DEFAULT_INTERFACE_TYPOGRAPHY,
   updateCheckFrequency: "startup",
   launchAtLogin: false,
   showMenubarIcon: true,
@@ -145,6 +147,7 @@ export function loadSettings(): DesktopSettings {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      ...normalizeInterfaceTypography({ ...parsed, ...mainPreferences }),
       appearance: validAppearance(mainPreferences.theme) ? mainPreferences.theme : validAppearance(parsed.appearance) ? parsed.appearance : DEFAULT_SETTINGS.appearance,
       colorTheme: validColorTheme(mainPreferences.colorTheme) ? mainPreferences.colorTheme : validColorTheme(parsed.colorTheme) ? parsed.colorTheme : DEFAULT_SETTINGS.colorTheme,
       showInTaskbarDock: typeof mainPreferences.showInTaskbarDock === "boolean" ? mainPreferences.showInTaskbarDock : parsed.showInTaskbarDock ?? DEFAULT_SETTINGS.showInTaskbarDock,
@@ -198,6 +201,7 @@ export function saveSettings(settings: DesktopSettings) {
       theme: settings.appearance,
       floatingStyle: settings.floatingStyle,
       colorTheme: settings.colorTheme,
+      ...normalizeInterfaceTypography(settings),
       autoCheckUpdates: settings.updateCheckFrequency !== "never",
       updateCheckFrequency: settings.updateCheckFrequency,
       showInTaskbarDock: settings.showInTaskbarDock,

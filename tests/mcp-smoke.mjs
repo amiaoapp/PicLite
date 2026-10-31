@@ -41,6 +41,13 @@ async function verify(client) {
   assert.equal(animated.structuredContent.result.height,24);
   assert.deepEqual(await readFile(source),original);
   assert.equal((await client.callTool({name:'piclite_compress',arguments:{paths:['relative.png']}})).isError,true);
+  for (const options of [{quality:-1},{quality:'50'},{scale:'50'},{format:false},{targetSizeKb:-1},{outputDirectory:42}]) {
+    const invalid=await client.callTool({name:'piclite_compress',arguments:{paths:[source],...options}});
+    assert.equal(invalid.isError,true,JSON.stringify(options));
+  }
+  const badColor=await client.callTool({name:'piclite_create_cover',arguments:{imagePath:coverSource,config:{bgColor:'#aé000',transparent:false}}});
+  assert.equal(badColor.isError,true,'invalid Unicode hex must return error, never crash');
+  assert.equal((await client.callTool({name:'piclite_inspect',arguments:{path:source}})).isError,false,'server survives invalid arguments and color');
 }
 const stdio=new Client({name:'piclite-smoke',version:'1.0.0'});
 let bridge;

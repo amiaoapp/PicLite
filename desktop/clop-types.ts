@@ -51,6 +51,9 @@ export type DesktopSettings = {
   language: Language;
   appearance: Appearance;
   colorTheme: ColorTheme;
+  interfaceFontScale: number;
+  interfaceFontFamily: string;
+  interfaceFontId: string;
   updateCheckFrequency: UpdateCheckFrequency;
   launchAtLogin: boolean;
   showMenubarIcon: boolean;

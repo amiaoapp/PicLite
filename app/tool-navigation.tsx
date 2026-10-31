@@ -6,12 +6,28 @@ export type ToolTab = { id:string;label:string;active:boolean;live?:boolean;visi
 export function ToolNavigation({items,language}:{items:ToolTab[];language:'zh'|'en'}) {
   const [saved,setSaved]=useState(readToolOrder);
   const [dragging,setDragging]=useState<string|null>(null);
+  const [scroll,setScroll]=useState({overflow:false,left:false,right:false});
   const list=useRef<HTMLElement>(null);
   const gesture=useRef<{id:string;x:number;y:number;pointer:number;moved:boolean;order:string[];centers:number[];scroll:number;fullOrder:string[]}|null>(null);
   const suppressClick=useRef(false);
   const fullOrder=mergeToolOrder(saved,items.map(t=>t.id));
   const ordered=fullOrder.filter(id=>items.find(t=>t.id===id)?.visible!==false);
   const zh=language==='zh';
+  const contents=ordered.map(id=>`${id}:${items.find(t=>t.id===id)?.label}`).join('|');
+  useEffect(()=>{
+    const nav=list.current;if(!nav)return;
+    const measure=()=>{
+      const end=nav.scrollWidth-nav.clientWidth;
+      const next={overflow:end>1,left:nav.scrollLeft>1,right:nav.scrollLeft<end-1};
+      setScroll(current=>current.overflow===next.overflow&&current.left===next.left&&current.right===next.right?current:next);
+    };
+    const observer=new ResizeObserver(measure);
+    observer.observe(nav);if(nav.parentElement)observer.observe(nav.parentElement);
+    [...nav.children].forEach(tab=>observer.observe(tab));
+    nav.addEventListener('scroll',measure,{passive:true});
+    measure();
+    return()=>{observer.disconnect();nav.removeEventListener('scroll',measure);};
+  },[contents]);
   const move=(id:string,target:string)=>setSaved(current=>reorderTool(mergeToolOrder(current,items.map(t=>t.id)),id,target));
   useEffect(()=>{try {localStorage.setItem(TOOL_ORDER_KEY,JSON.stringify(saved));} catch {/* Session ordering still works. */}},[saved]);
   useEffect(()=>{
@@ -22,7 +38,7 @@ export function ToolNavigation({items,language}:{items:ToolTab[];language:'zh'|'
   },[]);
   const finish=()=>{if(gesture.current?.moved)suppressClick.current=true;gesture.current=null;setDragging(null);};
   return <div className="tool-navigation">
-    <button type="button" className="nav-scroll" aria-label={zh?'向左滚动工具':'Scroll tools left'} onClick={()=>list.current?.scrollBy({left:-200,behavior:'smooth'})}>‹</button>
+    <button type="button" className="nav-scroll" hidden={!scroll.overflow} disabled={!scroll.left} aria-label={zh?'向左滚动工具':'Scroll tools left'} onClick={()=>list.current?.scrollBy({left:-200,behavior:'smooth'})}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg></button>
     <nav ref={list} className="main-nav tool-tabs" aria-label={zh?'主要功能，可拖动排序':'Tools, drag to reorder'} onDragStart={event=>event.preventDefault()} onPointerMove={event=>{
       const g=gesture.current;if(!g||event.pointerId!==g.pointer)return;
       if(!g.moved&&Math.hypot(event.clientX-g.x,event.clientY-g.y)<6)return;
@@ -50,7 +66,7 @@ export function ToolNavigation({items,language}:{items:ToolTab[];language:'zh'|'
         <span>{tab.label}</span>{tab.live&&<i className="live-dot" aria-label={zh?'监测中':'Watching'}/>}
       </button>;})}
     </nav>
-    <button type="button" className="nav-scroll" aria-label={zh?'向右滚动工具':'Scroll tools right'} onClick={()=>list.current?.scrollBy({left:200,behavior:'smooth'})}>›</button>
+    <button type="button" className="nav-scroll" hidden={!scroll.overflow} disabled={!scroll.right} aria-label={zh?'向右滚动工具':'Scroll tools right'} onClick={()=>list.current?.scrollBy({left:200,behavior:'smooth'})}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
     <span className="visually-hidden" role="status">{dragging?(zh?'正在调整工具顺序':'Reordering tools'):''}</span>
   </div>;
 }

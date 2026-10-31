@@ -20,7 +20,11 @@ try {
  await add('light.png','#fafafa');
  await wait(`document.querySelector('.browser-floating-result')?.dataset.tone==='light'`);
  const light = await ev(`(()=>{const e=document.querySelector('.browser-floating-result');return{id:e.dataset.resultId,color:getComputedStyle(e.querySelector('button')).color,fit:getComputedStyle(e.querySelector('img')).objectFit,actions:e.querySelectorAll('.browser-floating-actions button').length}})()`);
- assert.equal(light.actions,6); assert.equal(light.fit,'cover'); assert.equal(light.color,'rgb(250, 250, 250)');
+ assert.equal(light.actions,6); assert.equal(light.fit,'cover'); assert.equal(light.color,'rgb(255, 255, 255)');
+ const idle = await ev(`(()=>{const e=document.querySelector('.browser-floating-result'),m=e.querySelector('.browser-floating-metrics'),a=e.querySelector('.browser-floating-actions'),b=a.querySelector('button'),r=e.getBoundingClientRect();return{width:r.width,metrics:getComputedStyle(m).fontSize,actionsOpacity:getComputedStyle(a).opacity,buttonBackground:getComputedStyle(b).backgroundColor,icon:getComputedStyle(b.querySelector('span')).fontSize,gradient:getComputedStyle(e,'::after').backgroundImage,blur:getComputedStyle(e,'::after').backdropFilter}})()`);
+ assert.ok(idle.width<=360); assert.ok(parseFloat(idle.metrics)<=14.1); assert.equal(idle.actionsOpacity,'0'); assert.equal(idle.buttonBackground,'rgba(0, 0, 0, 0)'); assert.ok(parseFloat(idle.icon)>=14&&parseFloat(idle.icon)<=18); assert.ok(idle.gradient.includes('gradient')); assert.notEqual(idle.blur,'none'); assert.ok(await ev(`document.querySelector('.browser-floating-filename')?.textContent==='light.png'`));
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:900,y:700});
+ await wait(`getComputedStyle(document.querySelector('.browser-floating-actions')).opacity==='1'`);
  await click('Dismiss floating result');
  await add('dark.png','#080808');
  // The workbench preserves selection on import; process-all exercises each real queue item.
@@ -28,7 +32,7 @@ try {
  await ev(`(()=>{const b=document.querySelector('button.compress-button');if(!b)throw Error('Missing process all');b.click()})()`);
  await wait(`document.querySelector('.browser-floating-result')?.dataset.tone==='dark'&&document.querySelector('.browser-floating-result')?.dataset.resultId!==${JSON.stringify(light.id)}`);
  const dark = await ev(`(()=>{const e=document.querySelector('.browser-floating-result');return{id:e.dataset.resultId,color:getComputedStyle(e.querySelector('button')).color,count:document.querySelectorAll('.browser-floating-result').length,hits:[...e.querySelectorAll('button')].every(b=>{const r=b.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return b===hit||b.contains(hit)})}})()`);
- assert.equal(dark.color,'rgb(32, 33, 36)');assert.equal(dark.count,1);assert.equal(dark.hits,true);
+ assert.equal(dark.color,'rgb(255, 255, 255)');assert.equal(dark.count,1);assert.equal(dark.hits,true);
  await send('Browser.grantPermissions',{origin,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
  await click('Copy image');await wait(`document.body.innerText.includes('Result copied and ready to paste')`);
  assert.ok(await ev(`(async()=>{const items=await navigator.clipboard.read();return items.some(item=>item.types.includes('image/png'))})()`),'Real clipboard contains image');

@@ -1,29 +1,63 @@
-/* Image-dependent overlay colours; never filter the preview itself. */
-[data-image-tone="dark"]{--overlay-ink:#fafafa;--overlay-button:#f4f4f2;--overlay-button-ink:#202124;--overlay-shadow:0 1px 3px #000b;--overlay-chip:#243429;--overlay-chip-ink:#d9f4df}
-[data-image-tone="light"]{--overlay-ink:#17191d;--overlay-button:#25282e;--overlay-button-ink:#fafafa;--overlay-shadow:0 1px 2px #fff9;--overlay-chip:#d8ebd9;--overlay-chip-ink:#18381e}
-html .floating-results[data-image-tone] .integrated-result-card{--float-button:var(--overlay-button);--float-button-ink:var(--overlay-button-ink)}
-html .floating-results[data-image-tone] .floating-list.list{isolation:isolate;z-index:0}
-html .result-card[data-image-tone] .result-metrics :is(b,span),html .result-card[data-image-tone] :is(.result-dimensions,.result-name,.result-state){color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
-html .result-card[data-image-tone] .result-metrics em{background:var(--overlay-chip);color:var(--overlay-chip-ink);text-shadow:none}
-html .integrated-result-card[data-image-tone] .floating-card-formats button,html .integrated-result-card[data-image-tone] .floating-card-bottom>.crop-window-trigger{color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
-html .integrated-result-card[data-image-tone] .floating-card-formats button.active{background:var(--overlay-button);color:var(--overlay-button-ink);text-shadow:none}
-html[data-theme] .floating-results.has-image[data-image-tone] .floating-footer button,html[data-theme] .floating-results.has-image[data-image-tone] .floating-footer .automatic-badge{color:var(--overlay-ink);text-shadow:var(--overlay-shadow)}
-html .floating-results.has-image[data-image-tone] .floating-footer button:hover{background:var(--overlay-button);color:var(--overlay-button-ink)}
-html .result-card[data-image-tone] :is(.floating-card-icon,.result-actions button){background:var(--overlay-button);color:var(--overlay-button-ink)}
-html .result-card[data-image-tone] :is(.floating-card-icon,.result-actions button):hover:not(:disabled){background:var(--overlay-button);color:var(--overlay-button-ink);box-shadow:inset 0 0 0 2px var(--overlay-button-ink)}
-html .floating-results[data-floating-style="classic"]{background-image:none;background-color:var(--surface-solid,#f1f2f4);backdrop-filter:none;grid-template-rows:minmax(0,1fr) auto}
-html .floating-results[data-floating-style="classic"] .floating-list{z-index:0;isolation:isolate}
-html .classic-result-card{border-radius:var(--floating-radius,10px);background:var(--surface-solid,#202124)}
-html .classic-result-card.active{transform:none}
-html .classic-result-card .result-preview{height:100%;min-height:150px;overflow:hidden;display:block}
-html .classic-result-card .result-preview>img{width:100%;height:100%;object-fit:cover}
-html .classic-result-card .result-overlay{min-height:106px;padding:8px;background:transparent;text-shadow:var(--overlay-shadow);z-index:2}
-html .classic-result-card .result-name{display:block;font-weight:500}
-html .classic-result-card .format-bar button{color:var(--overlay-ink)}
-html .classic-result-card .format-bar button.active{background:var(--overlay-button);color:var(--overlay-button-ink)}
-html .classic-result-card .result-hover-actions{inset:0 0 110px;background:transparent;z-index:3}
-html .classic-result-card .result-actions{grid-template-columns:repeat(3,36px);gap:6px}
-html .classic-result-card .result-actions button{width:36px;height:36px;padding:7px}
-html .classic-result-card .result-close{background:var(--overlay-button);color:var(--overlay-button-ink)}
-html .floating-results[data-floating-style="classic"] .floating-footer{position:relative;z-index:2;color:var(--ink)}
-html .floating-results[data-floating-style="classic"] .floating-footer button{color:var(--ink)}
+/* Clop reference: clear preview, progressively softened lower image, compact
+   data at rest; filename and small actions on hover. Export pixels untouched. */
+html .floating-results{--overlay-ink:#f4f2ee;--overlay-button:rgba(38,39,42,.72);--overlay-button-ink:#f4f2ee;--overlay-shadow:0 1px 4px #0007;--overlay-chip:transparent;--overlay-chip-ink:#eee8dc;--interface-font-scale:1}
+html .floating-results .floating-list.list{isolation:isolate;z-index:0}
+/* Masked backdrop layers affect the preview only, not the actual source. */
+html .floating-window-image::before,html .floating-window-image::after{content:"";position:absolute;inset:44% 0 0;pointer-events:none;mask-image:linear-gradient(transparent,#000 65%);-webkit-mask-image:linear-gradient(transparent,#000 65%);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+html .floating-window-image::after{inset:62% 0 0;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);background:linear-gradient(transparent,rgba(19,20,23,.52) 62%,rgba(19,20,23,.72));mask-image:linear-gradient(transparent,#000 55%);-webkit-mask-image:linear-gradient(transparent,#000 55%)}
+html .floating-results .result-card .result-metrics{font-size:18px!important;gap:7px;line-height:1.15;font-variant-numeric:tabular-nums}
+html .floating-results .result-card .result-metrics b:first-child{color:#ff847a!important;font-weight:400;font-size:inherit!important;text-shadow:0 1px 4px #0005}
+html .floating-results .result-card .result-metrics b:nth-of-type(2){color:#ffe0a0!important;font-weight:400;font-size:inherit!important;text-shadow:0 1px 4px #0005}
+html .floating-results .result-card .result-metrics span{color:#f6f4ef!important;font-size:15px!important;font-weight:400}
+html .floating-results .result-card .result-metrics em{background:transparent;color:#f2eadc;font-size:9px!important;font-weight:400;padding:0;text-shadow:0 1px 3px #0008}
+html .floating-results .result-card .result-dimensions{color:#f1f0ed!important;font-size:10px!important;font-weight:400;line-height:1.3;text-shadow:0 1px 4px #0007}
+html .floating-results .result-card .result-name{display:none;max-width:80%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f4f2ee;font-size:11px!important;font-weight:400;text-shadow:0 1px 4px #0007}
+html .floating-results .result-card:hover :is(.result-metrics,.result-dimensions),html .floating-results .result-card:focus-within :is(.result-metrics,.result-dimensions){display:none}
+html .floating-results .result-card:hover .result-name,html .floating-results .result-card:focus-within .result-name{display:block}
+html .floating-results .floating-editor-quality output{font-weight:400}
+html .floating-results .result-card button,html .floating-results .floating-footer button{font-weight:400!important;box-shadow:none;filter:none}
+html .floating-results .result-card :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger),html[data-theme] .floating-results.has-image .floating-footer button{background:transparent!important;border:1px solid transparent;color:#f4f2ee;text-shadow:0 1px 4px #0009;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results .result-card :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger):hover:not(:disabled),html[data-theme] .floating-results.has-image .floating-footer button:hover:not(:disabled){background:rgba(36,37,40,.7)!important;color:#fff;border-color:#ffffff18;box-shadow:none;transform:none}
+html .floating-results .result-card button:focus-visible,html .floating-results .floating-footer button:focus-visible{outline:1px solid #f4f2ee;outline-offset:-2px}
+html .floating-results .result-card :is(.format-bar button,.floating-card-formats button){height:24px;min-height:24px;line-height:24px;font-size:10px!important;font-weight:400;padding:0 8px;background:transparent;color:rgba(242,240,234,.65);border:0;border-radius:12px;text-shadow:0 1px 4px #0007;box-shadow:none}
+html .floating-results .result-card :is(.format-bar button,.floating-card-formats button).active{background:transparent;color:#fff;text-shadow:0 1px 4px #0007;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px}
+html .floating-results .result-card :is(.format-bar button,.floating-card-formats button):hover:not(:disabled):not(.active){background:#ffffff1c!important;color:#fff}
+html .floating-results .result-card .result-hover-actions{background:transparent!important;padding:0;opacity:0;pointer-events:none;backdrop-filter:none;-webkit-backdrop-filter:none;transition:opacity .12s}
+html .floating-results .result-card:is(:hover,:focus-within) .result-hover-actions{opacity:1}
+html .floating-results .result-card .result-actions{--action-size:38px;display:grid;grid-template-columns:repeat(3,var(--action-size));grid-template-rows:repeat(2,var(--action-size));gap:12px;align-content:center;justify-content:center;pointer-events:none}
+html .floating-results .result-card .result-actions button{width:var(--action-size);height:var(--action-size);padding:0;border-radius:14px;pointer-events:none}
+html .floating-results .result-card:is(:hover,:focus-within) .result-actions button{pointer-events:auto}
+html .floating-results .result-card .result-actions svg{position:static;inset:auto;margin:0;transform:none;width:16px!important;height:16px!important;max-width:none;max-height:none}
+/* Immersive renderer has exactly one full-window image below all controls. */
+html .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{inset:auto 0 65px!important;height:54px;min-height:54px;display:grid;align-content:end;justify-items:center;padding:3px 10px;gap:4px;overflow:visible;background:transparent!important;z-index:4}
+html .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay::before{content:none}
+html .floating-results .integrated-result-card .result-hover-actions{inset:36px 12px 106px!important;padding:0!important;z-index:5}
+html .floating-results .integrated-result-card .floating-card-header{height:38px;padding:5px 8px;opacity:0;transition:opacity .12s}
+html .floating-results .integrated-result-card:is(:hover,:focus-within) .floating-card-header,html .floating-results .integrated-result-card .is-editing .floating-card-header{opacity:1}
+html .floating-results .integrated-result-card .floating-card-icon{width:28px;height:28px;flex-basis:28px;padding:6px;background:transparent}
+html .floating-results .integrated-result-card .floating-card-icon svg{width:15px;height:15px}
+html .floating-results .integrated-result-card .floating-card-bottom{grid-template-columns:28px minmax(0,1fr);gap:5px;height:30px!important;padding:2px 10px}
+html .floating-results .integrated-result-card .crop-window-trigger{opacity:0}
+html .floating-results .integrated-result-card:is(:hover,:focus-within) .crop-window-trigger{opacity:1}
+html .floating-results .integrated-result-card .floating-card-formats{display:flex;justify-content:space-evenly;gap:1px}
+html .floating-results .integrated-result-card .floating-card-formats button{background:transparent}
+html .floating-results .integrated-result-card .result-actions{--action-size:38px}
+html[data-theme] .floating-results.has-image .floating-footer{min-height:28px;height:28px;padding:2px 14px 2px 8px;color:#f4f2ee;background:transparent!important;border:0;font-size:9px!important}
+html[data-theme] .floating-results.has-image .floating-footer .automatic-badge{font-size:9px!important;color:#ebe8df;background:transparent;text-shadow:0 1px 4px #0007}
+html[data-theme] .floating-results.has-image .floating-footer .automatic-badge svg{color:#c6d8b7}
+html[data-theme] .floating-results.has-image .floating-footer button{height:23px}
+html[data-theme] .floating-results.has-image .floating-footer svg{width:13px;height:13px}
+html[data-theme] .floating-results.has-image .floating-footer .floating-result-next{font-size:9px!important}
+/* Classic preserves its own card structure, using the same restrained scale. */
+html .floating-results[data-floating-style="classic"] .floating-list{z-index:1;isolation:isolate}
+html .classic-result-card{border-radius:var(--floating-radius,10px);transform:none!important}
+html .classic-result-card .result-preview{container:floating-preview / size}
+html .classic-result-card .result-preview::before{content:"";position:absolute;inset:45% 0 0;z-index:1;background:linear-gradient(transparent,rgba(18,19,21,.65));-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);mask-image:linear-gradient(transparent,#000 60%);-webkit-mask-image:linear-gradient(transparent,#000 60%);pointer-events:none}
+html .classic-result-card .result-overlay{inset:auto 0 0;min-height:84px;padding:8px 10px 4px;gap:5px;z-index:2;background:transparent!important}
+html .classic-result-card .result-hover-actions{inset:28px 0 90px!important;z-index:3}
+html .classic-result-card .result-close{width:28px;height:28px;padding:6px}
+html .classic-result-card .result-close svg{width:15px;height:15px}
+html .classic-result-card .result-dimensions svg{width:10px;height:10px}
+html .classic-result-card .format-bar{display:flex;gap:1px;justify-content:center}
+@container floating-preview (max-height:240px){html .floating-results .result-card .result-actions{--action-size:30px;grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:3px}html .floating-results .result-card .result-actions svg{width:14px!important;height:14px!important}}
+@media(hover:none){html .floating-results .result-card .result-hover-actions{opacity:1}html .floating-results .result-card .result-actions button{pointer-events:auto}html .floating-results .result-card :is(.result-metrics,.result-dimensions){display:none}html .floating-results .result-card .result-name{display:block}html .floating-results .integrated-result-card .floating-card-header,html .floating-results .integrated-result-card .crop-window-trigger{opacity:1}}

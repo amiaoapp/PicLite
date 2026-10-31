@@ -3,17 +3,18 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync } from 'node:fs';
 const port=process.env.PICLITE_CDP_PORT||9442;
 const origin=process.env.PICLITE_TEST_ORIGIN||'http://127.0.0.1:1432';
-const pages=await fetch(`http://127.0.0.1:${port}/json/list`).then(r=>r.json());
-const ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
+const target=await fetch(`http://127.0.0.1:${port}/json/new?about:blank`,{method:'PUT'}).then(r=>r.json());
+const ws=new WebSocket(target.webSocketDebuggerUrl);
 await new Promise(r=>ws.addEventListener('open',r,{once:true}));
 let seq=0;const pending=new Map();
-ws.addEventListener('message',({data})=>{const m=JSON.parse(data);if(pending.has(m.id)){const {resolve,reject}=pending.get(m.id);pending.delete(m.id);m.error?reject(m.error):resolve(m.result);}});
+ws.addEventListener('message',({data})=>{const m=JSON.parse(data);if(pending.has(m.id)){const {resolve,reject}=pending.get(m.id);pending.delete(m.id);if(m.error)reject(m.error);else resolve(m.result);}});
 const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
 const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
-const wait=async expression=>{for(let i=0;i<80;i++){try{if(await evaluate(expression))return;}catch{}await pause(100);}throw Error('UI did not become ready: '+expression);};
+const wait=async expression=>{for(let i=0;i<80;i++){try{if(await evaluate(expression))return;}catch{/* The document can navigate while waiting. */}await pause(100);}throw Error('UI did not become ready: '+expression);};
 const scratch='/Users/amiao/.hermes/cache/scratch';mkdirSync(`${scratch}/piclite-ui-v2`,{recursive:true});
 try{
+ await send('Network.enable');await send('Network.setCacheDisabled',{cacheDisabled:true});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:`if(location.origin===${JSON.stringify(origin)}){
  if(!sessionStorage.getItem('ui-seeded')){localStorage.setItem('piclite.workspacePlugins.v2',JSON.stringify(['watcher','gallery','rename','convert','resize'].map(id=>({id,kind:'builtin',enabled:true}))));localStorage.setItem('piclite.interfaceStyle.v1','classic');localStorage.setItem('piclite.interfaceMaterial.v1',JSON.stringify({material:'glass',transparency:'system'}));localStorage.removeItem('piclite.toolOrder.v1');sessionStorage.setItem('ui-seeded','1');}}
 `});
@@ -21,7 +22,22 @@ try{
  await send('Page.navigate',{url:origin});await wait('!!document.querySelector(".topbar")');
  await evaluate(`localStorage.setItem('piclite.workspacePlugins.v2',JSON.stringify(['watcher','gallery','rename','convert','resize'].map(id=>({id,kind:'builtin',enabled:true}))));localStorage.setItem('piclite.interfaceStyle.v1','classic');localStorage.setItem('piclite.interfaceMaterial.v1',JSON.stringify({material:'glass',transparency:'system'}));localStorage.removeItem('piclite.toolOrder.v1');localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({...JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')||'{}'),theme:'light'}));window.dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}));window.dispatchEvent(new StorageEvent('storage',{key:'piclite.workspacePlugins.v2'}));window.dispatchEvent(new Event('piclite:tool-order'));window.dispatchEvent(new Event('piclite:interface-style'));window.dispatchEvent(new Event('piclite:interface-material'));`);
  await wait('document.querySelectorAll("[data-tool-id]").length>=7');
- // Browser path uses native bridge fallback; these checks inspect actual React components.
+ // The shared production rail stays adjacent and centred across font scales.
+ for(const layout of ['classic','studio'])for(const scale of [100,150])for(const width of [820,1120,1440]){
+  await evaluate(`localStorage.setItem('piclite.interfaceStyle.v1',${JSON.stringify(layout)});for(const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1'])localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)||'{}'),interfaceFontScale:${scale},interfaceFontFamily:'',interfaceFontId:''}));window.dispatchEvent(new Event('piclite:interface-style'));window.dispatchEvent(new Event('piclite:interface-typography'));`);
+  await send('Emulation.setDeviceMetricsOverride',{width,height:700,deviceScaleFactor:1,mobile:false});await pause(150);
+  const rail=await evaluate(`(()=>{const r=el=>{const b=el.getBoundingClientRect();return{x:b.x,y:b.y,right:b.right,bottom:b.bottom,w:b.width,h:b.height,cy:b.y+b.height/2}};const nav=document.querySelector('.tool-tabs');return{viewport:innerWidth,overflow:nav.scrollWidth>nav.clientWidth+1,rail:r(document.querySelector('.tool-navigation')),brand:r(document.querySelector('.brand')),nav:r(nav),arrows:[...document.querySelectorAll('.nav-scroll')].filter(el=>!el.hidden&&getComputedStyle(el).display!=='none').map(el=>({...r(el),disabled:el.disabled})),tabs:[...nav.children].map(r)}})()`);
+  assert.equal(rail.viewport,width);
+  assert.ok(rail.brand.right<=rail.rail.x+1,`${layout}/${scale}/${width}: scaled brand must not overlap tabs: ${JSON.stringify(rail)}`);
+  for(const arrow of rail.arrows)assert.ok(Math.abs(arrow.cy-rail.tabs[0].cy)<=1,`${layout}/${scale}/${width}: arrows share tab baseline: ${JSON.stringify(rail)}`);
+  assert.ok(rail.overflow?rail.arrows.length===2:rail.arrows.length===0,'arrows appear only on real overflow');
+  if(rail.overflow)assert.ok(rail.arrows[0].disabled,'left edge is disabled');
+  assert.ok(rail.tabs.every(tab=>Math.abs(tab.cy-rail.tabs[0].cy)<=1),'tabs remain on one row');
+  assert.ok(rail.nav.y>=rail.rail.y&&rail.nav.bottom<=rail.rail.bottom+1,'tabs fit their rail');
+  console.log(`PASS toolbar ${layout} ${scale}% ${width}: overflow=${rail.overflow}, arrows=${rail.arrows.length}`);
+  if(width===820&&scale===150){const shot=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${scratch}/piclite-ui-v2/toolbar-${layout}-${scale}-${width}.png`,Buffer.from(shot.data,'base64'));}
+ }
+ await evaluate(`localStorage.setItem('piclite.interfaceStyle.v1','classic');for(const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1'])localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)||'{}'),interfaceFontScale:100}));window.dispatchEvent(new Event('piclite:interface-style'));window.dispatchEvent(new Event('piclite:interface-typography'));`);await pause(100);
  for(const [width,height] of [[1120,700],[820,540],[1440,900]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await pause(150);
   const metrics=await evaluate(`(()=>{const r=el=>{const b=el.getBoundingClientRect();return {x:b.x,y:b.y,right:b.right,bottom:b.bottom,w:b.width,h:b.height}};return {header:r(document.querySelector('.topbar')),brand:r(document.querySelector('.brand')),nav:r(document.querySelector('.tool-navigation')),actions:r(document.querySelector('.topbar-actions')),appearanceButtons:document.querySelectorAll('.appearance-trigger').length,requiredActions:[...document.querySelectorAll('.appearance-trigger,.sponsor-entry-button,.settings-entry-button')].map(r),inlineAppearanceControls:document.querySelectorAll('.topbar>.topbar-actions>.material-controls,.topbar .interface-style-control').length,bodyOverflow:document.documentElement.scrollWidth>innerWidth,workspace:r(document.querySelector('.workspace')),cards:[...document.querySelectorAll('.workspace>.queue-panel,.workspace>.settings-panel,.workspace>.preview-panel')].map(r)}})()`);
@@ -62,4 +78,4 @@ try{
  }
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await pause(100);assert.equal(await evaluate(`!!document.querySelector('.appearance-panel')`),false);
  console.log('PASS: real pointer reorder + reload, single appearance button, light/dark and classic/studio geometry.');
-}finally{ws.close();}
+}finally{ws.close();await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);}
