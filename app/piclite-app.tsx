@@ -35,6 +35,7 @@ import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSetting
 import { FormatConverterPlugin, ResizePlugin, type NativeOutputFormat } from "./builtin-image-tools";
 import { BannerMaker } from "./banner-maker";
 import { BrowserFloatingResult } from "./browser-floating-result";
+import { BrowserImageTool, type BrowserToolOptions } from "./browser-image-tool";
 
 type CompressionMode = "lossless" | "balanced" | "small" | "manual";
 type OutputFormat = "keep" | "image/jpeg" | "image/png" | "image/webp";
@@ -2370,6 +2371,11 @@ export function PicLiteApp() {
 function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standalonePreferences = false }: { nativeBridge?: NativeBridge; initialView?: ViewName; standalonePreferences?: boolean }) {
   useInterfaceTypography(nativeBridge);
   const [view, setView] = useState<ViewName>(initialView);
+  const [browserToolItems, setBrowserToolItems] = useState<ImageItem[]>([]);
+  const [browserToolBusy, setBrowserToolBusy] = useState(false);
+  const browserToolItemsRef = useRef<ImageItem[]>([]);
+  useEffect(() => { browserToolItemsRef.current = browserToolItems; }, [browserToolItems]);
+  useEffect(() => () => { browserToolItemsRef.current.forEach(item => { URL.revokeObjectURL(item.sourceUrl); if (item.outputUrl) URL.revokeObjectURL(item.outputUrl); }); }, []);
   const [interfaceStyle, setInterfaceStyle] = useInterfaceStyle();
   const [items, setItems] = useState<ImageItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2456,7 +2462,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const systemFontFilesRef = useRef<Map<string, SystemFontInfo>>(new Map());
   const hydratedWatermarkFontRef = useRef<string | null>(null);
   const importedFontsHydratedRef = useRef(false);
-  // Filesystem automation requires native IPC; conversion/resize use the web workbench.
+  // Filesystem automation requires native IPC; browser image tools have their own pages.
   const availableWorkspacePlugins = workspacePlugins.filter(plugin => nativeBridge || plugin.kind !== "builtin" || !["watcher", "rename"].includes(plugin.id));
   useEffect(() => {
     try { window.localStorage.setItem(WORKSPACE_PLUGINS_KEY, JSON.stringify(workspacePlugins)); window.dispatchEvent(new Event("piclite:plugins-changed")); }
@@ -3028,17 +3034,28 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     };
   }, [nativeBridge, selectedId, settings, t]);
 
+  const addBrowserToolFiles = useCallback(async (files: File[]) => {
+    const next: ImageItem[] = [];
+    for (const file of files) {
+      try {
+        const dimensions = await getDimensions(file);
+        next.push({ id: uid(), file, name: file.name, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(file), status: "ready" });
+      } catch { showToast(t("无法读取图片：", "Could not read image: ") + file.name); }
+    }
+    setBrowserToolItems(current => [...current, ...next]);
+  }, [showToast, t]);
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files || []);
       if (files.some((file) => file.type.startsWith("image/"))) {
         event.preventDefault();
-        void addFiles(files);
+        if (!nativeBridge && (view === "convert" || view === "resize")) void addBrowserToolFiles(files);
+        else void addFiles(files);
       }
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [addFiles]);
+  }, [addFiles, addBrowserToolFiles, nativeBridge, view]);
 
   useEffect(() => {
     if (!nativeBridge) return;
@@ -3102,6 +3119,24 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     setProcessingAll(false);
     showToast(t("全部图片已处理完成", "All images have been processed"));
   }, [items, processOne, showToast, t]);
+
+  const processBrowserTool = useCallback(async (options: BrowserToolOptions) => {
+    if (browserToolBusy) return;
+    setBrowserToolBusy(true);
+    const toolSettings: CompressionSettings = { ...settings, mode: "manual", quality: options.quality, format: options.format, scale: options.scale, resize: options.resize, width: options.width, height: options.height, lockRatio: options.lockRatio, targetSizeKb: 0, preventLarger: false, watermark: { ...settings.watermark, enabled: false } };
+    try {
+      for (const item of browserToolItemsRef.current) {
+        setBrowserToolItems(current => current.map(candidate => candidate.id === item.id ? { ...candidate, status: "processing", error: undefined } : candidate));
+        try {
+          const result = await compressImage(item, toolSettings);
+          const completed: ImageItem = { ...item, outputBlob: result.blob, outputUrl: URL.createObjectURL(result.blob), outputBytes: result.blob.size, outputType: result.blob.type, outputWidth: result.width, outputHeight: result.height, status: "done", keptOriginal: result.keptOriginal };
+          setBrowserToolItems(current => current.map(candidate => { if (candidate.id !== item.id) return candidate; if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl); return completed; }));
+          await saveItemToGallery(completed, result.blob);
+        } catch (error) { setBrowserToolItems(current => current.map(candidate => candidate.id === item.id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : String(error) } : candidate)); }
+      }
+    } finally { setBrowserToolBusy(false); }
+  }, [browserToolBusy, saveItemToGallery, settings]);
+  const removeBrowserToolItem = useCallback((id: string) => setBrowserToolItems(current => current.filter(item => { if (item.id !== id) return true; URL.revokeObjectURL(item.sourceUrl); if (item.outputUrl) URL.revokeObjectURL(item.outputUrl); return false; })), []);
 
   const downloadItem = useCallback((item: ImageItem, blob = item.outputBlob) => {
     if (!blob) return;
@@ -3910,20 +3945,29 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     event.preventDefault();
     setDragging(false);
     const files = Array.from(event.dataTransfer.files);
-    if (files.length) void runImport((onProgress) => addFiles(files, onProgress));
-  }, [addFiles, runImport]);
+    if (files.length) {
+      if (!nativeBridge && (view === "convert" || view === "resize")) void addBrowserToolFiles(files);
+      else void runImport((onProgress) => addFiles(files, onProgress));
+    }
+  }, [addFiles, addBrowserToolFiles, nativeBridge, runImport, view]);
 
   const onFilesSelected = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
-    if (files.length) void runImport((onProgress) => addFiles(files, onProgress));
-  }, [addFiles, runImport]);
+    if (files.length) {
+      if (!nativeBridge && (view === "convert" || view === "resize")) void addBrowserToolFiles(files);
+      else void runImport((onProgress) => addFiles(files, onProgress));
+    }
+  }, [addFiles, addBrowserToolFiles, nativeBridge, runImport, view]);
 
   const onFolderFilesSelected = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
-    if (files.length) void runImport((onProgress) => addFiles(files, onProgress));
-  }, [addFiles, runImport]);
+    if (files.length) {
+      if (!nativeBridge && (view === "convert" || view === "resize")) void addBrowserToolFiles(files);
+      else void runImport((onProgress) => addFiles(files, onProgress));
+    }
+  }, [addFiles, addBrowserToolFiles, nativeBridge, runImport, view]);
 
   const importPlugin = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -3993,7 +4037,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             const destination=(plugin.kind==="builtin"?plugin.id:`plugin:${plugin.id}`) as ViewName;
             const shortZh:Record<string,string>={rename:"批量命名",resize:"尺寸与扩图",convert:"格式转换",watcher:"文件夹监测",gallery:"图库"};
             const label=!nativeBridge&&plugin.id==="resize"?pluginLabel(plugin):desktopPreferences.language==="zh"?(shortZh[plugin.id]||plugin.nameZh):plugin.nameEn;
-            return {id:plugin.id,visible:plugin.enabled&&availableWorkspacePlugins.includes(plugin),label,active:view===destination,live:plugin.id==="watcher"&&watcherActive,select:()=>{setView(destination);if(!nativeBridge&&["convert","resize"].includes(plugin.id))requestAnimationFrame(()=>document.getElementById(plugin.id==="convert"?"output-format":"scale-range")?.scrollIntoView({block:"nearest"}));}};
+            return {id:plugin.id,visible:plugin.enabled&&availableWorkspacePlugins.includes(plugin),label,active:view===destination,live:plugin.id==="watcher"&&watcherActive,select:()=>{setView(destination);setFloatingResultId(null);}};
           }),
         ]} />}
         <div className="topbar-actions">
@@ -4014,7 +4058,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         <button className="update-notice-close" type="button" aria-label={t("暂时关闭更新提醒", "Dismiss update notice")} onClick={() => setUpdateInfo(null)}>×</button>
       </aside>}
 
-      {view === "workspace" || (!nativeBridge && (view === "convert" || view === "resize")) ? (
+      {view === "workspace" ? (
         <section className="workspace" aria-label={t("图片压缩工作台", "Image compression workspace")}>
           <aside className="queue-panel">
             <div className="panel-heading">
@@ -4317,10 +4361,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         <BannerMaker language={desktopPreferences.language} />
       ) : view === "rename" ? (
         <BatchRenamePage bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} />
-      ) : view === "convert" ? (
-        <FormatConverterPlugin bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} />
-      ) : view === "resize" ? (
-        <ResizePlugin bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} />
+      ) : view === "convert" || view === "resize" ? (
+        nativeBridge ? (view === "convert" ? <FormatConverterPlugin bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} /> : <ResizePlugin bridge={nativeBridge} language={desktopPreferences.language} onCreateMonitor={createMonitorFromTool} />) :
+        <BrowserImageTool key={view} kind={view} language={desktopPreferences.language} items={browserToolItems} busy={browserToolBusy} quality={settings.quality} onImport={addBrowserToolFiles} onProcess={processBrowserTool} onDownload={id => { const item = browserToolItems.find(candidate => candidate.id === id); if (item) downloadItem(item); }} onRemove={removeBrowserToolItem} />
       ) : view === "watcher" ? (
         <section className="watcher-page">
           <div className="watcher-intro">

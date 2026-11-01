@@ -105,6 +105,10 @@ html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0
 .app-shell .encoding-help{margin-top:10px;color:var(--muted);font-size:11px}
 .app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
 .app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
+/* Browser welcome content grows with interface text. Keep the import controls
+   inside the remaining stage and allow scrolling when the content is taller. */
+html .app-shell.web-app.studio-shell .studio-welcome{max-height:100%;min-height:0;flex-shrink:0;overflow:auto;overscroll-behavior:contain}
+html .app-shell.web-app.studio-shell .studio-welcome>*{flex-shrink:0}
 .app-shell.desktop-app .workspace .settings-panel{padding-bottom:24px}
 
 /* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */
