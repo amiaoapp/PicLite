@@ -102,6 +102,12 @@ html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0
 .app-shell.desktop-app .workspace .live-size-card>span{color:#e3edf7;font-size:10px}
 .app-shell.desktop-app .workspace .live-size-card>small{font-size:10px;color:#cfdfef;line-height:1.5;height:auto;display:block;white-space:normal}
 .app-shell.desktop-app .workspace .setting-hint{font-size:10px;line-height:1.65;color:var(--muted)}
+.app-shell.web-app .plugin-import-panel{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:12px;padding:16px;min-width:0}
+.app-shell.web-app .plugin-import-panel>button:first-child{justify-self:start;max-width:100%;height:auto;padding:9px 14px;white-space:normal;line-height:1.5}
+.app-shell.web-app .plugin-import-panel>span{display:block;grid-column:1/-1;min-width:0;white-space:normal;line-height:1.5;font-size:12px;color:var(--muted)}
+.app-shell.web-app .plugin-import-panel>input{display:block;width:100%;min-width:0;max-width:100%;height:auto;min-height:40px;padding:10px 11px;line-height:1.5;color:inherit;font:inherit}
+.app-shell.web-app .plugin-import-panel>button:last-child{justify-self:start;max-width:100%;height:auto;min-height:40px;padding:9px 14px;white-space:normal;line-height:1.5}
+@media(min-width:1100px){.app-shell.web-app .plugin-import-panel{grid-template-columns:minmax(180px,.8fr) minmax(240px,1.2fr)}.app-shell.web-app .plugin-import-panel>button:first-child,.app-shell.web-app .plugin-import-panel>button:last-child{grid-column:1/-1}}
 .app-shell .encoding-help{margin-top:10px;color:var(--muted);font-size:11px}
 .app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
 .app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
