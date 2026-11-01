@@ -65,6 +65,7 @@ jobs:
           run-id: ${{ inputs.run_id }}
           path: artifacts
           merge-multiple: true
+          pattern: PicLite-*
       - name: Verify complete packages, portable architectures and checksums
         shell: bash
         run: |

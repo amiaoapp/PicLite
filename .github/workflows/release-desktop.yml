@@ -84,6 +84,19 @@ jobs:
           PICLITE_BINARY: ${{ github.workspace }}/src-tauri/target/${{ matrix.target }}/release/piclite${{ runner.os == 'Windows' && '.exe' || '' }}
         run: node tests/mcp-smoke.mjs
 
+      - name: Windows native WebView2 floating window regression
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        env:
+          PICLITE_BINARY: ${{ github.workspace }}/src-tauri/target/${{ matrix.target }}/release/piclite.exe
+        run: node tests/floating-windows-native-ui.mjs
+      - name: Upload native Windows UI verification
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-${{ matrix.target }}
+          path: native-ui-artifacts
+
       - name: Package Windows portable
         if: runner.os == 'Windows'
         shell: pwsh
@@ -112,6 +125,7 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+          pattern: PicLite-*
       - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
