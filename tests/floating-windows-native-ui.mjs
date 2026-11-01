@@ -65,7 +65,8 @@ try {
       await ev(`window.__TAURI_INTERNALS__.invoke('plugin:event|emit',{event:'watcher:event',payload:${JSON.stringify(event)}})`);
       await wait(`document.querySelector('.floating-result-next')?.textContent === '1/${n + 1}' || (${n}===0 && !!document.querySelector('.result-metrics'))`);
     }
-    for (const [width, height] of [[392,330],[556,436],[280,220],[246,188],[680,480]]) {
+    // Native resize commands cap logical dimensions at 520 × 420.
+    for (const [width, height] of [[392,330],[520,420],[280,220],[246,188],[460,360]]) {
       await ev(`picLite.resizeDropzoneWindow(${width},${height})`);
       await wait(`Math.abs(innerWidth-${width})<=1 && Math.abs(innerHeight-${height})<=1`);
       for (const style of ['immersive','classic']) for (const theme of ['light','dark']) {
@@ -84,7 +85,7 @@ try {
         assert.ok(layout.footer.every(b=>b.w>0&&b.h>0&&b.x>=0&&b.right<=width+1&&b.hit), JSON.stringify(layout.footer));
         assert.equal(layout.filenames, 0);
         if (style==='immersive' && width===392) assert.ok(layout.actions.every(b=>b.w>=67&&b.w<=69));
-        if (style==='immersive' && width===556) assert.ok(layout.actions.every(b=>b.w>=80&&b.w<=85));
+        if (style==='immersive' && width===520) assert.ok(layout.actions.every(b=>b.w>=80&&b.w<=85));
         if (style==='classic') assert.ok(layout.actions.every(b=>b.w===(width<=340?38:42)));
         const metric = await ev('document.querySelector(".result-metrics").textContent');
         await click('.floating-collapse-button');
@@ -108,11 +109,12 @@ try {
     assert.deepEqual(report.pages,['1/3','2/3','3/3','1/3']);
     const order=async()=>{
       await click('.floating-footer button[title="Expand results"]');await wait('!!document.querySelector(".floating-list.list")');
-      const images=await ev('[...document.querySelectorAll(".result-card img")].map(i=>i.src)');
+      const images=await ev('[...document.querySelectorAll(".result-metrics")].map(i=>i.textContent)');
       await click('.floating-footer button[title="Stack results"]');await wait('!!document.querySelector(".floating-list.stack")');
       return images;
     };
-    const before=await order();await click('.floating-result-next');assert.deepEqual(await order(),before);
+    const before=await order();assert.equal(before.length,3);assert.equal(new Set(before).size,3);
+    await click('.floating-result-next');assert.deepEqual(await order(),before);
     assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
     report.status='passed';
     await writeFile(join(artifacts,'report.json'),JSON.stringify(report,null,2));
