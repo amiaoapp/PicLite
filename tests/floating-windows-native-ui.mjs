@@ -30,16 +30,19 @@ app.stdout.on('data', b => { appLog += b; });
 app.stderr.on('data', b => { appLog += b; });
 app.on('error', e => { appLog += e.stack; });
 async function targetFor(dropzone) {
+  let lastObservation;
   for (let n = 0; n < 240; n++) {
     if (app.exitCode !== null) throw Error(`App exited: ${app.exitCode}\n${appLog}`);
     try {
-      const pages = await fetch(endpoint + '/json/list').then(r => r.json());
-      const page = pages.find(p => p.type === 'page' && p.url.includes('tauri.localhost') && p.url.includes('window=dropzone') === dropzone);
+      const pages = await fetch(endpoint + '/json/list', {signal:AbortSignal.timeout(3000)}).then(r => r.json());
+      lastObservation = pages;
+      // WebView2 reports targets as "webview", unlike Chrome's "page".
+      const page = pages.find(p => p.webSocketDebuggerUrl && (p.url.includes('tauri.localhost') || p.url.startsWith('tauri://localhost')) && p.url.includes('window=dropzone') === dropzone);
       if (page) return page;
-    } catch { /* WebView2 may still be starting. */ }
+    } catch (error) { lastObservation = String(error); }
     await new Promise(r => setTimeout(r, 250));
   }
-  throw Error('Timed out waiting for native WebView2\n' + appLog);
+  throw Error('Timed out waiting for native WebView2\n' + JSON.stringify(lastObservation) + '\n' + appLog);
 }
 const report = { platform: process.arch, cases: [], pages: [] };
 try {

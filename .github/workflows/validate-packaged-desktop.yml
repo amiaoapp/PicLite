@@ -1,0 +1,124 @@
+name: Validate existing desktop packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build desktop apps run with successful compile, native tests and bundles
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify original binaries and unchanged application source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN: ${{ inputs.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          run_id=os.environ['SOURCE_RUN']
+          assert run_id.isdigit()
+          repo=os.environ['GITHUB_REPOSITORY']
+          def api(path): return json.loads(subprocess.check_output(['gh','api',path]))
+          run=api(f'repos/{repo}/actions/runs/{run_id}')
+          assert run['status']=='completed'
+          assert run['path']=='.github/workflows/release-desktop.yml'
+          assert run['head_repository']['full_name']==repo
+          sha=run['head_sha']
+          subprocess.run(['git','fetch','origin',sha],check=True)
+          changed=subprocess.check_output(['git','diff','--name-only',sha,'HEAD'],text=True).splitlines()
+          assert all(p.startswith(('tests/','.github/workflows/')) for p in changed), changed
+          jobs=api(f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100')['jobs']
+          expected={'Windows x64','Windows ARM64','macOS Apple Silicon','macOS Intel','Linux x64','Linux arm64'}
+          jobs={j['name']:j for j in jobs if j['name'] in expected}
+          assert set(jobs)==expected
+          for name,j in jobs.items():
+            steps={s['name']:s['conclusion'] for s in j['steps']}
+            for step in ['Typecheck and native regression tests','Build Tauri bundle','MCP protocol integration tests']:
+              assert steps.get(step)=='success',(name,step,steps.get(step))
+          print('Verified all six native builds/tests and byte-identical application source. Only validation tooling changed.')
+          PY
+  windows:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          architecture: x64
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.run_id }}
+          name: PicLite-Windows-${{ matrix.arch }}-nsis
+          path: installer
+      - name: Extract original packaged executable
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installer -Filter '*-setup.exe' | Select-Object -First 1
+          & 7z x $setup.FullName '-oextracted' -y
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract NSIS package' }
+          $exe = Get-ChildItem extracted -Recurse -Filter 'piclite.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'Packaged PicLite executable missing' }
+          "PICLITE_BINARY=$($exe.FullName)" >> $env:GITHUB_ENV
+      - name: Verify original executable MCP
+        run: node tests/mcp-smoke.mjs
+      - name: Native WebView2 floating regression
+        run: node tests/floating-windows-native-ui.mjs
+      - name: Upload Windows native verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-${{ matrix.target }}
+          path: native-ui-artifacts
+      - name: Package verified portable executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item $env:PICLITE_BINARY portable/PicLite.exe
+          Set-Content portable/portable.txt 'PicLite portable mode'
+          Copy-Item docs/PORTABLE.txt portable/README.txt
+          Compress-Archive -Path portable/* -DestinationPath 'PicLite-Windows-${{ matrix.arch }}-portable.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PicLite-Windows-${{ matrix.arch }}-portable
+          path: PicLite-Windows-${{ matrix.arch }}-portable.zip
+  collect:
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.run_id }}
+          pattern: PicLite-*
+          path: packages
+          merge-multiple: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PicLite-original-installers
+          path: packages
