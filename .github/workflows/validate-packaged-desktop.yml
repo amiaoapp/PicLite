@@ -70,6 +70,14 @@ jobs:
           architecture: x64
           cache: npm
       - run: npm ci
+      - name: Ensure official WebView2 Runtime is installed
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $runtime
+          $install = Start-Process $runtime -ArgumentList '/silent /install' -Wait -PassThru
+          Write-Host "WebView2 installer result: $($install.ExitCode)"
+          Get-ChildItem 'C:/Program Files (x86)/Microsoft/EdgeWebView/Application','C:/Program Files/Microsoft/EdgeWebView/Application' -ErrorAction SilentlyContinue
       - uses: actions/download-artifact@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

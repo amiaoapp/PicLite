@@ -42,7 +42,8 @@ async function targetFor(dropzone) {
     } catch (error) { lastObservation = String(error); }
     await new Promise(r => setTimeout(r, 250));
   }
-  throw Error('Timed out waiting for native WebView2\n' + JSON.stringify(lastObservation) + '\n' + appLog);
+  const diagnostics = spawnSync('powershell.exe',['-NoProfile','-Command',`Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'piclite|msedgewebview2'} | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Depth 2`],{encoding:'utf8'});
+  throw Error('Timed out waiting for native WebView2\n' + JSON.stringify(lastObservation) + '\n' + diagnostics.stdout + '\n' + appLog);
 }
 const report = { platform: process.arch, cases: [], pages: [] };
 try {
