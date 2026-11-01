@@ -12,7 +12,8 @@ const binary = resolve(process.env.PICLITE_BINARY);
 const directory = await mkdtemp(join(tmpdir(), 'piclite-native-ui-'));
 const artifacts = resolve(process.env.ARTIFACTS || 'native-ui-artifacts');
 await mkdir(artifacts, { recursive: true });
-const executable = join(directory, 'PicLite.exe');
+const executableName = `PicLiteNativeUITest-${process.pid}.exe`;
+const executable = join(directory, executableName);
 await copyFile(binary, executable);
 await writeFile(join(directory, 'portable.txt'), 'Isolated CI test profile');
 const sources = [];
@@ -22,8 +23,17 @@ for (let n = 1; n <= 3; n++) {
   sources.push(path);
 }
 const endpoint = 'http://127.0.0.1:9471';
+const debugArguments = '--remote-debugging-port=9471 --remote-debugging-address=127.0.0.1';
+const policyKey = 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments';
+// Hosted Windows runners can ignore environment overrides for elevated apps.
+// Set only a uniquely named, temporary test executable's supported policy.
+const useMachinePolicy = process.env.GITHUB_ACTIONS === 'true';
+if (useMachinePolicy) {
+  const policy = spawnSync('reg.exe',['add',policyKey,'/v',executableName,'/t','REG_SZ','/d',debugArguments,'/f','/reg:64'],{encoding:'utf8'});
+  assert.equal(policy.status,0,policy.stdout + policy.stderr);
+}
 const app = spawn(executable, [], { env: { ...process.env,
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9471 --remote-debugging-address=127.0.0.1',
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: debugArguments,
 }, stdio: ['ignore', 'pipe', 'pipe'] });
 let appLog = '';
 app.stdout.on('data', b => { appLog += b; });
@@ -127,5 +137,6 @@ try {
 } finally {
   await writeFile(join(artifacts,'app.log'),appLog);
   if (app.pid) spawnSync('taskkill', ['/PID',String(app.pid),'/T','/F'],{stdio:'ignore'});
+  if (useMachinePolicy) spawnSync('reg.exe',['delete',policyKey,'/v',executableName,'/f','/reg:64'],{stdio:'ignore'});
   await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:300});
 }
