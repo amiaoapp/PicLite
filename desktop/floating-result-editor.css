@@ -1,6 +1,6 @@
 /* Shared radius includes the native window shell and settings preview. */
 html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.dropzone-root.dropzone-root #root {border-radius:var(--floating-radius,10px);clip-path:inset(0 round var(--floating-radius,10px))}
-.floating-results.floating-results:not(.is-collapsed){border-radius:var(--floating-radius,10px);clip-path:inset(0 round var(--floating-radius,10px));background-image:var(--floating-backdrop,none);background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent}
+.floating-results:not([data-floating-style="classic"]).floating-results:not([data-floating-style="classic"]):not(.is-collapsed){border-radius:var(--floating-radius,10px);clip-path:inset(0 round var(--floating-radius,10px));background-image:var(--floating-backdrop,none);background-size:cover;background-position:center;background-repeat:no-repeat;background-color:transparent}
 .floating-radius-control{display:flex;align-items:center;gap:12px;max-width:260px}
 .floating-radius-control input{min-width:80px;width:170px}
 .floating-radius-control output{min-width:38px;font-size:12px;font-variant-numeric:tabular-nums}
@@ -31,7 +31,7 @@ html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.drop
 .integrated-result-card .floating-card-icon{display:grid;place-items:center;width:25px;height:25px;flex:0 0 25px;padding:5px;border:1px solid #ffffff40;border-radius:50%;background:var(--float-button);color:var(--float-button-ink);box-shadow:0 2px 6px #1d283218;pointer-events:auto}
 .integrated-result-card .floating-card-icon svg{width:15px;height:15px}
 .integrated-result-card .floating-card-icon:hover:not(:disabled){background:#fff}
-.floating-results .integrated-result-card .result-preview{position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;max-height:none;background:transparent}
+.floating-results:not([data-floating-style="classic"]) .integrated-result-card .result-preview{position:absolute;inset:0;display:block;width:100%;height:100%;min-width:0;min-height:0;max-height:none;background:transparent}
 .floating-image-slot{position:absolute;inset:0;min-width:0;min-height:0;overflow:hidden;pointer-events:none;background:transparent}
 .floating-image-slot>img{display:block;transition:none!important;filter:none!important}
 .integrated-result-card .result-preview>svg{position:absolute;left:calc(50% - 15px);top:calc(50% - 15px)}
@@ -79,11 +79,11 @@ html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.drop
 .floating-overflow-menu button:hover:not(:disabled){background:color-mix(in srgb,var(--float-ink) 9%,transparent)}
 .floating-overflow-menu svg{width:15px;height:15px;flex-shrink:0}
 .floating-footer .floating-collapse-button{position:static;opacity:1;pointer-events:auto;transform:none;border-radius:7px;box-shadow:none;background:transparent;color:var(--ink)}
-.floating-results .floating-footer{gap:4px;padding:3px 14px 3px 7px;min-height:32px}
-.floating-results .floating-footer>div{min-width:0;max-width:64%;flex:0 1 auto;gap:1px}
-.floating-results .floating-footer button{width:22px;min-width:0;height:24px;flex:0 1 22px;padding:3px}
-.floating-results .floating-footer .automatic-badge{flex:1 1 auto;min-width:0;max-width:none;font-size:9px}
-.floating-results .floating-footer svg{width:16px;height:16px;flex-shrink:0}
+.floating-results:not([data-floating-style="classic"]) .floating-footer{gap:4px;padding:3px 14px 3px 7px;min-height:32px}
+.floating-results:not([data-floating-style="classic"]) .floating-footer>div{min-width:0;max-width:64%;flex:0 1 auto;gap:1px}
+.floating-results:not([data-floating-style="classic"]) .floating-footer button{width:22px;min-width:0;height:24px;flex:0 1 22px;padding:3px}
+.floating-results:not([data-floating-style="classic"]) .floating-footer .automatic-badge{flex:1 1 auto;min-width:0;max-width:none;font-size:9px}
+.floating-results:not([data-floating-style="classic"]) .floating-footer svg{width:16px;height:16px;flex-shrink:0}
 @container floating-preview (max-height:120px){
   .integrated-result-card .result-hover-actions{padding:0 30px;align-content:center}
   .integrated-result-card .result-actions{--action-size:max(20px,min(22cqw,calc((100cqh - 12px)/2.4)));gap:5px}
@@ -101,34 +101,27 @@ html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing)>.floating-card-bottom{position:absolute;inset:auto 0 0;height:32px;background:transparent!important;border:0;box-shadow:none}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) :is(.floating-card-header,.floating-card-formats,.result-preview,.result-overlay){background:transparent!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{bottom:32px}
-html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 20px var(--float-tools-space);padding:0}
-html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:38px;gap:max(5px,min(3cqw,calc((100cqh - var(--float-tools-space) - 32px)/10)))}
 /* Populated windows are one image surface, including both bottom toolbars. */
-html[data-theme] .floating-results.floating-results.has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
-html .floating-results.has-image.display-stack{grid-template-rows:minmax(0,1fr)}
-html .floating-results.has-image .floating-list.stack{padding:0;z-index:1;isolation:isolate}
-html .floating-results.has-image .floating-list.stack .floating-result-slot{transform:none;z-index:auto}
+html[data-theme] .floating-results:not([data-floating-style="classic"]).floating-results:not([data-floating-style="classic"]).has-image:not(.is-collapsed){background:var(--floating-backdrop) center / cover no-repeat!important;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack{grid-template-rows:minmax(0,1fr)}
+html .floating-results:not([data-floating-style="classic"]).has-image .floating-list.stack{padding:0;z-index:1;isolation:isolate}
+html .floating-results:not([data-floating-style="classic"]).has-image .floating-list.stack .floating-result-slot{transform:none;z-index:auto}
 .floating-window-image{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .floating-window-image .floating-image-slot{visibility:visible!important}
-.floating-results .floating-footer .floating-result-next{width:auto;flex:0 0 auto;min-width:30px;font-size:9px}
-html .floating-results.has-image .result-overlay,html .floating-results.has-image .result-hover-actions{background:transparent!important;filter:none;backdrop-filter:none;-webkit-backdrop-filter:none}
-html .floating-results.has-image .floating-footer{z-index:30;isolation:isolate;pointer-events:auto}
-html .floating-results.has-image.display-stack>.floating-footer{position:absolute;inset:auto 0 0;height:32px;z-index:9}
-html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing)>.floating-card-bottom{bottom:32px}
-html .floating-results.has-image.display-stack .floating-card-content:not(.is-editing) .result-overlay{bottom:64px}
-html[data-theme] .floating-results.has-image.display-stack .floating-card-content.has-preview:not(.is-editing){--float-tools-space:110px}
-html .floating-results.has-image.display-stack .floating-card-content.is-editing{padding-bottom:32px}
-html .floating-results.has-image.display-stack .integrated-result-card{border:0;box-shadow:none;border-radius:0}
-html .floating-results.has-image.display-stack .floating-image-slot{visibility:hidden}
-html[data-theme] .floating-results.has-image :is(.floating-footer,.floating-card-header,.floating-card-bottom,.floating-card-formats,.result-preview,.result-overlay,.integrated-result-card){background:transparent!important;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
-html .floating-results.has-image .floating-footer{color:white;border-top:0;text-shadow:0 1px 4px #000a}
-html[data-theme] .floating-results.has-image .floating-footer button,html[data-theme] .floating-results.has-image .floating-footer .automatic-badge{color:white}
+.floating-results:not([data-floating-style="classic"]) .floating-footer .floating-result-next{width:auto;flex:0 0 auto;min-width:30px;font-size:9px}
+html .floating-results:not([data-floating-style="classic"]).has-image .result-overlay,html .floating-results:not([data-floating-style="classic"]).has-image .result-hover-actions{background:transparent!important;filter:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results:not([data-floating-style="classic"]).has-image .floating-footer{z-index:30;isolation:isolate;pointer-events:auto}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack>.floating-footer{position:absolute;inset:auto 0 0;height:32px;z-index:9}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack .floating-card-content:not(.is-editing)>.floating-card-bottom{bottom:32px}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack .floating-card-content:not(.is-editing) .result-overlay{bottom:64px}
+html[data-theme] .floating-results:not([data-floating-style="classic"]).has-image.display-stack .floating-card-content.has-preview:not(.is-editing){--float-tools-space:110px}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack .floating-card-content.is-editing{padding-bottom:32px}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack .integrated-result-card{border:0;box-shadow:none;border-radius:0}
+html .floating-results:not([data-floating-style="classic"]).has-image.display-stack .floating-image-slot{visibility:hidden}
+html[data-theme] .floating-results:not([data-floating-style="classic"]).has-image :is(.floating-footer,.floating-card-header,.floating-card-bottom,.floating-card-formats,.result-preview,.result-overlay,.integrated-result-card){background:transparent!important;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+html .floating-results:not([data-floating-style="classic"]).has-image .floating-footer{color:white;border-top:0;text-shadow:0 1px 4px #000a}
+html[data-theme] .floating-results:not([data-floating-style="classic"]).has-image .floating-footer button,html[data-theme] .floating-results:not([data-floating-style="classic"]).has-image .floating-footer .automatic-badge{color:white}
 html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-header{background:transparent;box-shadow:none}
 html .integrated-result-card .floating-card-content:not(.is-editing)>.floating-card-bottom{background:transparent;box-shadow:none}
 .integrated-result-card .floating-card-content.is-editing .floating-card-formats button{color:var(--float-ink);text-shadow:none}
-/* Short previews use one row instead of squeezing two rows to tiny icons. */
-@container floating-preview (max-height:240px){
- html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:30px 8px var(--float-tools-space)}
- html[data-theme] .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:30px;grid-template-columns:repeat(6,var(--action-size));grid-template-rows:var(--action-size);gap:4px}
-}
 @media(prefers-reduced-motion:reduce){.integrated-result-card,.integrated-result-card *,.floating-result-slot{animation:none!important;transition:none!important}}

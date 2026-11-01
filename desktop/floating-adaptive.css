@@ -1,112 +1,80 @@
-/* Clop reference: clear preview, progressively softened lower image, compact
-   data at rest; proportional actions and direct footer controls on hover. Export pixels untouched. */
-html .floating-results{--overlay-ink:#f4f2ee;--overlay-button:rgba(38,39,42,.72);--overlay-button-ink:#f4f2ee;--overlay-shadow:0 1px 4px #0007;--overlay-chip:transparent;--overlay-chip-ink:#eee8dc;--interface-font-scale:1}
-html .floating-results .floating-list.list{isolation:isolate;z-index:0}
-/* Masked backdrop layers affect the preview only, not the actual source. */
-html .floating-window-image::before,html .floating-window-image::after{content:"";position:absolute;inset:44% 0 0;pointer-events:none;mask-image:linear-gradient(transparent,#000 65%);-webkit-mask-image:linear-gradient(transparent,#000 65%);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
-html .floating-window-image::after{inset:62% 0 0;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);background:linear-gradient(transparent,rgba(19,20,23,.52) 62%,rgba(19,20,23,.72));mask-image:linear-gradient(transparent,#000 55%);-webkit-mask-image:linear-gradient(transparent,#000 55%)}
-html .floating-results .result-card .result-metrics{font-size:18px!important;gap:7px;line-height:1.15;font-variant-numeric:tabular-nums}
-html .floating-results .result-card .result-metrics b:first-child{color:#ff847a!important;font-weight:400;font-size:inherit!important;text-shadow:0 1px 4px #0005}
-html .floating-results .result-card .result-metrics b:nth-of-type(2){color:#ffe0a0!important;font-weight:400;font-size:inherit!important;text-shadow:0 1px 4px #0005}
-html .floating-results .result-card .result-metrics span{color:#f6f4ef!important;font-size:15px!important;font-weight:400}
-html .floating-results .result-card .result-metrics em{background:transparent;color:#f2eadc;font-size:9px!important;font-weight:400;padding:0;text-shadow:0 1px 3px #0008}
-html .floating-results .result-card .result-dimensions{color:#f1f0ed!important;font-size:10px!important;font-weight:400;line-height:1.3;text-shadow:0 1px 4px #0007}
-html .floating-results .result-card .result-name{display:none;max-width:80%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f4f2ee;font-size:11px!important;font-weight:400;text-shadow:0 1px 4px #0007}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) :is(.result-metrics,.result-dimensions){display:none}
-html .floating-results .result-card:hover .result-name,html .floating-results .result-card:focus-within .result-name{display:block}
-html .floating-results .floating-editor-quality output{font-weight:400}
-html .floating-results .result-card button,html .floating-results .floating-footer button{font-weight:400!important;box-shadow:none;filter:none}
-html .floating-results .result-card :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger),html[data-theme] .floating-results.has-image .floating-footer button{background:transparent!important;border:1px solid transparent;color:#f4f2ee;text-shadow:0 1px 4px #0009;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
-html .floating-results .result-card :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger):hover:not(:disabled),html[data-theme] .floating-results.has-image .floating-footer button:hover:not(:disabled){background:rgba(36,37,40,.7)!important;color:#fff;border-color:#ffffff18;box-shadow:none;transform:none}
-html .floating-results .result-card button:focus-visible,html .floating-results .floating-footer button:focus-visible{outline:1px solid #f4f2ee;outline-offset:-2px}
-html .floating-results .result-card :is(.format-bar button,.floating-card-formats button){height:24px;min-height:24px;line-height:24px;font-size:10px!important;font-weight:400;padding:0 8px;background:transparent;color:rgba(242,240,234,.65);border:0;border-radius:12px;text-shadow:0 1px 4px #0007;box-shadow:none}
-html .floating-results .result-card :is(.format-bar button,.floating-card-formats button).active{background:transparent;color:#fff;text-shadow:0 1px 4px #0007;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px}
-html .floating-results .result-card :is(.format-bar button,.floating-card-formats button):hover:not(:disabled):not(.active){background:#ffffff1c!important;color:#fff}
-html .floating-results .result-card .result-hover-actions{background:transparent!important;padding:0;opacity:0;pointer-events:none;backdrop-filter:none;-webkit-backdrop-filter:none;transition:opacity .12s}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .result-hover-actions{opacity:1}
-html .floating-results .result-card .result-actions{--action-size:38px;display:grid;grid-template-columns:repeat(3,var(--action-size));grid-template-rows:repeat(2,var(--action-size));gap:12px;align-content:center;justify-content:center;pointer-events:none}
-html .floating-results .result-card .result-actions button{width:var(--action-size);height:var(--action-size);padding:0;border-radius:14px;pointer-events:none}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .result-actions button{pointer-events:auto}
-html .floating-results .result-card .result-actions svg{position:static;inset:auto;margin:0;transform:none;width:16px!important;height:16px!important;max-width:none;max-height:none}
-/* Immersive renderer has exactly one full-window image below all controls. */
-html .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay{inset:auto 0 65px!important;height:54px;min-height:54px;display:grid;align-content:end;justify-items:center;padding:3px 10px;gap:4px;overflow:visible;background:transparent!important;z-index:4}
-html .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-overlay::before{content:none}
-html .floating-results .integrated-result-card .result-hover-actions{inset:36px 12px 106px!important;padding:0!important;z-index:5}
-html .floating-results .integrated-result-card .floating-card-header{height:38px;padding:5px 8px;opacity:0;transition:opacity .12s}
-html .floating-results .integrated-result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .floating-card-header,html .floating-results .integrated-result-card .is-editing .floating-card-header{opacity:1}
-html .floating-results .integrated-result-card .floating-card-icon{width:28px;height:28px;flex-basis:28px;padding:6px;background:transparent}
-html .floating-results .integrated-result-card .floating-card-icon svg{width:15px;height:15px}
-html .floating-results .integrated-result-card .floating-card-bottom{grid-template-columns:28px minmax(0,1fr);gap:5px;height:30px!important;padding:2px 10px}
-html .floating-results .integrated-result-card .crop-window-trigger{opacity:0}
-html .floating-results .integrated-result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .crop-window-trigger{opacity:1}
-html .floating-results .integrated-result-card .floating-card-formats{display:flex;justify-content:space-evenly;gap:1px}
-html .floating-results .integrated-result-card .floating-card-formats button{background:transparent}
-html .floating-results .integrated-result-card .result-actions{--action-size:38px}
-html[data-theme] .floating-results.has-image .floating-footer{min-height:28px;height:28px;padding:2px 14px 2px 8px;color:#f4f2ee;background:transparent!important;border:0;font-size:9px!important}
-html[data-theme] .floating-results.has-image .floating-footer .automatic-badge{font-size:9px!important;color:#ebe8df;background:transparent;text-shadow:0 1px 4px #0007}
-html[data-theme] .floating-results.has-image .floating-footer .automatic-badge svg{color:#c6d8b7}
-html[data-theme] .floating-results.has-image .floating-footer button{height:23px}
-html[data-theme] .floating-results.has-image .floating-footer svg{width:13px;height:13px}
-html[data-theme] .floating-results.has-image .floating-footer .floating-result-next{font-size:9px!important}
-/* Classic preserves its own card structure, using the same restrained scale. */
-html .floating-results[data-floating-style="classic"] .floating-list{z-index:1;isolation:isolate}
-html .classic-result-card{border-radius:var(--floating-radius,10px);transform:none!important}
-html .classic-result-card .result-preview{container:floating-preview / size}
-html .classic-result-card .result-preview::before{content:"";position:absolute;inset:45% 0 0;z-index:1;background:linear-gradient(transparent,rgba(18,19,21,.65));-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);mask-image:linear-gradient(transparent,#000 60%);-webkit-mask-image:linear-gradient(transparent,#000 60%);pointer-events:none}
-html .classic-result-card .result-overlay{inset:auto 0 0;min-height:84px;padding:8px 10px 4px;gap:5px;z-index:2;background:transparent!important}
-html .classic-result-card .result-hover-actions{inset:28px 0 90px!important;z-index:3}
-html .classic-result-card .result-close{width:28px;height:28px;padding:6px}
-html .classic-result-card .result-close svg{width:15px;height:15px}
-html .classic-result-card .result-dimensions svg{width:10px;height:10px}
-html .classic-result-card .format-bar{display:flex;gap:1px;justify-content:center}
-/* Clop hover: bright controls over a full preview frost. */
-html .floating-results .result-card .result-actions,
-html[data-theme] .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions{--action-size:clamp(28px,min(14cqw,calc((100cqh - 110px)/2.7)),52px);grid-template-columns:repeat(3,var(--action-size));grid-template-rows:repeat(2,var(--action-size));gap:clamp(6px,3cqw,12px)}
-html .floating-results .result-card .result-actions button{border-radius:30%}
-html .floating-results .result-card .result-actions svg{width:clamp(14px,calc(var(--action-size)*.34),18px)!important;height:clamp(14px,calc(var(--action-size)*.34),18px)!important}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger){background:#efece6!important;color:#2d2e31!important;border-color:transparent;text-shadow:none;opacity:1}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) :is(.result-actions button,.floating-card-icon,.result-close,.crop-window-trigger):hover:not(:disabled){background:#fff!important;color:#202124!important}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .result-actions button:disabled{opacity:.5}
-html .floating-results:is([data-controls-visible="true"],:has(.result-card:is(:hover,:focus-within,[data-controls-visible="true"]))) .floating-window-image::after,
-html .floating-results .classic-result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .result-preview::before{inset:0;mask-image:none;-webkit-mask-image:none;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);background:linear-gradient(rgba(75,75,77,.54),rgba(24,25,28,.76));pointer-events:none}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) .result-overlay .result-name{display:none}
-html .floating-results .integrated-result-card .result-hover-actions{inset:48px 12px 100px!important}
-html .floating-results .integrated-result-card .floating-card-header{height:54px;padding:8px 10px}
-html .floating-results .integrated-result-card .floating-card-icon{width:42px;height:42px;flex-basis:42px;padding:11px}
-html .floating-results .integrated-result-card .floating-card-icon svg{width:20px;height:20px}
-html .floating-results .integrated-result-card .floating-card-bottom{grid-template-columns:minmax(0,1fr);height:30px!important;padding:2px 10px}
-html .floating-results .integrated-result-card .floating-card-bottom>.crop-window-trigger{position:absolute;left:10px;bottom:36px;width:38px;height:38px;padding:9px;border-radius:50%}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) :is(.format-bar button,.floating-card-formats button){color:#e9e6e1!important;text-shadow:none}
-html .floating-results .result-card:is(:hover,:focus-within,[data-controls-visible="true"]) :is(.format-bar button,.floating-card-formats button).active{background:#efece6!important;color:#2d2e31!important;text-decoration:none}
-html[data-theme] .floating-results.has-classic-image{--classic-footer-bg:#25272b;--classic-footer-ink:#f4f2ee;--classic-footer-hover:#ffffff26}
-html[data-theme] .floating-results.has-classic-image[data-image-tone="light"]{--classic-footer-bg:#f5f4f0;--classic-footer-ink:#2d2e31;--classic-footer-hover:#00000012}
-html[data-theme] .floating-results.has-classic-image .classic-floating-footer{background:var(--classic-footer-bg)!important;color:var(--classic-footer-ink)!important;border:0;padding-right:20px}
-html[data-theme] .floating-results.has-classic-image .classic-floating-footer button,
-html[data-theme] .floating-results.has-classic-image .classic-floating-footer .automatic-badge,
-html[data-theme] .floating-results.has-classic-image .classic-floating-footer button svg{color:var(--classic-footer-ink)!important;background:transparent!important;opacity:1;text-shadow:none}
-html[data-theme] .floating-results.has-classic-image .classic-floating-footer button:hover{background:var(--classic-footer-hover)!important}
-html .floating-results .classic-result-card .result-hover-actions{inset:38px 10px 86px!important}
-html .floating-results .classic-result-card .result-close{width:36px;height:36px;padding:9px;border-radius:50%}
-@container floating-preview (max-height:240px){
- html[data-theme] .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-hover-actions{inset:32px 8px 98px!important}
- html[data-theme] .floating-results .integrated-result-card .floating-card-content.has-preview:not(.is-editing) .result-actions,html .floating-results .classic-result-card .result-actions{--action-size:28px;gap:6px}
- html .floating-results .integrated-result-card .floating-card-header{height:36px;padding:4px 8px}
- html .floating-results .integrated-result-card .floating-card-icon{width:28px;height:28px;flex-basis:28px;padding:6px}
- html .floating-results .integrated-result-card .floating-card-icon svg{width:16px;height:16px}
- html .floating-results .integrated-result-card .floating-card-bottom>.crop-window-trigger{width:28px;height:28px;padding:6px;bottom:30px}
- html .floating-results .classic-result-card .result-hover-actions{inset:28px 8px 76px!important}
+/* Immersive controls follow the user's 392 × 330 Clop reference.
+   Size queries use the whole preview. Classic keeps its v2.0.2 styling. */
+html .floating-results[data-floating-style="immersive"] {
+  --interface-font-scale: 1;
+  --overlay-button: #efece6;
+  --overlay-button-ink: #2d2e31;
 }
-/* A pointer over the footer still belongs to the same floating interaction. */
-html .floating-results[data-controls-visible="true"] .result-card .result-hover-actions,
-html .floating-results[data-controls-visible="true"] .integrated-result-card :is(.floating-card-header,.crop-window-trigger){opacity:1}
-html .floating-results[data-controls-visible="true"] .result-actions button{pointer-events:auto;background:#efece6!important;color:#2d2e31!important;text-shadow:none}
-html .floating-results[data-controls-visible="true"] .result-card :is(.result-metrics,.result-dimensions){display:none}
-/* Window commands remain directly reachable in the bottom menu. */
-html .floating-results.has-image .floating-footer>div>button{display:grid}
-html .floating-results.has-image .floating-footer>div{max-width:none;flex:0 0 auto}
-html .floating-results.has-image .floating-footer .automatic-badge{min-width:0;flex:1 1 auto;overflow:hidden}
-html .floating-results.has-image .floating-footer .automatic-badge span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-html .floating-results.has-image .floating-overflow-menu{color:var(--float-ink);background:var(--float-control)}
-html .floating-results.has-image.display-list .integrated-result-card:has(.floating-card-content.has-preview):is(:hover,:focus-within,[data-controls-visible="true"]) .floating-card-content:not(.is-editing)::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);background:#292a2db3}
-html .floating-results.has-image.display-list .floating-card-body{z-index:2}
-@media(hover:none){html .floating-results .result-card .result-hover-actions{opacity:1}html .floating-results .result-card .result-actions button{pointer-events:auto}html .floating-results .result-card :is(.result-metrics,.result-dimensions){display:none}html .floating-results .result-card .result-name{display:block}html .floating-results .integrated-result-card .floating-card-header,html .floating-results .integrated-result-card .crop-window-trigger{opacity:1}}
+html .floating-window-image::before,
+html .floating-window-image::after {
+  content: ""; position: absolute; inset: 44% 0 0; pointer-events: none;
+  mask-image: linear-gradient(transparent, #000 65%);
+  -webkit-mask-image: linear-gradient(transparent, #000 65%);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+}
+html .floating-window-image::after {
+  inset: 62% 0 0; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  background: linear-gradient(transparent, #13141785 62%, #131417b8);
+}
+html .floating-results[data-floating-style="immersive"] :is(button, input, .floating-editor-quality output) { font-weight: 400; }
+html .floating-results[data-floating-style="immersive"] .result-metrics { font-size: 18px; gap: 7px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+html .floating-results[data-floating-style="immersive"] .result-metrics b:first-child { color: #ff847a; font-weight: 400; }
+html .floating-results[data-floating-style="immersive"] .result-metrics b:nth-of-type(2) { color: #ffe0a0; font-weight: 400; }
+html .floating-results[data-floating-style="immersive"] .result-metrics span { color: #f6f4ef; font-size: 15px; font-weight: 400; }
+html .floating-results[data-floating-style="immersive"] .result-metrics em { background: transparent; color: #f2eadc; font-size: 9px; font-weight: 400; padding: 0; }
+html .floating-results[data-floating-style="immersive"] .result-dimensions { color: #f1f0ed; font-size: 10px; font-weight: 400; line-height: 1.3; }
+html .floating-results[data-floating-style="immersive"] .floating-card-content.has-preview:not(.is-editing) .result-overlay { inset: auto 0 68px; height: 54px; min-height: 54px; display: grid; align-content: end; justify-items: center; padding: 3px 10px; gap: 4px; overflow: visible; }
+html .floating-results[data-floating-style="immersive"] .result-hover-actions { inset: 64px 12px 102px !important; padding: 0; opacity: 0; pointer-events: none; transition: opacity .12s; }
+html .floating-results[data-floating-style="immersive"] .result-actions {
+  --action-size: clamp(28px, min(17.35cqw, calc((100cqh - 176px) / 2)), 84px);
+  --action-gap: clamp(8px, 4.08cqw, 20px);
+  display: grid; grid-template-columns: repeat(3, var(--action-size));
+  grid-template-rows: repeat(2, var(--action-size)); gap: var(--action-gap);
+  align-content: center; justify-content: center; pointer-events: none;
+}
+html .floating-results[data-floating-style="immersive"] .result-actions button { width: var(--action-size); height: var(--action-size); padding: 0; border: 0; border-radius: 30%; background: var(--overlay-button); color: var(--overlay-button-ink); box-shadow: none; pointer-events: none; }
+html .floating-results[data-floating-style="immersive"] .result-actions svg { width: clamp(16px, calc(var(--action-size) * .34), 28px); height: clamp(16px, calc(var(--action-size) * .34), 28px); }
+html .floating-results[data-floating-style="immersive"] .floating-card-header { height: 62px; padding: 10px 16px; opacity: 0; transition: opacity .12s; }
+html .floating-results[data-floating-style="immersive"] .floating-card-icon { width: clamp(32px, 11.75cqw, 48px); height: clamp(32px, 11.75cqw, 48px); flex-basis: auto; padding: 10px; border: 0; box-shadow: none; background: var(--overlay-button); color: var(--overlay-button-ink); }
+html .floating-results[data-floating-style="immersive"] .floating-card-icon svg { width: 100%; height: 100%; max-width: 24px; max-height: 24px; }
+html .floating-results[data-floating-style="immersive"] .floating-card-bottom { grid-template-columns: minmax(0, 1fr); height: 30px !important; padding: 2px 16px; }
+html .floating-results[data-floating-style="immersive"] .floating-card-bottom > .crop-window-trigger { position: absolute; left: 16px; bottom: 36px; width: clamp(32px, 11.2cqw, 46px); height: clamp(32px, 11.2cqw, 46px); padding: 10px; border-radius: 50%; opacity: 0; }
+html .floating-results[data-floating-style="immersive"] .floating-card-formats { display: flex; justify-content: space-evenly; gap: 4px; }
+html .floating-results[data-floating-style="immersive"] .floating-card-formats button { height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11px; font-weight: 400; color: #f4f2ee; background: transparent; line-height: 24px; }
+html .floating-results[data-floating-style="immersive"] .floating-card-formats button.active { background: var(--overlay-button) !important; color: var(--overlay-button-ink) !important; text-shadow: none; }
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"], :has(.result-card:is(:hover, :focus-within, [data-controls-visible="true"]))) .floating-window-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger),
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger) { opacity: 1; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) .result-actions button,
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) .result-actions button { pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions),
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions) { visibility: hidden; }
+html .floating-results[data-floating-style="immersive"] .result-actions button:hover:not(:disabled) { background: #fff; transform: none; }
+html .floating-results[data-floating-style="immersive"] .result-actions button:active:not(:disabled) { transform: scale(.97); }
+/* A separate hit area keeps every window command directly reachable. */
+html .floating-results[data-floating-style="immersive"] .floating-footer { height: 32px; min-height: 32px; padding: 2px 16px 2px 8px; gap: 4px; color: #f4f2ee; background: transparent !important; border: 0; font-size: 10px; }
+html .floating-results[data-floating-style="immersive"] .floating-footer > div { display: flex; flex: 0 0 auto; max-width: none; gap: 2px; }
+html .floating-results[data-floating-style="immersive"] .floating-footer button { display: grid; flex: 0 0 auto; width: 24px; height: 26px; padding: 3px; color: #f4f2ee; }
+html .floating-results[data-floating-style="immersive"] .floating-footer svg { width: 15px; height: 15px; }
+html .floating-results[data-floating-style="immersive"] .floating-footer .automatic-badge { display: flex; flex: 1 1 auto; min-width: 0; max-width: none; width: auto; font-size: 10px; color: #f4f2ee; }
+html .floating-results[data-floating-style="immersive"] .floating-footer .automatic-badge span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html .floating-results[data-floating-style="immersive"] .floating-footer .floating-result-next { width: auto; min-width: 28px; font-size: 10px; }
+html .floating-results[data-floating-style="immersive"] .floating-overflow-menu { top: 62px; max-height: calc(100% - 100px); color: var(--float-ink); background: var(--float-control); }
+html .floating-results[data-floating-style="immersive"] .floating-card-content.is-editing .floating-card-header { height: 30px; padding: 2px 8px; opacity: 1; }
+html .floating-results[data-floating-style="immersive"] .is-editing .floating-card-header .floating-card-icon { width: 26px; height: 26px; padding: 5px; }
+html .floating-results[data-floating-style="immersive"] .floating-list.list { isolation: isolate; z-index: 0; }
+html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card:has(.floating-card-content.has-preview):is(:hover, :focus-within, [data-controls-visible="true"]) .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: #292a2db3; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-card-body { z-index: 2; }
+@container floating-preview (max-height: 260px) {
+  html .floating-results[data-floating-style="immersive"] .result-hover-actions { inset: 42px 8px 74px !important; }
+  html .floating-results[data-floating-style="immersive"] .result-actions { --action-size: clamp(28px, min(17.35cqw, calc((100cqh - 128px) / 2)), 52px); --action-gap: 8px; }
+  html .floating-results[data-floating-style="immersive"] .floating-card-header { height: 40px; padding: 4px 10px; }
+  html .floating-results[data-floating-style="immersive"] .floating-card-icon { width: 32px; height: 32px; padding: 7px; }
+  html .floating-results[data-floating-style="immersive"] .floating-card-bottom { padding-inline: 10px; }
+  html .floating-results[data-floating-style="immersive"] .floating-card-bottom > .crop-window-trigger { left: 10px; bottom: 30px; width: 28px; height: 28px; padding: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html .floating-results[data-floating-style="immersive"] * { transition: none !important; animation: none !important; }
+}
+html .floating-results[data-floating-style="immersive"] .floating-footer button:hover { background: #ffffff24; }
+html .floating-results[data-floating-style="immersive"] :is(button, input):focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

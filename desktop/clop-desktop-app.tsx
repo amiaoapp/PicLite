@@ -9,6 +9,7 @@ import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
 import { FloatingPreviewImage } from "./floating-preview-image";
+import "./floating-classic.css";
 import { useFloatingTone } from "./use-floating-tone";
 import { promoteFloatingResult } from "./floating-result-order";
 import { floatingRadius } from "./floating-appearance";
@@ -538,13 +539,18 @@ function FormatBar({ value, update }: { value?: string; update: (format: ImageFo
 }
 
 export function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
-  const [controlsVisible, setControlsVisible] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const cardRoot = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setFocusInside(!!cardRoot.current?.contains(document.activeElement)));
+    if (cardRoot.current) observer.observe(cardRoot.current, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
   const controlsInteraction = {
-    "data-controls-visible": controlsVisible,
-    onPointerEnter: () => setControlsVisible(true),
-    onPointerLeave: (event: React.PointerEvent<HTMLElement>) => setControlsVisible(event.currentTarget.contains(document.activeElement)),
-    onFocusCapture: () => setControlsVisible(true),
-    onBlurCapture: (event: React.FocusEvent<HTMLElement>) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setControlsVisible(event.currentTarget.matches(":hover")); },
+    ref: cardRoot,
+    "data-controls-visible": focusInside,
+    onFocusCapture: () => setFocusInside(true),
+    onBlurCapture: (event: React.FocusEvent<HTMLElement>) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false); },
   };
   const saved = percentage(item);
   const tone = useFloatingTone(item.preview);
@@ -646,9 +652,9 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     return () => { disposed = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    document.documentElement.style.setProperty('--floating-radius', `${floatingRadius(settings.floatingCornerRadius)}px`);
+    document.documentElement.style.setProperty('--floating-radius', `${settings.floatingStyle === "classic" ? 20 : floatingRadius(settings.floatingCornerRadius)}px`);
     return () => { document.documentElement.style.removeProperty('--floating-radius'); };
-  }, [settings.floatingCornerRadius]);
+  }, [settings.floatingCornerRadius, settings.floatingStyle]);
   useEffect(() => {
     document.documentElement.dataset.floatingCollapsed = String(collapsed);
     window.dispatchEvent(new Event('piclite:floating-collapsed'));
@@ -774,7 +780,16 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
   useEffect(() => {
-    const refresh = () => setEditorInteracting(!!document.querySelector('.floating-card-content[data-interacting="true"]'));
+    const leaveWindow = () => { setPointerInside(false); setFocusInside(false); };
+    window.addEventListener("blur", leaveWindow);
+    return () => window.removeEventListener("blur", leaveWindow);
+  }, []);
+  useEffect(() => {
+    const refresh = () => {
+      setEditorInteracting(!!document.querySelector('.floating-card-content[data-interacting="true"]'));
+      // Removing a focused control does not reliably emit blur in a WebView.
+      setFocusInside(!!document.querySelector('.floating-results')?.contains(document.activeElement));
+    };
     const observer = new MutationObserver(refresh);
     observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-interacting"]});
     refresh();
@@ -820,12 +835,13 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       setUpdateNotice({ text: error instanceof Error ? error.message : String(error) });
     }
   };
-  const rotateResults = (direction: 1 | -1) => setResults((current) => {
-    if (current.length < 2) return current;
-    const next = direction > 0 ? [...current.slice(1), current[0]] : [current[current.length - 1], ...current.slice(0, -1)];
-    setSelectedId(next[0].id);
-    return next;
-  });
+  const rotateResults = (direction: 1 | -1) => {
+    if (results.length < 2) return;
+    setSelectedId((current) => {
+      const index = Math.max(0, results.findIndex((item) => item.id === current));
+      return results[(index + direction + results.length) % results.length].id;
+    });
+  };
   const currentResult = results.find(item => item.id === selectedId) || results[0];
   const visibleResults = settings.floatingDisplayMode === "stack" ? (currentResult ? [currentResult] : []) : results;
   const imageTone = useFloatingTone(currentResult?.preview);
@@ -867,7 +883,8 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main data-controls-visible={pointerInside || focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style={settings.floatingStyle} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : settings.floatingStyle === "classic" ? "has-classic-image" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+  return <main data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style={settings.floatingStyle} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : settings.floatingStyle === "classic" ? "has-classic-image" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+    {settings.floatingStyle === "classic" && results.length > 0 && <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />}
     {settings.floatingStyle !== "classic" && settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
@@ -888,7 +905,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       })}</div>
       <footer className={`floating-footer ${settings.floatingStyle === "classic" ? "classic-floating-footer" : ""}`} onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        {settings.floatingStyle === "classic" ? <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language,"打开完整工作台","Open full workbench")} onClick={()=>void api.showMainWindow()}><Icon name="results"/></button><button title={tr(settings.language,settings.floatingDisplayMode==="stack"?"展开结果":"堆叠结果",settings.floatingDisplayMode==="stack"?"Expand results":"Stack results")} onClick={()=>setSettings(current=>({...current,floatingDisplayMode:current.floatingDisplayMode==="stack"?"list":"stack"}))}><Icon name="menu"/></button>{settings.showCopyClearButtons&&<button title={tr(settings.language,"清空","Clear all")} onClick={clear}><Icon name="clear"/></button>}<button title={tr(settings.language,"关闭悬浮窗","Close floating window")} onClick={()=>void api.hideCurrentWindow()}><Icon name="close"/></button></div> : <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>}
+        {settings.floatingStyle === "classic" ? <div>{clickThroughToggle}<button title={tr(settings.language,"打开完整工作台","Open full workbench")} onClick={()=>void api.showMainWindow()}><Icon name="results"/></button><button title={tr(settings.language,settings.floatingDisplayMode==="stack"?"展开结果":"堆叠结果",settings.floatingDisplayMode==="stack"?"Expand results":"Stack results")} onClick={()=>setSettings(current=>({...current,floatingDisplayMode:current.floatingDisplayMode==="stack"?"list":"stack"}))}><Icon name="menu"/></button>{settings.showCopyClearButtons&&<button title={tr(settings.language,"清空","Clear all")} onClick={clear}><Icon name="clear"/></button>}<button title={tr(settings.language,"关闭悬浮窗","Close floating window")} onClick={()=>void api.hideCurrentWindow()}><Icon name="close"/></button></div> : <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>}
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />

@@ -49,7 +49,8 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > /tmp/source-run.json
           jq -e --arg repo "$GITHUB_REPOSITORY" '
             .conclusion == "success" and .status == "completed" and
-            .path == ".github/workflows/release-desktop.yml" and
+            (.path == ".github/workflows/release-desktop.yml" or
+             .path == ".github/workflows/validate-packaged-desktop.yml") and
             .head_repository.full_name == $repo
           ' /tmp/source-run.json
           sha=$(jq -r .head_sha /tmp/source-run.json)
@@ -65,6 +66,7 @@ jobs:
           run-id: ${{ inputs.run_id }}
           path: artifacts
           merge-multiple: true
+          pattern: PicLite-*
       - name: Verify complete packages, portable architectures and checksums
         shell: bash
         run: |

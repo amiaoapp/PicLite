@@ -1,0 +1,13 @@
+/* Restore v2.0.2 card/toolbar styling, with visible filenames removed.
+   The immersive editor and adaptive styles are scoped away from classic. */
+html .floating-results[data-floating-style="classic"] { --interface-font-scale: 1; border-radius: 20px; clip-path: inset(0 round 20px); background: color-mix(in srgb, var(--surface) 88%, transparent); }
+html .floating-results[data-floating-style="classic"] .result-overlay { background: linear-gradient(transparent, rgba(20,17,14,.58) 32%, rgba(20,17,14,.92)); }
+html .floating-results[data-floating-style="classic"] .result-preview::before { content: none; }
+html .floating-results[data-floating-style="classic"] > .floating-collapse-button { position: absolute; right: 12px; top: 11px; }
+html .floating-results[data-floating-style="classic"] .floating-resize-handle { right: 2px; bottom: 2px; width: 20px; height: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  html .floating-results[data-floating-style="classic"] * { transition: none !important; animation: none !important; }
+}
+/* Keep the original row usable at the native minimum width. */
+html .floating-results[data-floating-style="classic"] .floating-footer .automatic-badge { min-width: 0; flex-shrink: 1; }
+html .floating-results[data-floating-style="classic"] .floating-footer { min-width: 0; }
