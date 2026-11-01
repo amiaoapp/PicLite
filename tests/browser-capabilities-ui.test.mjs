@@ -82,26 +82,29 @@ try{
   assert.ok(text.includes('Format converter'));assert.ok(text.includes('Resize images'));assert.ok(text.includes('Library'));
   assert.equal(text.includes('Resize & enlarge'),false,'the browser workbench supports shrinking, so do not promise native enlargement');
  });
- await test('browser convert and resize enter the functioning shared workbench',async()=>{
-  for(const id of ['convert','resize']){
-   await evaluate(`document.querySelector('[data-tool-id=${id}]').click()`);await wait('!!document.querySelector(".workspace")');
-   assert.equal(await evaluate("!!document.querySelector('.builtin-tool-page')"),false,'do not expose a native-path-only tool as a web implementation');
-   assert.ok(await evaluate("!!document.querySelector('.settings-panel select')"),'browser output controls remain available');
+ await test('browser tools open dedicated converter, resize and gallery pages',async()=>{
+  for(const id of ['convert','resize','gallery']){
+   await evaluate(`document.querySelector('[data-tool-id=${id}]').click()`);
+   await wait(id==='gallery'?`!!document.querySelector('.gallery-page')`:`document.querySelector('.browser-image-tool')?.dataset.tool==='${id}'`);
+   assert.equal(await evaluate("!!document.querySelector('section.workspace')"),false,'tool tab must not render the workspace');
    assert.equal(await evaluate(`document.querySelector('[data-tool-id=${id}]').getAttribute('aria-current')`),'page');
   }
  });
- await test('browser conversion and resize produce real image output',async()=>{
-  await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=160;c.height=100;const ctx=c.getContext('2d');ctx.fillStyle='#3785ba';ctx.fillRect(0,0,160,100);ctx.fillStyle='#edbf52';ctx.fillRect(40,20,70,60);const blob=await new Promise(r=>c.toBlob(r,'image/png'));const dt=new DataTransfer();dt.items.add(new File([blob],'capability-source.png',{type:'image/png'}));const input=document.querySelector('input[type=file][accept^="image/*"]:not([webkitdirectory])');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await wait("!!document.querySelector('.compare-after')&&!!document.querySelector('.item-status.done')");
-  await evaluate(`document.querySelector('[data-tool-id=convert]').click();const select=document.getElementById('output-format');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'image/jpeg');select.dispatchEvent(new Event('change',{bubbles:true}));`);
-  await wait("document.querySelector('.item-status.done')&&document.querySelector('.browser-floating-result')?.textContent.includes('JPEG')");
-  const converted=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.compare-after').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
+ await test('independent browser conversion and resize produce real image output',async()=>{
+  await evaluate(`document.querySelector('[data-tool-id=convert]').click()`);
+  await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=160;c.height=100;const ctx=c.getContext('2d');ctx.fillStyle='#3785ba';ctx.fillRect(0,0,160,100);const blob=await new Promise(r=>c.toBlob(r,'image/png'));const dt=new DataTransfer();dt.items.add(new File([blob],'capability-source.png',{type:'image/png'}));const input=document.querySelector('.browser-image-tool input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait(`document.querySelectorAll('.web-tool-item').length===1`);
+  await evaluate(`const select=document.getElementById('web-tool-format');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'image/jpeg');select.dispatchEvent(new Event('change',{bubbles:true}));`);
+  await evaluate(`document.querySelector('.web-tool-run').click()`);await wait(`!!document.querySelector('.web-tool-item.done')`);
+  const converted=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
   assert.equal(converted.type,'image/jpeg');assert.deepEqual([converted.width,converted.height],[160,100]);assert.ok(converted.bytes>0);
-  await evaluate(`document.querySelector('[data-tool-id=resize]').click();[...document.querySelectorAll('.scale-presets button')].find(b=>b.textContent==='50%').click()`);
-  await wait("document.querySelector('.item-status.done')&&document.querySelector('.compare-after')?.naturalWidth===80");
-  const resized=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.compare-after').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
-  assert.deepEqual([resized.width,resized.height],[80,50]);assert.equal(resized.type,'image/jpeg');assert.ok(resized.bytes>0);
-  console.log('Real browser outputs:',JSON.stringify({converted,resized}));
+  await evaluate(`document.querySelector('[data-tool-id=resize]').click()`);
+  await evaluate(`const input=document.getElementById('web-resize-scale');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'50');input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.web-tool-run').click()`);
+  await wait(`document.querySelector('.web-tool-result img')?.naturalWidth===80`);
+  const resized=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
+  assert.deepEqual([resized.width,resized.height],[80,50]);assert.ok(resized.bytes>0);
+  await evaluate(`document.querySelector('[data-tool-id=gallery]').click()`);await wait(`document.querySelectorAll('.gallery-card').length>0`);
+  console.log('Real independent tool outputs:',JSON.stringify({converted,resized}));
  });
  await test('browser hides unsupported native update actions in About',async()=>{
   await evaluate("document.querySelector('.settings-entry-button').click()");await click('ⓘAbout');

@@ -23,13 +23,16 @@ test('each Docker platform builds on its own native architecture',()=>{
 test('native images are exercised before their digests permit final publication',()=>{
  const steps=workflow.jobs.build?.steps;
  assert.ok(steps,'native build steps missing');
- const smoke=steps.findIndex(step=>step.name==='Smoke test native image');
- const upload=steps.findIndex(step=>step.uses?.startsWith('actions/upload-artifact@'));
+ const smoke=steps.findIndex(step=>step.name==='Smoke test native image and amd64 browser UI');
+ const upload=steps.findIndex(step=>step.uses?.startsWith('actions/upload-artifact@')&&step.name==='Upload tested digest');
  assert.ok(smoke>=0&&upload>smoke,'run the actual container before publishing a successful digest artifact');
  assert.match(steps[smoke].run,/docker run/);
  assert.match(steps[smoke].run,/fetch\(/);
  assert.match(steps[smoke].run,/\/health|\.State\.Health\.Status/);
  assert.equal(steps[upload].with['if-no-files-found'],'error');
+ assert.match(steps[smoke].run,/node tests\/docker-ui-smoke\.mjs/);
+ assert.match(steps[smoke].run,/-p 127\.0\.0\.1:3456:3456/);
+ assert.match(steps[smoke].run,/SMOKE_ARCH.*amd64/);
 });
 
 test('only the successful two-platform merge advances stable image tags',()=>{

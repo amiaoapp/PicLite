@@ -69,15 +69,25 @@ jobs:
           provenance: mode=max
           sbom: true
 
-      - name: Smoke test native image
+      - name: Set up Node for production browser smoke
+        if: matrix.arch == 'amd64'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Smoke test native image and amd64 browser UI
+        timeout-minutes: 6
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+          SMOKE_ARCH: ${{ matrix.arch }}
+          ORIGIN: http://127.0.0.1:3456
+          ARTIFACTS: ${{ runner.temp }}/docker-ui-smoke
         run: |
           set -euo pipefail
-          container="piclite-smoke-${{ matrix.arch }}"
+          container="piclite-smoke-$SMOKE_ARCH"
           trap 'docker logs "$container" || true; docker rm -f "$container" || true' EXIT
           docker pull "$IMAGE@$DIGEST"
-          docker run -d --name "$container" "$IMAGE@$DIGEST"
+          docker run -d --name "$container" -p 127.0.0.1:3456:3456 "$IMAGE@$DIGEST"
           healthy=false
           for attempt in $(seq 1 30); do
             status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
@@ -106,6 +116,22 @@ jobs:
               }
               console.log("PASS native container health, homepage and " + assets.length + " assets");
             })().catch(error => { console.error(error); process.exit(1); });'
+          if [ "$SMOKE_ARCH" = amd64 ]; then
+            # The hosted x64 runner supplies Chrome; no project or lockfile changes.
+            CHROME_BIN=$(command -v google-chrome || command -v google-chrome-stable)
+            export CHROME_BIN
+            "$CHROME_BIN" --version
+            node tests/docker-ui-smoke.mjs
+          fi
+
+      - name: Upload production browser smoke evidence
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-ui-smoke-${{ matrix.arch }}
+          path: ${{ runner.temp }}/docker-ui-smoke
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Export tested digest
         env:
