@@ -198,7 +198,8 @@ async function floating(style) {
     for (const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1']) localStorage.setItem(key, JSON.stringify({...JSON.parse(localStorage.getItem(key)||'{}'),floatingStyle:${JSON.stringify(style)}}));
     window.dispatchEvent(new StorageEvent('storage', {key:'piclite.desktopPreferences.v1'}));
   })()`);
-  await wait(`!!document.querySelector('.browser-floating-result.style-${style}')`);
+  await wait(`!!document.querySelector('.browser-floating-result.style-immersive')`);
+  assert.equal(await evaluate(`!!document.querySelector('.browser-floating-result.style-classic')`), false, 'Retired classic preference must use the current floating window');
   const selector = '.browser-floating-result';
   const point = await evaluate(`(() => { const r=document.querySelector('${selector}').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
   await move(point.x, point.y);
@@ -221,7 +222,44 @@ async function floating(style) {
   })()`);
   assert.equal(footer.length,6,'Browser bottom action bar remains present');
   footer.forEach((button,index)=>{assert.ok(button.inside && button.w>=24 && button.h>=24 && button.hit, `${style}: usable bottom action ${button.label}`);if(index)assert.ok(button.x>=footer[index-1].right,'Bottom buttons do not overlap');});
-  console.log(`PASS browser floating ${style}: no filename, six hit-tested 3-by-2 actions and six usable bottom actions`);
+  console.log(`PASS browser floating preference ${style} → immersive: no filename, six hit-tested 3-by-2 actions and six usable bottom actions`);
+}
+
+async function responsivePreferences() {
+  report.preferences = [];
+  await evaluate(`document.querySelector('.main-nav button').click()`);
+  await wait(`!!document.querySelector('.workspace')`);
+  for (const layout of ['classic', 'studio']) for (const [width, height] of [[390,844],[768,1024],[1440,900],[2560,1440]]) {
+    await presentation(layout, 150, width);
+    await page.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
+    await click('.settings-entry-button');
+    await wait(`!!document.querySelector('.clop-preferences')`);
+    await settle();
+    const geometry = await evaluate(`(() => {
+      const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,w:r.width,h:r.height}};
+      const panel=document.querySelector('.clop-preferences'),nav=panel.querySelector('aside'),content=panel.querySelector('.clop-preferences-content');
+      return {nav:rect(nav),content:rect(content),navButtons:[...nav.querySelectorAll('button')].map(rect),overflow:document.documentElement.scrollWidth>innerWidth+1,contentOverflow:content.scrollWidth>content.clientWidth+1};
+    })()`);
+    const label=`${layout}/${width}x${height}/150%`;
+    assert.equal(geometry.overflow,false,label+': no page overflow');
+    assert.equal(geometry.contentOverflow,false,label+': no settings overflow');
+    assert.ok(geometry.content.w>Math.min(width*.65,500),label+': usable content width');
+    assert.ok(geometry.content.bottom<=height+1,label+': content contained in viewport');
+    if(width<=720) {
+      assert.ok(geometry.nav.h<85 && geometry.content.y>=geometry.nav.bottom-1,label+': horizontal phone navigation');
+      assert.ok(geometry.navButtons.every(button=>button.h>=38),label+': usable phone targets');
+    } else assert.ok(geometry.content.x>=geometry.nav.right-1 && geometry.nav.w<230,label+': sidebar and content');
+    const shot=await page.send('Page.captureScreenshot',{format:'png'});
+    writeFileSync(join(artifacts,`settings-${layout}-${width}.png`),Buffer.from(shot.data,'base64'));
+    await evaluate(`document.querySelector('.preferences-sidebar nav button:last-child').click()`);
+    await wait(`!!document.querySelector('.about-product')`);
+    await evaluate(`document.querySelector('.preferences-sidebar nav button:first-child').click()`);
+    await wait(`!!document.querySelector('.interface-typography-controls')`);
+    await evaluate(`document.querySelector('.main-nav button').click()`);
+    await wait(`!!document.querySelector('.workspace')`);
+    report.preferences.push({layout,width,height,fontScale:150,...geometry});
+  }
+  console.log('PASS actual container responsive settings: 390/768/1440/2560px, classic/studio, 150% text and category changes');
 }
 
 try {
@@ -321,6 +359,7 @@ try {
   await click('[data-tool-id=gallery]');await wait(`document.querySelectorAll('.gallery-card').length>0`);
   report.independentTools={converted:convertedTool,resized:resizedTool,galleryRecords:await evaluate(`document.querySelectorAll('.gallery-card').length`)};
   console.log('PASS actual container independent tool outputs',JSON.stringify(report.independentTools));
+  await responsivePreferences();
   assert.deepEqual(runtimeErrors,[],'No uncaught production runtime exceptions');
   assert.deepEqual(failedResponses,[],'No failed same-origin production requests');
   report.status='passed';
