@@ -119,6 +119,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         <p>从底板到文字，逐层调整</p>
       </div>
 
+      <p id="quickPresetStatus" role="status" style="font-size:12px;color:var(--muted);margin:0 0 12px">封面参数自动保存，供悬浮窗“自动封面”使用</p>
       <div class="preset-bar">
         <span style="font-size:13px; font-weight:700; color:var(--muted);">工程预设</span>
         <div style="display:flex; gap:8px;">
@@ -475,6 +476,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
             const el = document.getElementById(id);
             if(el) state.ui[id] = el.type === 'checkbox' ? el.checked : el.value;
         });
+        saveQuickPreset();
         const blob = new Blob([JSON.stringify(state)], {type: 'application/json'});
         const u = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = u; a.download = `cover_preset_${Date.now()}.json`;
@@ -521,6 +523,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
                     mainImg = null; editorWrap.style.display = 'none'; draw();
                 }
 
+                saveQuickPreset();
                 alert('预设导入成功！');
             } catch (err) {
                 alert('读取失败：这不是有效的预设文件！');
@@ -782,12 +785,12 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
     bgFileInput.addEventListener('change', e => {
         const f = e.target.files[0]; if(!f) return;
         const u = URL.createObjectURL(f); const i = new Image();
-        i.onload = () => { bgImg = i; removeBgImgBtn.style.display='block'; draw(); URL.revokeObjectURL(u); }; i.src = u;
+        i.onload = () => { bgImg = i; removeBgImgBtn.style.display='block'; draw(); saveQuickPreset(); URL.revokeObjectURL(u); }; i.src = u;
     });
-    removeBgImgBtn.addEventListener('click', () => { bgImg = null; removeBgImgBtn.style.display='none'; bgFileInput.value=''; draw(); });
+    removeBgImgBtn.addEventListener('click', () => { bgImg = null; removeBgImgBtn.style.display='none'; bgFileInput.value=''; draw(); saveQuickPreset(); });
 
     function generateInnerFromOrig(){
-        if(!origImg) return;
+        if(!origImg) return Promise.resolve();
         const target = +innerSize.value;
         const off = document.createElement('canvas'); off.width = target; off.height = target;
         const octx = off.getContext('2d');
@@ -804,7 +807,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
         octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = 'high';
         octx.drawImage(origImg, srcX, srcY, srcW, srcH, 0,0,target,target);
-        const inner = new Image(); inner.onload = ()=>{ mainImg = inner; draw(); updateEditorPreview(); }; inner.src = off.toDataURL('image/png');
+        return new Promise((resolve, reject) => { const inner = new Image(); inner.onload = ()=>{ mainImg = inner; draw(); updateEditorPreview(); resolve(); }; inner.onerror = ()=>reject(new Error('Image rendering failed')); inner.src = off.toDataURL('image/png'); });
     }
 
     fileInput.addEventListener('change', e=>{
@@ -845,9 +848,68 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         try{ mainCanvas.toBlob(async blob =>{ if(!blob) return; await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); alert('已复制到剪贴板！'); }, 'image/png'); }catch(e){ alert('复制失败'); }
     });
 
-    // 初始化
+    // The visible editor and floating action use this same rendering engine.
+    // Store the template and background, never the current foreground photo.
+    const presetKey = 'piclite.cover-preset.v1';
+    let restoringPreset = false;
+    const backgroundCache = new WeakMap();
+    function saveQuickPreset() {
+        if (restoringPreset || window.frameElement?.hasAttribute('data-cover-renderer')) return;
+        const ui = {};
+        stateIds.forEach(id => { const el = document.getElementById(id); ui[id] = el.type === 'checkbox' ? el.checked : el.value; });
+        if (bgImg && !backgroundCache.has(bgImg)) backgroundCache.set(bgImg, imgToBase64(bgImg));
+        const state = { version: 1, ui, pos: { iconPos, textPos }, images: { bg: bgImg ? backgroundCache.get(bgImg) : null } };
+        try { localStorage.setItem(presetKey, JSON.stringify(state)); }
+        catch { document.getElementById('quickPresetStatus').textContent = '封面预设保存失败，请减少背景图片大小'; }
+    }
+    const loadPresetImage = source => new Promise((resolve, reject) => {
+        if (!source) return resolve(null);
+        const image = new Image(); image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('无法读取封面预设图片')); image.src = source;
+    });
+    async function restoreQuickPreset() {
+        const raw = localStorage.getItem(presetKey);
+        if (!raw) return false;
+        const state = JSON.parse(raw);
+        if (state.version !== 1 || !state.ui) throw new Error('封面预设无效，请在封面制作中重新保存');
+        restoringPreset = true;
+        try {
+            stateIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (state.ui[id] === undefined) return;
+                if (el.type === 'checkbox') el.checked = state.ui[id]; else el.value = state.ui[id];
+                const number = document.getElementById(id + 'Num'); if (number) number.value = el.value;
+            });
+            if (!(+canvasW.value > 0 && +canvasW.value <= 8192 && +canvasH.value > 0 && +canvasH.value <= 8192)) throw new Error('封面尺寸须在 1–8192 px 内');
+            if (state.pos) { iconPos = state.pos.iconPos || iconPos; textPos = state.pos.textPos || textPos; }
+            bgImg = await loadPresetImage(state.images?.bg);
+            removeBgImgBtn.style.display = bgImg ? 'block' : 'none';
+            updateBgColorState(); draw();
+            return true;
+        } finally { restoringPreset = false; }
+    }
     centerElements();
     draw();
+    const presetReady = restoreQuickPreset();
+    // Handle errors in the visible editor as well as in the headless action.
+    presetReady.catch(error => { document.getElementById('quickPresetStatus').textContent = error.message; });
+    document.addEventListener('input', saveQuickPreset);
+    document.addEventListener('change', saveQuickPreset);
+    document.addEventListener('pointerup', saveQuickPreset);
+    window.picLiteCover = {
+        ready: presetReady,
+        async render(source) {
+            if (!await presetReady) throw new Error('请先在“封面制作”中设置封面预设，参数会自动保存');
+            origImg = await loadPresetImage(source);
+            // New photos use the preset zoom and a fresh centred crop.
+            crop = { zoom: +zoom.value / 100 };
+            await generateInnerFromOrig();
+            await document.fonts.ready;
+            draw();
+            const blob = await new Promise((resolve, reject) => mainCanvas.toBlob(value => value ? resolve(value) : reject(new Error('封面生成失败')), 'image/png'));
+            return { blob, format: format.value.split('/')[1], quality: Math.max(1, Math.min(100, +qualityNum.value || 86)) };
+        }
+    };
   })();
   </script>
 </body>

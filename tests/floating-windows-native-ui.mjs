@@ -83,7 +83,7 @@ try {
     for (const [width, height] of [[392,330],[520,420],[280,220],[246,188],[460,360]]) {
       await ev(`picLite.resizeDropzoneWindow(${width},${height})`);
       await wait(`Math.abs(innerWidth-${width})<=1 && Math.abs(innerHeight-${height})<=1`);
-      for (const style of ['immersive','classic']) for (const theme of ['light','dark']) {
+      for (const style of ['immersive']) for (const theme of ['light','dark']) {
         await ev(`localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({...JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')),theme:'${theme}',floatingStyle:'${style}'}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}));document.activeElement?.blur()`);
         await wait(`document.querySelector('main')?.dataset.floatingStyle==='${style}' && document.documentElement.dataset.theme==='${theme}'`);
         await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:width-20,y:height*.4});
@@ -101,6 +101,12 @@ try {
         if (style==='immersive' && width===392) assert.ok(layout.actions.every(b=>b.w>=67&&b.w<=69));
         if (style==='immersive' && width===520) assert.ok(layout.actions.every(b=>b.w>=80&&b.w<=85));
         if (style==='classic') assert.ok(layout.actions.every(b=>b.w===(width<=340?38:42)));
+        await click('[data-action="more"]');
+        await wait('!!document.querySelector(".floating-overflow-menu")');
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:width+30,y:height+30});
+        await wait('!document.querySelector(".floating-overflow-menu")');
+        await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='0'`);
+        assert.equal(await ev('getComputedStyle(document.querySelector(".result-metrics")).visibility'),'visible','mouse click focus must not pin the mask');
         const metric = await ev('document.querySelector(".result-metrics").textContent');
         await click('.floating-collapse-button');
         await wait('!!document.querySelector(".is-collapsed")');
@@ -123,6 +129,7 @@ try {
     assert.deepEqual(report.pages,['1/3','2/3','3/3','1/3']);
     const order=async()=>{
       await click('.floating-footer button[title="Expand results"]');await wait('!!document.querySelector(".floating-list.list")');
+      assert.equal(await ev('getComputedStyle(document.querySelector("main")).backgroundImage'),'none','expanded results have no shared image backdrop');
       const images=await ev('[...document.querySelectorAll(".result-metrics")].map(i=>i.textContent)');
       await click('.floating-footer button[title="Stack results"]');await wait('!!document.querySelector(".floating-list.stack")');
       return images;
@@ -130,9 +137,23 @@ try {
     const before=await order();assert.equal(before.length,3);assert.equal(new Set(before).size,3);
     await click('.floating-result-next');assert.deepEqual(await order(),before);
     assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
+    await ev(`localStorage.setItem('piclite.cover-preset.v1',JSON.stringify({version:1,ui:{canvasW:'640',canvasH:'360',innerSize:'200',transparent:false,bgColor:'#1555aa',textContent:'Native cover',format:'image/webp',qualityNum:'77'},pos:{iconPos:{x:320,y:180},textPos:{x:320,y:300}},images:{bg:null}}));const original=picLite.quickCompressPaths.bind(picLite);picLite.quickCompressPaths=async(...args)=>{window.coverCompressionArgs=args;const result=await original(...args);window.coverCompressionResult=result;return result;}`);
+    const beforeCover=await ev('document.querySelector(".result-metrics").textContent');
+    await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:350,y:120});
+    await click('.cover-window-trigger');
+    await wait(`document.querySelector('.result-dimensions')?.textContent.includes('640') && document.querySelector('.automatic-badge').textContent.includes('Cover made')`);
+    const cover=await ev('({args:coverCompressionArgs,result:coverCompressionResult,dimensions:document.querySelector(".result-dimensions").textContent})');
+    assert.equal(cover.args[1].format,'image/webp');assert.equal(cover.args[1].quality,77);assert.equal(cover.args[1].scale,100);assert.match(cover.dimensions,/640.*360/);
+    const coverBytes=await readFile(cover.result[0].output);assert.equal(coverBytes.toString('ascii',0,4),'RIFF');assert.equal(coverBytes.toString('ascii',8,12),'WEBP');
+    await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:350,y:120});
+    // Native test config keeps undo among the six direct actions.
+    await click('.result-actions [data-action="undo"]');
+    await wait(`document.querySelector('.result-metrics').textContent===${JSON.stringify(beforeCover)}`);
+    assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
+    report.cover={dimensions:cover.dimensions,format:cover.args[1].format,quality:cover.args[1].quality,bytes:coverBytes.length,undo:true};
     report.status='passed';
     await writeFile(join(artifacts,'report.json'),JSON.stringify(report,null,2));
-    console.log('PASS Windows packaged app: native compression, source preservation, 20 WebView2 layouts, footer hits, collapse/restore, cyclic paging, stable history and preset preservation');
+    console.log('PASS Windows packaged app: native compression, source preservation, 10 WebView2 layouts, menu focus recovery, isolated expanded backgrounds and native automatic cover/undo, footer hits, collapse/restore, cyclic paging, stable history and preset preservation');
   }, { endpoint, target: await targetFor(true) });
 } finally {
   await writeFile(join(artifacts,'app.log'),appLog);

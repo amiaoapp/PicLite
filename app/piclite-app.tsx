@@ -354,7 +354,7 @@ type DesktopPreferences = InterfaceTypography & {
   shortcutGallery: string;
   shortcutUpload: string;
   dockLayout: DockLayout;
-  floatingStyle: "immersive" | "classic";
+  floatingStyle: "immersive";
   floatingResultSeconds: number;
   clipboardWatcherEnabled: boolean;
   autoCheckUpdates: boolean;
@@ -811,7 +811,7 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
     const updateCheckFrequency: UpdateCheckFrequency = ["startup", "daily", "weekly", "never"].includes(preferences.updateCheckFrequency)
       ? preferences.updateCheckFrequency
       : preferences.autoCheckUpdates === false ? "never" : "startup";
-    return { ...preferences, ...normalizeInterfaceTypography(preferences), floatingStyle: preferences.floatingStyle === "classic" ? "classic" : "immersive", colorTheme, updateCheckFrequency, autoCheckUpdates: updateCheckFrequency !== "never", dockLayout: preferences.dockLayout === "full" ? "full" : "compact", language: preferences.language === "en" ? "en" : "zh" };
+    return { ...preferences, ...normalizeInterfaceTypography(preferences), floatingStyle: "immersive", colorTheme, updateCheckFrequency, autoCheckUpdates: updateCheckFrequency !== "never", dockLayout: preferences.dockLayout === "full" ? "full" : "compact", language: preferences.language === "en" ? "en" : "zh" };
   } catch {
     return DEFAULT_DESKTOP_PREFERENCES;
   }
@@ -4045,7 +4045,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         </div>
       </header>
 
-      {!nativeBridge && downloadGuideVisible && <aside className="desktop-download-guide" aria-label={t("PicLite 桌面端下载引导", "Download PicLite for desktop")}>
+      {!nativeBridge && downloadGuideVisible && view === "workspace" && <aside className="desktop-download-guide" aria-label={t("PicLite 桌面端下载引导", "Download PicLite for desktop")}>
         <span className="download-mark brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
         <span><strong>{t("桌面端可以监测文件夹和剪贴板", "Watch folders and the clipboard on desktop")}</strong><small>{t("已识别当前系统，可在本机后台自动压缩图片。", "PicLite can optimise images automatically in the background on this device.")}</small></span>
         <button className="download-guide-primary" type="button" onClick={() => openReleasePage()}>{browserDownloadLabel(desktopPreferences.language, browserPlatform)}</button>
@@ -4580,7 +4580,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             {(preferenceSection === "general" || preferenceSection === "floating") && <section className="preference-card">
               <div className="preference-card-heading"><span>{preferenceSection === "floating" ? t("悬浮结果", "Floating Results") : t("外观与通用", "Appearance and general")}</span><small>{preferenceSection === "floating" ? t("外观与交互", "Appearance and behaviour") : t("窗口、系统与界面偏好", "Window, system and appearance preferences")}</small></div>
-              <label className="preference-row clickable"><div><strong>{t("新版悬浮窗", "New floating window")}</strong><small>{t("图片铺满悬浮窗，控件随图片明暗调整；关闭使用经典版", "Fill the floating window with the image and adapt controls to its brightness; turn off for classic")}</small></div><button className={`switch ${desktopPreferences.floatingStyle === "immersive" ? "on" : ""}`} type="button" role="switch" aria-label={t("新版悬浮窗", "New floating window")} aria-checked={desktopPreferences.floatingStyle === "immersive"} onClick={() => setDesktopPreferences((current) => ({ ...current, floatingStyle: current.floatingStyle === "immersive" ? "classic" : "immersive" }))}><i /></button></label>
               {preferenceSection === "general" && <>
                 <InterfaceTypographyControls language={desktopPreferences.language} bridge={nativeBridge}/>
                 {nativeBridge && <>

@@ -12,7 +12,7 @@ import "./floating-adaptive.css";
 type Actions={quality:()=>void;save:()=>void};
 type Props={
   api:PicLiteBridge;path?:string;preview?:string;width?:number;height?:number;
-  filename:string;language:Language;format?:string;quality:number;
+  onCover?:()=>void;pageControl?:ReactNode;filename:string;language:Language;format?:string;quality:number;
   renderPreview:(actions:Actions)=>ReactNode;renderMenu:(actions:Actions)=>ReactNode;disabled?:boolean;
   process?:(settings:Partial<OptimisationPreset>,source?:string)=>Promise<void>;
   updateFormat:(format:ImageFormat)=>void;dismiss:()=>void;
@@ -32,6 +32,7 @@ export function FloatingResultEditor(p:Props){
     const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))setMenu(false);};
     document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);
   },[qualityMode,menu]);
+  useEffect(()=>{const blur=()=>setMenu(false);window.addEventListener('blur',blur);return()=>window.removeEventListener('blur',blur);},[]);
   const close=()=>{if(running.current)return;setQualityMode(false);setMenu(false);trigger.current?.focus();};
   const run=async(action:()=>Promise<unknown>)=>{
     if(running.current)return;running.current=true;setBusy(true);
@@ -51,12 +52,13 @@ export function FloatingResultEditor(p:Props){
   const actions={quality:()=>{setMenu(false);setQualityMode(true);},save:()=>void save()};
   const Preview=p.renderPreview,Menu=p.renderMenu;
   return <div ref={root} className={`floating-card-content ${qualityMode?'is-editing':''} ${p.preview?'has-preview':''}`} data-interacting={qualityMode||menu||busy}
+    onPointerLeave={()=>{if(!qualityMode&&!busy){setMenu(false);if(!trigger.current?.matches(':focus-visible'))trigger.current?.blur();}}}
     onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();}}}
     onContextMenu={event=>{event.preventDefault();event.stopPropagation();if(!busy)setMenu(true);}}>
     {!qualityMode && p.preview && <FloatingPreviewImage src={p.preview} alt={p.filename} width={p.width} height={p.height}/>}
     <header className="floating-card-header" onPointerDown={event=>event.stopPropagation()}>
       <button data-action="dismiss" className="floating-card-icon" aria-label={t('移除','Dismiss')} title={t('移除','Dismiss')} disabled={busy} onClick={event=>{event.stopPropagation();p.dismiss();}}><Icon name="close"/></button>
-      <span>{qualityMode?t('压缩质量','Compression quality'):''}</span>
+      <span>{qualityMode?t('压缩质量','Compression quality'):p.pageControl}</span>
       <button ref={trigger} data-action="more" className="floating-card-icon" aria-label={t('更多操作','More actions')} title={t('更多操作','More actions')} aria-haspopup="menu" aria-expanded={menu} disabled={busy} onClick={event=>{event.stopPropagation();setMenu(!menu);}}><DotsThree weight="bold"/></button>
     </header>
     <div className="floating-card-body">
@@ -69,6 +71,7 @@ export function FloatingResultEditor(p:Props){
     </div>
     <div className="floating-card-bottom" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
       <button data-action="crop" className="floating-card-icon crop-window-trigger" disabled={busy||!canEdit} aria-label={t('打开裁切编辑器','Open crop editor')} title={t('裁切与尺寸（独立窗口）','Crop and resize in a separate window')} onClick={()=>void crop()}><Crop/></button>
+      <button data-action="cover" className="floating-card-icon crop-window-trigger cover-window-trigger" disabled={busy||!canEdit||!p.onCover} aria-label={t('按预设生成封面并压缩','Make and compress cover with saved preset')} title={t('按预设生成封面并压缩','Make and compress cover with saved preset')} onClick={()=>p.onCover?.()}><Icon name="image"/></button>
       <div className="format-bar floating-card-formats" aria-label={t('输出格式','Output format')}>
         {(['keep','jpeg','webp','png'] as ImageFormat[]).map(f=><button key={f} data-format={f} disabled={busy||!p.path||p.disabled} className={(qualityMode?format===f:p.format===f)?'active':''} aria-pressed={qualityMode?format===f:p.format===f} onClick={()=>{setFormat(f);if(!qualityMode)p.updateFormat(f);}}>{f==='keep'?'Auto':f.toUpperCase()}</button>)}
       </div>

@@ -7,7 +7,7 @@ export type ResultDisplayMode = "stack" | "list";
 export type FilePlacement = "same-folder" | "fixed-folder";
 export type ImageFormat = "keep" | "jpeg" | "png" | "webp";
 export type CleanupUnit = "hours" | "days" | "months";
-export type FloatingAction = "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
+export type FloatingAction = "cover" | "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
 
 export type FloatingWatermark = {
   text: string;
@@ -78,7 +78,7 @@ export type DesktopSettings = {
   batchThreshold: number;
   enableFloatingResults: boolean;
   allowFloatingCapture: boolean;
-  floatingStyle: "immersive" | "classic";
+  floatingStyle: "immersive";
   floatingLayout: ResultLayout;
   floatingDisplayMode: ResultDisplayMode;
   floatingMaxResults: number;
@@ -87,6 +87,7 @@ export type DesktopSettings = {
   floatingWidth: number;
   floatingHeight: number;
   floatingCornerRadius: number;
+  floatingSurfaceVersion: number;
   floatingActions: FloatingAction[];
   floatingWatermark: FloatingWatermark;
   autoHideResults: boolean;

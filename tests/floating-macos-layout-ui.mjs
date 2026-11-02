@@ -39,7 +39,7 @@ await floatingBrowser(async ({ send, evaluate: ev, wait, click }) => {
   const preset = await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset');
   for (const [width, height] of [[392,330], [556,436], [280,220], [246,188], [680,480]]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-    for (const style of ['immersive','classic']) for (const theme of ['light','dark']) {
+    for (const style of ['immersive']) for (const theme of ['light','dark']) {
       await ev(`localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({theme:'${theme}',language:'en',floatingStyle:'${style}',interfaceFontScale:150}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}))`);
       await wait(`document.querySelector('main')?.dataset.floatingStyle==='${style}' && document.documentElement.dataset.theme==='${theme}'`);
       console.log('CHECK',width,height,style,theme);
@@ -71,7 +71,7 @@ await floatingBrowser(async ({ send, evaluate: ev, wait, click }) => {
         if (width===392) assert.ok(layout.actions.every(b=>b.w>=67&&b.w<=69));
         if (width===556) assert.ok(layout.actions.every(b=>b.w>=80&&b.w<=85));
         assert.ok(layout.close.w<=48);
-        assert.equal(layout.footer.length,8,'mode, page, click-through, collapse, workbench, list, clear, close');
+        assert.equal(layout.footer.length,7,'mode, click-through, collapse, workbench, list, clear, close');
         assert.equal(await ev('getComputedStyle(document.querySelector(".floating-window-image"),"::after").backdropFilter'),'blur(18px)');
       } else {
         assert.ok(layout.actions.every(b=>b.w===(width<=340?38:42)));
@@ -117,5 +117,5 @@ await floatingBrowser(async ({ send, evaluate: ev, wait, click }) => {
   assert.deepEqual(await listOrder(),before);
   assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
   writeFileSync(`${artifacts}/report.json`,JSON.stringify({status:'passed',cases:report,pages},null,2));
-  console.log(`PASS ${report.length} production layouts, Clop proportions, classic 2.0.2 toolbar, no filenames, pointer hits, collapse/restore, paging, stable history and unchanged preset`);
+  console.log(`PASS ${report.length} production layouts, Clop proportions, reduced footer and top-centred page counter, no filenames, pointer hits, collapse/restore, paging, stable history and unchanged preset`);
 });

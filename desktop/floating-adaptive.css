@@ -1,5 +1,5 @@
 /* Immersive controls follow the user's 392 × 330 Clop reference.
-   Size queries use the whole preview. Classic keeps its v2.0.2 styling. */
+   Size queries use the whole preview. */
 html .floating-results[data-floating-style="immersive"] {
   --interface-font-scale: 1;
   --overlay-button: #efece6;
@@ -42,13 +42,13 @@ html .floating-results[data-floating-style="immersive"] .floating-card-bottom > 
 html .floating-results[data-floating-style="immersive"] .floating-card-formats { display: flex; justify-content: space-evenly; gap: 4px; }
 html .floating-results[data-floating-style="immersive"] .floating-card-formats button { height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11px; font-weight: 400; color: #f4f2ee; background: transparent; line-height: 24px; }
 html .floating-results[data-floating-style="immersive"] .floating-card-formats button.active { background: var(--overlay-button) !important; color: var(--overlay-button-ink) !important; text-shadow: none; }
-html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"], :has(.result-card:is(:hover, :focus-within, [data-controls-visible="true"]))) .floating-window-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger),
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"], :has(.result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]))) .floating-window-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger),
 html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger) { opacity: 1; }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) .result-actions button,
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) .result-actions button,
 html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) .result-actions button { pointer-events: auto; }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :focus-within, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions),
-html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions) { visibility: hidden; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions, .result-saving),
+html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions, .result-saving) { visibility: hidden; }
 html .floating-results[data-floating-style="immersive"] .result-actions button:hover:not(:disabled) { background: #fff; transform: none; }
 html .floating-results[data-floating-style="immersive"] .result-actions button:active:not(:disabled) { transform: scale(.97); }
 /* A separate hit area keeps every window command directly reachable. */
@@ -63,7 +63,7 @@ html .floating-results[data-floating-style="immersive"] .floating-overflow-menu 
 html .floating-results[data-floating-style="immersive"] .floating-card-content.is-editing .floating-card-header { height: 30px; padding: 2px 8px; opacity: 1; }
 html .floating-results[data-floating-style="immersive"] .is-editing .floating-card-header .floating-card-icon { width: 26px; height: 26px; padding: 5px; }
 html .floating-results[data-floating-style="immersive"] .floating-list.list { isolation: isolate; z-index: 0; }
-html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card:has(.floating-card-content.has-preview):is(:hover, :focus-within, [data-controls-visible="true"]) .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: #292a2db3; }
+html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card:has(.floating-card-content.has-preview):is(:hover, :has(:focus-visible), [data-controls-visible="true"]) .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: #292a2db3; }
 html .floating-results[data-floating-style="immersive"].display-list .floating-card-body { z-index: 2; }
 @container floating-preview (max-height: 260px) {
   html .floating-results[data-floating-style="immersive"] .result-hover-actions { inset: 42px 8px 74px !important; }
@@ -78,3 +78,40 @@ html .floating-results[data-floating-style="immersive"].display-list .floating-c
 }
 html .floating-results[data-floating-style="immersive"] .floating-footer button:hover { background: #ffffff24; }
 html .floating-results[data-floating-style="immersive"] :is(button, input):focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* Clip the image and every blur layer to the very same edge. A CSS background
+   is deliberately absent: each expanded result owns its own preview. */
+html .floating-results[data-floating-style="immersive"] { border: 0; isolation: isolate; }
+html .floating-results[data-floating-style="immersive"] :is(.floating-window-image,.floating-card-content) { border-radius: inherit; }
+html .floating-window-image { border-radius: var(--floating-radius,24px); clip-path: inset(0 round var(--floating-radius,24px)); }
+html .floating-window-image::before, html .floating-window-image::after { border-radius: inherit; }
+html .floating-results[data-floating-style="immersive"].display-list { background: var(--surface-solid,#252629) !important; grid-template-rows: minmax(0,1fr) 36px; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { padding: 8px; gap: 8px; }
+html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { overflow: hidden; border: 0; border-radius: var(--floating-radius,24px); }
+html .floating-results[data-floating-style="immersive"].display-list .floating-card-content { border-radius: inherit; clip-path: inset(0 round var(--floating-radius,24px)); }
+html .floating-results[data-floating-style="immersive"].display-list .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(transparent 40%,#131417c9); border-radius: inherit; }
+html .floating-results[data-floating-style="immersive"].display-list > .floating-footer { color: var(--ink); background: var(--surface-solid,#252629) !important; text-shadow: none; }
+html[data-theme] .floating-results[data-floating-style="immersive"].display-list > .floating-footer :is(button,.automatic-badge) { color: var(--ink); }
+/* Page count no longer competes with the footer. It stays available even when
+   the action grid is hidden and is centred independently of the corner icons. */
+html .floating-results[data-floating-style="immersive"] .floating-card-header { opacity: 1; }
+html .floating-results[data-floating-style="immersive"] .floating-card-header > .floating-card-icon { opacity: 0; pointer-events: none; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover,:has(:focus-visible),[data-controls-visible="true"]) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"] .floating-card-header > span { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"] .floating-result-next { width: auto; min-width: 40px; height: 26px; padding: 3px 8px; border: 0; border-radius: 13px; color: #fff; background: #2228; font-size: 11px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #0008; }
+html .floating-results[data-floating-style="immersive"] .floating-result-next:disabled { opacity: 1; }
+html .floating-results[data-floating-style="immersive"] .floating-card-content.has-preview:not(.is-editing) .result-overlay { inset: 50% 0 auto; transform: translateY(-50%); height: auto; min-height: 0; align-content: center; justify-items: center; gap: 5px; padding: 0 12px; }
+html .floating-results[data-floating-style="immersive"] .result-metrics { width: max-content; max-width: 100%; font-size: clamp(14px,5cqw,26px); }
+html .floating-results[data-floating-style="immersive"] .result-saving { font-size: 10px; font-weight: 400; font-style: normal; color: #f2eadc; }
+html .floating-results[data-floating-style="immersive"] .floating-card-bottom > .cover-window-trigger { left: auto; right: 16px; }
+html .floating-results[data-floating-style="immersive"] .floating-footer { height: 36px; min-height: 36px; padding: 3px 18px 3px 10px; }
+html .floating-results[data-floating-style="immersive"].has-image.display-stack > .floating-footer { height: 36px; }
+html .floating-results[data-floating-style="immersive"].has-image.display-stack .floating-card-content:not(.is-editing) > .floating-card-bottom { bottom: 36px; }
+html .floating-results[data-floating-style="immersive"] .floating-resize-handle { width: 10px; height: 10px; right: 3px; bottom: 3px; opacity: .3; }
+@media(max-width:340px) {
+  html .floating-results[data-floating-style="immersive"] .floating-footer { gap: 2px; padding-left: 7px; }
+  html .floating-results[data-floating-style="immersive"] .floating-footer .automatic-badge { width: 25px; flex: 1 1 25px; padding: 3px; }
+  html .floating-results[data-floating-style="immersive"] .automatic-badge:not(.operation-success):not(.operation-error):not(.has-notice) span { display: none; }
+  html .floating-results[data-floating-style="immersive"] .floating-footer > div { gap: 1px; }
+}
+html .floating-results[data-floating-style="immersive"]:is(:hover,[data-controls-visible="true"]) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
