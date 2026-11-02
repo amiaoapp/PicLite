@@ -37,7 +37,8 @@ const checks = `<script>
  const input = document.getElementById('textContent'); input.value='PicLite'; input.dispatchEvent(new Event('input'));
  await new Promise(resolve=>setTimeout(resolve,100));
  results.pngExport = document.getElementById('mainCanvas').toDataURL('image/png').startsWith('data:image/png;base64,');
- results.canvasDimensions = document.getElementById('mainCanvas').width===300 && document.getElementById('mainCanvas').height===200;
+ const main=document.getElementById('mainCanvas');
+ results.canvasDimensions = main.style.width==='300px' && main.style.height==='200px' && main.width>=600 && main.height>=400;
  const ids = [...document.querySelectorAll('[id]')].map(el=>el.id);
  results.uniqueIds = new Set(ids).size===ids.length;
  document.getElementById('themeToggle').click();

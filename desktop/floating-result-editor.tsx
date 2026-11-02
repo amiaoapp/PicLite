@@ -55,7 +55,7 @@ export function FloatingResultEditor(p:Props){
     onPointerLeave={()=>{if(!qualityMode&&!busy){setMenu(false);if(!trigger.current?.matches(':focus-visible'))trigger.current?.blur();}}}
     onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();}}}
     onContextMenu={event=>{event.preventDefault();event.stopPropagation();if(!busy)setMenu(true);}}>
-    {!qualityMode && p.preview && <FloatingPreviewImage src={p.preview} alt={p.filename} width={p.width} height={p.height}/>}
+    {!qualityMode && p.preview && <div className="floating-card-image"><FloatingPreviewImage src={p.preview} alt={p.filename} width={p.width} height={p.height}/></div>}
     <header className="floating-card-header" onPointerDown={event=>event.stopPropagation()}>
       <button data-action="dismiss" className="floating-card-icon" aria-label={t('移除','Dismiss')} title={t('移除','Dismiss')} disabled={busy} onClick={event=>{event.stopPropagation();p.dismiss();}}><Icon name="close"/></button>
       <span>{qualityMode?t('压缩质量','Compression quality'):p.pageControl}</span>

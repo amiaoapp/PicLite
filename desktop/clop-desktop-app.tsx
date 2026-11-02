@@ -577,6 +577,7 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
 }
 
 export function FloatingResults({ api }: { api: PicLiteBridge }) {
+  const windowRoot = useRef<HTMLElement>(null);
   const [settings, setSettings] = useDesktopSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings, setSelectedId);
@@ -585,6 +586,21 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const [collapseBusy, setCollapseBusy] = useState(false);
   const collapsedRef = useRef(false);
   const collapseTransition = useRef(false);
+  useEffect(() => {
+    const root = windowRoot.current;
+    if (!root || collapsed) return;
+    const measure = () => {
+      const { width, height } = root.getBoundingClientRect();
+      if (width && height) {
+        root.style.setProperty('--floating-window-aspect', `${width} / ${height}`);
+        root.style.setProperty('--floating-history-card-width', `${Math.max(0, height - 52) * width / height}px`);
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [collapsed]);
 
   const [updateNotice, setUpdateNotice] = useState<{ text: string; url?: string } | null>(null);
   const [operationNotice, setOperationNotice] = useState<{ text: string; tone: OperationFeedbackTone } | null>(null);
@@ -886,7 +902,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+  return <main ref={windowRoot} data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
     {settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
@@ -903,7 +919,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     </section> : <>
       <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{visibleResults.map((item, index) => {
         const active = currentResult?.id === item.id;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(1); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
+        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag={settings.floatingDisplayMode === "stack"} notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(1); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>

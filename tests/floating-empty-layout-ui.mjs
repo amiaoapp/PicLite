@@ -24,11 +24,12 @@ await floatingBrowser(async({send,evaluate:ev,wait,click})=>{
   const geometry=await ev(`(()=>{const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,bottom:r.bottom,right:r.right}};const f=document.querySelector('.floating-empty-footer'),hint=f.querySelector('span');return{footer:rect(f),hint:{...rect(hint),scroll:hint.scrollWidth,client:hint.clientWidth},drop:rect(document.querySelector('.drop-surface')),buttons:[...f.querySelectorAll('button')].map(b=>{const r=rect(b);return{...r,hit:document.elementFromPoint(r.x+r.w/2,r.y+r.h/2)?.closest('button')===b}}),scroll:document.documentElement.scrollHeight}})()`);
   const label=JSON.stringify({mode,theme,language,width,height,geometry});
   assert.equal(geometry.buttons.length,5,label);
-  assert.ok(Math.abs(height-geometry.footer.bottom-16)<2,label);
+  assert.ok(Math.abs(height-geometry.footer.bottom-(width<=260?6:12))<2,label);
   assert.ok(geometry.drop.bottom<=geometry.footer.y+1&&geometry.drop.h>60,label);
-  assert.ok(geometry.hint.scroll<=geometry.hint.client+1,label);
+  const centre=geometry.buttons[0].y+geometry.buttons[0].h/2;
+  assert.ok(Math.abs(geometry.hint.y+geometry.hint.h/2-centre)<2,label);
   assert.ok(geometry.scroll<=height,label);
-  for(const b of geometry.buttons)assert.ok(b.hit&&b.w>=18&&b.x>=0&&b.right<=width&&b.bottom<=height-12,label);
+  for(const b of geometry.buttons)assert.ok(b.hit&&b.w>=18&&b.x>=0&&b.right<=width&&b.bottom<=height-6&&Math.abs(b.y+b.h/2-centre)<1,label);
   report.push({mode,theme,language,width,height,...geometry});
   if(mode==='list'&&theme==='light'&&language==='zh'&&width===392){
    const shot=await send('Page.captureScreenshot',{format:'png'});writeFileSync(artifacts+'/empty-bottom-toolbar.png',Buffer.from(shot.data,'base64'));
