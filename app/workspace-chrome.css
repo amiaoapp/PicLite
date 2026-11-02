@@ -111,10 +111,28 @@ html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0
 .app-shell .encoding-help{margin-top:10px;color:var(--muted);font-size:11px}
 .app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
 .app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
-/* Browser welcome content grows with interface text. Keep the import controls
-   inside the remaining stage and allow scrolling when the content is taller. */
-html .app-shell.web-app.studio-shell .studio-welcome{max-height:100%;min-height:0;flex-shrink:0;overflow:auto;overscroll-behavior:contain}
+/* Fit the decorative photo to the available preview height. Enlarged text must
+   keep import actions visible without creating a nested welcome scrollbar. */
+html .app-shell.web-app.studio-shell .preview-stage:has(>.studio-welcome){container:studio-welcome-stage / size}
+html .app-shell.web-app.studio-shell .studio-welcome{height:100%;max-height:100%;min-height:0;flex-shrink:0;justify-content:center;overflow:visible}
 html .app-shell.web-app.studio-shell .studio-welcome>*{flex-shrink:0}
+html .app-shell.web-app.studio-shell .studio-welcome>.studio-photo-button{display:flex;min-height:0;flex-shrink:1}
+html .app-shell.web-app.studio-shell .studio-photo-button figure{display:flex;flex-direction:column;min-height:0;width:100%}
+html .app-shell.web-app.studio-shell .studio-photo-button img{min-height:0;flex:1 1 auto;object-fit:cover}
+html .app-shell.web-app.studio-shell .studio-photo-button figcaption{flex:0 0 36px}
+@container studio-welcome-stage (max-height:360px){
+  html .app-shell.web-app.studio-shell .studio-welcome>.studio-photo-button{display:none}
+  html .app-shell.web-app.studio-shell .studio-welcome{gap:16px}
+}
+@container studio-welcome-stage (max-height:260px){
+  html .app-shell.web-app.studio-shell .studio-welcome{gap:8px}
+  html .app-shell.web-app.studio-shell .studio-welcome-heading h1{font-size:24px}
+  html .app-shell.web-app.studio-shell .studio-welcome-heading p{display:none}
+  html .app-shell.web-app.studio-shell .studio-import{gap:6px}
+}
+@container studio-welcome-stage (max-height:180px){
+  html .app-shell.web-app.studio-shell .studio-welcome-heading{display:none}
+}
 .app-shell.desktop-app .workspace .settings-panel{padding-bottom:24px}
 
 /* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */
