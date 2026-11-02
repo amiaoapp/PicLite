@@ -551,8 +551,8 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
     function getPointerPos(e) {
         const rect = mainCanvas.getBoundingClientRect();
-        const scaleX = mainCanvas.width / rect.width;
-        const scaleY = mainCanvas.height / rect.height;
+        const scaleX = (+canvasW.value || 300) / rect.width;
+        const scaleY = (+canvasH.value || 200) / rect.height;
         return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
     }
 
@@ -649,11 +649,39 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         zoom.value = 100; zoomNum.value = 100; generateInnerFromOrig();
     });
 
+    // Render rounded masks above output resolution, then downsample once for
+    // export. The visible canvas also stays sharp on Retina displays and zoom.
+    function coverRenderScale(w, h) {
+        return Math.max(1, Math.min(4, Math.sqrt(16777216 / (w * h))));
+    }
+    function exportCanvas() {
+        const output = document.createElement('canvas');
+        output.width = +canvasW.value || 300; output.height = +canvasH.value || 200;
+        // Some canvas backends sample only four pixels for a large reduction,
+        // even with high-quality smoothing. Halving first preserves the rounded
+        // mask's subpixel coverage instead of skipping pixels along its edge.
+        let source = mainCanvas;
+        while (source.width > output.width * 2 || source.height > output.height * 2) {
+            const step = document.createElement('canvas');
+            step.width = Math.max(output.width, Math.ceil(source.width / 2));
+            step.height = Math.max(output.height, Math.ceil(source.height / 2));
+            const stepContext = step.getContext('2d');
+            stepContext.imageSmoothingEnabled = true;
+            stepContext.drawImage(source, 0, 0, step.width, step.height);
+            source = step;
+        }
+        const outputContext = output.getContext('2d');
+        outputContext.imageSmoothingEnabled = true;
+        outputContext.drawImage(source, 0, 0, output.width, output.height);
+        return output;
+    }
     function draw() {
         const w = +canvasW.value || 300;
         const h = +canvasH.value || 200;
-        mainCanvas.width = w; mainCanvas.height = h;
-        ctx.clearRect(0,0,w,h);
+        const renderScale = coverRenderScale(w, h);
+        mainCanvas.width = Math.ceil(w * renderScale); mainCanvas.height = Math.ceil(h * renderScale);
+        mainCanvas.style.width = w + 'px'; mainCanvas.style.height = h + 'px';
+        ctx.setTransform(mainCanvas.width / w, 0, 0, mainCanvas.height / h, 0, 0);
         ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
 
         // --- Layer 1 ---
@@ -664,7 +692,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
         ctx.save();
         if (bgShadow.checked) {
             ctx.shadowColor = hexToRgba(bgShadowColor.value, 0.5);
-            ctx.shadowBlur = +bgShadowBlur.value; ctx.shadowOffsetY = +bgShadowBlur.value / 3;
+            ctx.shadowBlur = +bgShadowBlur.value * renderScale; ctx.shadowOffsetY = +bgShadowBlur.value / 3 * renderScale;
         }
 
         drawRoundRect(ctx, bgX, bgY, bgW, bgH, bRad1);
@@ -701,17 +729,18 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
             const dx = iconPos.x - drawW / 2; const dy = iconPos.y - drawH / 2;
             const bRadius = +(borderRadius.value || 0); const bWidth = +(borderWidth.value || 0);
 
-            const offC = document.createElement('canvas'); offC.width = drawW; offC.height = drawH;
-            const oCtx = offC.getContext('2d'); oCtx.imageSmoothingEnabled = true;
+            const offC = document.createElement('canvas'); offC.width = Math.ceil(drawW * renderScale); offC.height = Math.ceil(drawH * renderScale);
+            const oCtx = offC.getContext('2d'); oCtx.imageSmoothingEnabled = true; oCtx.imageSmoothingQuality = 'high';
+            oCtx.setTransform(offC.width / drawW, 0, 0, offC.height / drawH, 0, 0);
             if (bRadius > 0) { drawRoundRect(oCtx, 0, 0, drawW, drawH, bRadius); oCtx.clip(); }
             oCtx.drawImage(mainImg, 0,0,sx,sy, 0,0, drawW, drawH);
 
             ctx.save();
             if (enableShadow.checked) {
                 ctx.shadowColor = hexToRgba(shadowColor.value, 0.5);
-                ctx.shadowBlur = +shadowBlur.value; ctx.shadowOffsetY = +shadowBlur.value / 3;
+                ctx.shadowBlur = +shadowBlur.value * renderScale; ctx.shadowOffsetY = +shadowBlur.value / 3 * renderScale;
             }
-            ctx.drawImage(offC, dx, dy); ctx.restore();
+            ctx.drawImage(offC, 0, 0, offC.width, offC.height, dx, dy, drawW, drawH); ctx.restore();
 
             if (borderType.value !== 'none') {
                 ctx.save();
@@ -748,7 +777,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
                 ctx.save();
                 if (textShadow.checked) {
                     ctx.shadowColor = hexToRgba(textShadowBoxColor.value, 0.5);
-                    ctx.shadowBlur = +textShadowBlur.value; ctx.shadowOffsetY = +textShadowBlur.value / 3;
+                    ctx.shadowBlur = +textShadowBlur.value * renderScale; ctx.shadowOffsetY = +textShadowBlur.value / 3 * renderScale;
                 }
                 ctx.fillStyle = hexToRgba(textBgColor.value, +textBgAlpha.value / 100);
                 drawRoundRect(ctx, boxX, boxY, boxW, boxH, boxRad);
@@ -765,7 +794,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
             if(enableTextShadow.checked) {
                 ctx.shadowColor = textShadowColor.value;
-                ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
+                ctx.shadowBlur = 10 * renderScale; ctx.shadowOffsetY = 2 * renderScale;
             }
 
             ctx.fillStyle = textColor.value;
@@ -792,8 +821,11 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
     function generateInnerFromOrig(){
         if(!origImg) return Promise.resolve();
         const target = +innerSize.value;
-        const off = document.createElement('canvas'); off.width = target; off.height = target;
+        const off = document.createElement('canvas');
+        const cropScale = coverRenderScale(target, target);
+        off.width = Math.ceil(target * cropScale); off.height = Math.ceil(target * cropScale);
         const octx = off.getContext('2d');
+        octx.setTransform(off.width / target, 0, 0, off.height / target, 0, 0);
         const sx = origImg.naturalWidth, sy = origImg.naturalHeight;
         const baseScale = Math.max(target / sx, target / sy);
         crop.baseScale = baseScale;
@@ -837,7 +869,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
 
     document.getElementById('downloadBtn').addEventListener('click', ()=>{
         const mime = format.value; const q = +(qualityNum.value) / 100;
-        mainCanvas.toBlob(blob=>{
+        exportCanvas().toBlob(blob=>{
             if(!blob) return; const u = URL.createObjectURL(blob); const a = document.createElement('a');
             a.href = u; a.download = `cover_${Date.now()}.${mime.split('/')[1]}`;
             document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
@@ -845,7 +877,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
     });
 
     document.getElementById('copyBtn').addEventListener('click', async ()=>{
-        try{ mainCanvas.toBlob(async blob =>{ if(!blob) return; await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); alert('已复制到剪贴板！'); }, 'image/png'); }catch(e){ alert('复制失败'); }
+        try{ exportCanvas().toBlob(async blob =>{ if(!blob) return; await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); alert('已复制到剪贴板！'); }, 'image/png'); }catch(e){ alert('复制失败'); }
     });
 
     // The visible editor and floating action use this same rendering engine.
@@ -906,7 +938,7 @@ input[type=checkbox] {accent-color: var(--accent); width:14px; height:14px; curs
             await generateInnerFromOrig();
             await document.fonts.ready;
             draw();
-            const blob = await new Promise((resolve, reject) => mainCanvas.toBlob(value => value ? resolve(value) : reject(new Error('封面生成失败')), 'image/png'));
+            const blob = await new Promise((resolve, reject) => exportCanvas().toBlob(value => value ? resolve(value) : reject(new Error('封面生成失败')), 'image/png'));
             return { blob, format: format.value.split('/')[1], quality: Math.max(1, Math.min(100, +qualityNum.value || 86)) };
         }
     };

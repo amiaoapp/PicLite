@@ -5,8 +5,11 @@ export async function floatingBrowser(run, options = {}) {
   await new Promise(resolve => { socket.onopen = resolve; });
   let sequence = 0;
   const pending = new Map();
+  const exceptions = [];
   socket.onmessage = event => {
-    const message = JSON.parse(event.data), job = pending.get(message.id);
+    const message = JSON.parse(event.data);
+    if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text);
+    const job = pending.get(message.id);
     if (!job) return;
     pending.delete(message.id);
     if (message.error) job.reject(Error(JSON.stringify(message.error)));
@@ -27,7 +30,7 @@ export async function floatingBrowser(run, options = {}) {
       if (await evaluate(expression)) return;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    throw Error('Timeout: ' + expression + ' ' + JSON.stringify(await evaluate(`({root:document.querySelector('main')?.dataset,card:document.querySelector('.result-card')?.dataset,hover:document.querySelector('.result-card')?.matches(':hover'),focus:document.activeElement?.outerHTML.slice(0,120)})`)));
+    throw Error('Timeout: ' + expression + ' ' + JSON.stringify(await evaluate(`({root:document.querySelector('main')?.dataset,card:document.querySelector('.result-card')?.dataset,hover:document.querySelector('.result-card')?.matches(':hover'),focus:document.activeElement?.outerHTML.slice(0,120)})`)) + ' ' + JSON.stringify(exceptions));
   };
   const click = async selector => {
     const point = await evaluate(`(() => {
@@ -38,6 +41,13 @@ export async function floatingBrowser(run, options = {}) {
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
     for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...point });
   };
-  try { await send('Page.enable'); await run({ send, evaluate, wait, click }); }
+  try {
+    await send('Page.enable');
+    await send('Runtime.enable');
+    // Local production rebuilds remove old hashed chunks between test runs.
+    await send('Network.enable');
+    await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await run({ send, evaluate, wait, click });
+  }
   finally { socket.close(); if (!options.target) await fetch(endpoint + '/json/close/' + target.id); }
 }
