@@ -7,8 +7,8 @@ test('floating styles persist and synchronize without modifying compression pres
  try{
   assert.equal(loadSettings().floatingStyle,'immersive');
   const preset={...DEFAULT_SETTINGS.preset,quality:39,mode:'manual',format:'webp'};
-  for(const style of ['classic','immersive']){saveSettings({...DEFAULT_SETTINGS,preset,floatingStyle:style});assert.equal(loadSettings().floatingStyle,style);assert.equal(JSON.parse(data.get(main)).floatingStyle,style);assert.deepEqual(loadSettings().preset,preset);}
-  data.set(main,JSON.stringify({floatingStyle:'classic'}));assert.equal(loadSettings().floatingStyle,'classic');
+  for(const style of ['classic','immersive']){saveSettings({...DEFAULT_SETTINGS,preset,floatingStyle:style});assert.equal(loadSettings().floatingStyle,"immersive");assert.equal(JSON.parse(data.get(main)).floatingStyle,style);assert.deepEqual(loadSettings().preset,preset);}
+  data.set(main,JSON.stringify({floatingStyle:'classic'}));assert.equal(loadSettings().floatingStyle,'immersive');
   data.set(key,JSON.stringify({...DEFAULT_SETTINGS,preset,floatingStyle:'invalid'}));data.set(main,'{}');assert.equal(loadSettings().floatingStyle,'immersive');assert.deepEqual(loadSettings().preset,preset);
  }finally{if(previous.storage===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous.storage;if(previous.window===undefined)delete globalThis.window;else globalThis.window=previous.window;}
 });

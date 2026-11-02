@@ -2083,3 +2083,57 @@ html[data-palette="white"] .drop-dock { --dock-accent:#c8c8c8; --dock-muted:#929
 .palette-choice.white .palette-swatch i:nth-child(1) { background:#fff; }
 .palette-choice.white .palette-swatch i:nth-child(2) { background:#e5e5e5; }
 .palette-choice.white .palette-swatch i:nth-child(3) { background:#b8b8b8; }
+
+/* Browser and Docker use the same settings markup as the desktop app. Keep
+   the category navigation and content in an explicit, bounded layout. */
+html[data-density] .app-shell:is(.web-app,.desktop-app) .clop-preferences {
+  display: grid; grid-template-columns: 200px minmax(0,1fr); grid-template-rows: minmax(0,1fr);
+  width: 100%; max-width: none; height: calc(100dvh - 64px); min-height: 0;
+  margin: 0; padding: 0; gap: 0; overflow: hidden; align-items: stretch;
+}
+html[data-density] .app-shell .clop-preferences-content {
+  display: flex; flex-direction: column; align-items: stretch; min-width: 0; min-height: 0;
+  width: 100%; max-width: 1080px; height: 100%; margin: 0 auto;
+  padding: 32px clamp(20px,4vw,60px) 60px; gap: 20px; overflow: auto; overscroll-behavior: contain;
+}
+html[data-density] .app-shell .clop-preferences-content > * { flex-shrink: 0; min-width: 0; }
+html[data-density] .app-shell .preferences-sidebar { min-width: 0; overflow-y: auto; }
+html[data-density] .app-shell .clop-preferences-content .preference-card-heading { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+html[data-density] .app-shell .clop-preferences-content .preference-row { gap: 16px; min-width: 0; }
+html[data-density] .app-shell .clop-preferences-content .preference-row > div { min-width: 0; }
+html[data-density] .app-shell .clop-preferences-content .preference-row > div:first-child { flex: 1; }
+html[data-density] .app-shell .clop-preferences-content .preference-row .switch { flex: 0 0 34px; }
+html[data-density] .app-shell .clop-preferences-content :is(input,select) { max-width: 100%; }
+html[data-density] .app-shell.web-app.classic-shell .workspace {
+  grid-template-columns: clamp(190px,17vw,260px) minmax(0,1fr) clamp(260px,23vw,340px);
+  width: 100%; max-width: 1920px; height: calc(100dvh - 64px); min-height: 0; margin: 0 auto;
+}
+html[data-density] .app-shell.web-app.classic-shell .workspace > :is(.queue-panel,.preview-panel,.settings-panel) { min-width: 0; min-height: 0; height: 100%; }
+html[data-density] .app-shell.web-app.classic-shell .workspace > .queue-panel { overflow-y: auto; }
+html[data-density] .app-shell.web-app.classic-shell .workspace > .preview-panel { grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; }
+html[data-density] .app-shell.web-app.classic-shell .workspace > .settings-panel { top: auto; position: relative; }
+html[data-density] .app-shell.web-app.studio-shell.studio-shell .workspace { --studio-header: 64px; max-width: 1920px; margin-inline: auto; }
+@media(max-width:900px) {
+  html[data-density] .app-shell.web-app.classic-shell .workspace { grid-template-columns: 180px minmax(0,1fr); }
+  html[data-density] .app-shell.web-app.classic-shell .workspace > .settings-panel { grid-column: 1/-1; height: auto; max-height: none; }
+  html[data-density] .app-shell.web-app.classic-shell .workspace { height: auto; }
+  html[data-density] .app-shell.web-app.classic-shell .workspace > .preview-panel { height: 540px; }
+}
+@media(max-width:720px) {
+  html[data-density] .app-shell:is(.web-app,.desktop-app) .clop-preferences { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); }
+  html[data-density] .app-shell .preferences-sidebar { padding: 8px; border-right: 0; border-bottom: 1px solid var(--line); overflow: hidden; }
+  html[data-density] .app-shell .preferences-sidebar-title,html[data-density] .app-shell .preferences-sidebar > small { display: none; }
+  html[data-density] .app-shell .preferences-sidebar nav { display: flex; width: 100%; overflow-x: auto; margin: 0; gap: 5px; scrollbar-width: thin; }
+  html[data-density] .app-shell .preferences-sidebar nav button,html[data-density] .app-shell .preferences-sidebar nav button.active { flex: 0 0 auto; width: auto; min-height: 40px; padding: 0 12px; font-size: 12px; gap: 6px; white-space: nowrap; }
+  html[data-density] .app-shell .preferences-sidebar nav button > span { font-size: 14px; }
+  html[data-density] .app-shell .clop-preferences-content { padding: 22px 14px 40px; }
+  html[data-density] .app-shell .clop-preferences-content .preference-row { margin-inline: 10px; flex-wrap: wrap; gap: 10px; }
+  html[data-density] .app-shell .clop-preferences-content .preference-row > :is(input,select,.interface-typography-controls) { width: 100%; min-width: 0; }
+  html[data-density] .app-shell .clop-preferences-content .preference-card-heading span { font-size: 18px; }
+}
+@media(max-width:680px) {
+  html[data-density] .app-shell.web-app.classic-shell .workspace { display: flex; flex-direction: column; height: auto; min-height: 0; }
+  html[data-density] .app-shell.web-app.classic-shell .workspace > .queue-panel { max-height: 240px; height: auto; }
+  html[data-density] .app-shell.web-app.classic-shell .workspace > .preview-panel { height: 500px; flex: 0 0 500px; }
+  html[data-density] .app-shell.web-app.classic-shell .workspace > .settings-panel { height: auto; max-height: none; }
+}

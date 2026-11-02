@@ -9,7 +9,7 @@ import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
 import { FloatingPreviewImage } from "./floating-preview-image";
-import "./floating-classic.css";
+import { renderSavedCover } from "../app/cover-preset";
 import { useFloatingTone } from "./use-floating-tone";
 import { promoteFloatingResult } from "./floating-result-order";
 import { floatingRadius } from "./floating-appearance";
@@ -282,7 +282,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
     }
   }, [api, resultLimit, settings, onFocus]);
 
-  const reoptimise = useCallback(async (item: ResultItem, overrides: Partial<OptimisationPreset> = {}, sourceOverride?: string) => {
+  const reoptimise = useCallback(async (item: ResultItem, overrides: Partial<OptimisationPreset> = {}, sourceOverride?: string, exportOverrides: Partial<QuickCompressSettings> = {}) => {
     if (!api || item.status === "working") return;
     const originalSource = item.originalSource || item.source;
     const source = sourceOverride || item.reencodeSource || originalSource;
@@ -292,7 +292,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
     onFocus?.(item.id);
     setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, smartCompression, status: "working", error: undefined } : candidate));
     try {
-      const [output] = await api.quickCompressPaths([source], nativeSettings(effectiveSettings));
+      const [output] = await api.quickCompressPaths([source], { ...nativeSettings(effectiveSettings), ...exportOverrides });
       if (!output || output.error || !output.output) throw new Error(output?.error || tr(settings.language, "没有生成压缩结果", "No optimised result was created"));
       const snapshot: ResultItem = { ...item, history: undefined };
       const history = [...(item.history || []), snapshot];
@@ -335,9 +335,11 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
         if (candidate.id !== item.id || candidate.output !== provisional.output) return candidate;
         return finished;
       }));
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setResults((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "error", error: message } : candidate));
+      return false;
     } finally {
       setWorking(false);
     }
@@ -445,7 +447,7 @@ function DropSurface({ language, active, compact = false }: { language: Language
   </div>;
 }
 
-function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, onQuality, onSave, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; onQuality?: () => void; onSave?: () => void; menu?: boolean }) {
+function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, onQuality, onSave, onCover, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; onQuality?: () => void; onSave?: () => void; onCover?: () => void; menu?: boolean }) {
   const language = settings.language;
   const copy = () => copyImageWithFeedback(api.copyImagePath, item.output, language, notify);
   const runWithNotice = async (operation: () => Promise<unknown>, success: string) => {
@@ -468,6 +470,7 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     await runWithNotice(() => api.revealPath(output), tr(language, "已在文件夹中定位", "Shown in folder"));
   };
   const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; run: () => void }> = {
+    cover: { title: tr(language,"按封面预设生成并压缩","Make and compress cover with saved preset"), icon: "image", disabled: !onCover, run: () => onCover?.() },
     quality: { title: tr(language,"调整压缩质量","Compression quality"), icon: "sliders", disabled:!onQuality, run:()=>onQuality?.() },
     save: { title: tr(language,"保存副本","Save copy"), icon: "save", disabled:!onSave, run:()=>onSave?.() },
     downscale: { title: tr(language, "再缩小一半", "Downscale by half again"), icon: "minus", run: onDownscale },
@@ -532,31 +535,25 @@ function resultFormat(item: ResultItem) {
   return extension === "jpg" ? "jpeg" : extension;
 }
 
-function FormatBar({ value, update }: { value?: string; update: (format: ImageFormat) => void }) {
-  return <div className="format-bar">
-    {(["keep", "jpeg", "webp", "png"] as ImageFormat[]).map((format) => <button key={format} className={(format === "keep" ? value === "auto" : value === format) ? "active" : ""} onClick={(event) => { event.stopPropagation(); update(format); }}>{format === "keep" ? "AUTO" : format.toUpperCase()}</button>)}
-  </div>;
-}
-
-export function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
+export function ResultCard({ item, api, settings, active, allowWindowDrag = true, notify, remove, select, downscale, watermark, undo, upload, cover, pageControl, updateFormat, process }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; active: boolean; allowWindowDrag?: boolean; notify?: (text: string, tone?: OperationFeedbackTone) => void; remove: () => void; select: () => void; downscale: () => void; watermark: () => void; undo: () => void; upload: () => void; cover?: () => void; pageControl?: React.ReactNode; updateFormat: (format: ImageFormat) => void; process?: (settings: Partial<OptimisationPreset>, source?: string) => Promise<void> }) {
   const [focusInside, setFocusInside] = useState(false);
   const cardRoot = useRef<HTMLElement>(null);
   useEffect(() => {
-    const observer = new MutationObserver(() => setFocusInside(!!cardRoot.current?.contains(document.activeElement)));
+    const observer = new MutationObserver(() => setFocusInside(!!cardRoot.current?.querySelector(":focus-visible")));
     if (cardRoot.current) observer.observe(cardRoot.current, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
   const controlsInteraction = {
     ref: cardRoot,
     "data-controls-visible": focusInside,
-    onFocusCapture: () => setFocusInside(true),
+    onFocusCapture: () => setFocusInside(!!cardRoot.current?.querySelector(":focus-visible")),
     onBlurCapture: (event: React.FocusEvent<HTMLElement>) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false); },
   };
   const saved = percentage(item);
   const tone = useFloatingTone(item.preview);
   const format = resultFormat(item);
   const feedback = notify || (() => undefined);
-  const actionProps = {item, api, settings, notify: feedback, onDownscale: downscale, onWatermark: watermark, onUndo: undo, onUpload: upload};
+  const actionProps = {item, api, settings, notify: feedback, onDownscale: downscale, onWatermark: watermark, onUndo: undo, onUpload: upload, onCover: cover};
   const startWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, select, a")) return;
     event.preventDefault();
@@ -567,28 +564,15 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
     {!item.preview && <Icon name={item.status === "working" ? "spark" : "image"} />}
     <div className="result-overlay">
       {item.status === "working" ? <><span className="result-state">{item.smartCompression ? <T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…" /> : <T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…" />}</span><div className="progress"><i /></div></> : item.error ? <span className="result-error">{item.error}</span> : <>
-        <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved != null && <em className={saved < 0 ? "bad" : ""}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}</div>
+        {saved != null && <em className={`result-saving ${saved < 0 ? "bad" : ""}`}>{saved > 0 ? `−${saved}%` : saved === 0 ? "0%" : `+${Math.abs(saved)}%`}</em>}
+        <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b></div>
         {item.width && item.height ? <small className="result-dimensions">{item.width.toLocaleString()} × {item.height.toLocaleString()}</small> : null}
       </>}
     </div>
     {item.status === "done" && <div className="result-hover-actions"><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} /></div>}
   </div>;
-  if(settings.floatingStyle === "classic") return <article {...controlsInteraction} data-image-tone={tone} className={`result-card classic-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} onClick={select} onContextMenu={event=>{if(!item.output)return;event.preventDefault();void api.openImage(item.output);}}>
-    <div className="result-preview" onPointerDown={allowWindowDrag?startWindowDrag:undefined}>
-      {item.preview?<img src={item.preview} alt={fileName(item.source)}/>:<Icon name={item.status === "working"?"spark":"image"}/>}
-      <div className="result-overlay">
-        {item.status === "working"?<><span className="result-state">{item.smartCompression?<T language={settings.language} zh="正在智能选择最优结果…" en="Choosing the best result…"/>:<T language={settings.language} zh="正在按自定义设置压缩…" en="Compressing with custom settings…"/>}</span><div className="progress"><i/></div></>:item.error?<span className="result-error">{item.error}</span>:<>
-          <div className="result-metrics"><b>{formatBytes(item.originalBytes)}</b><span>→</span><b>{formatBytes(item.outputBytes)}</b>{saved!=null&&<em className={saved<0?"bad":""}>{saved>0?`−${saved}%`:saved===0?"0%":`+${Math.abs(saved)}%`}</em>}</div>
-          {item.width&&item.height?<small className="result-dimensions"><Icon name="image"/> {item.width.toLocaleString()} × {item.height.toLocaleString()}</small>:null}
-          <FormatBar value={item.formatChoice==="auto"?"auto":format} update={updateFormat}/>
-        </>}
-      </div>
-      {item.status === "done"&&<div className="result-hover-actions" onClick={event=>event.stopPropagation()}><ResultActions {...actionProps} settings={{...settings,floatingActions:settings.floatingActions.map(action=>action==="quality"?"preview":action==="save"?"reveal":action)}}/></div>}
-    </div>
-    <button className="result-close" title={tr(settings.language,"移除","Dismiss")} onClick={event=>{event.stopPropagation();remove();}}><Icon name="close"/></button>
-  </article>;
   return <article {...controlsInteraction} data-image-tone={tone} className={`result-card integrated-result-card ${settings.floatingLayout} ${item.status} ${active ? "active" : ""}`} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} onPointerDownCapture={allowWindowDrag ? startWindowDrag : undefined} onClick={select}>
-    <FloatingResultEditor key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
+    <FloatingResultEditor onCover={cover} pageControl={pageControl} key={item.output || item.id} api={api} path={item.output} preview={item.preview} width={item.width} height={item.height} filename={fileName(item.output || item.source)} language={settings.language} format={item.formatChoice === "auto" ? "keep" : format} quality={item.editorQuality ?? (settings.preset.quality || 86)} disabled={item.status !== "done"} dismiss={remove} renderPreview={preview} renderMenu={controls=><ResultActions {...actionProps} onQuality={controls.quality} onSave={controls.save} menu />} process={process} updateFormat={updateFormat} notify={feedback} />
   </article>;
 }
 
@@ -652,7 +636,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     return () => { disposed = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    document.documentElement.style.setProperty('--floating-radius', `${settings.floatingStyle === "classic" ? 20 : floatingRadius(settings.floatingCornerRadius)}px`);
+    document.documentElement.style.setProperty('--floating-radius', `${floatingRadius(settings.floatingCornerRadius)}px`);
     return () => { document.documentElement.style.removeProperty('--floating-radius'); };
   }, [settings.floatingCornerRadius, settings.floatingStyle]);
   useEffect(() => {
@@ -788,7 +772,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     const refresh = () => {
       setEditorInteracting(!!document.querySelector('.floating-card-content[data-interacting="true"]'));
       // Removing a focused control does not reliably emit blur in a WebView.
-      setFocusInside(!!document.querySelector('.floating-results')?.contains(document.activeElement));
+      setFocusInside(!!document.querySelector('.floating-results :focus-visible'));
     };
     const observer = new MutationObserver(refresh);
     observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-interacting"]});
@@ -835,6 +819,25 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       setUpdateNotice({ text: error instanceof Error ? error.message : String(error) });
     }
   };
+  const coverRunning = useRef(new Set<string>());
+  const applyCover = useCallback(async (item: ResultItem) => {
+    if (coverRunning.current.has(item.id) || item.status !== "done") return;
+    coverRunning.current.add(item.id);
+    showOperationNotice(tr(settings.language, "正在生成封面…", "Making cover…"));
+    try {
+      const [image] = await api.readImagesFromPaths([item.output || item.source]);
+      if (!image) throw new Error(tr(settings.language, "无法读取当前图片", "Could not read the current image"));
+      const cover = await renderSavedCover(new Blob([image.data.slice().buffer as ArrayBuffer], { type: image.type }));
+      const path = await api.cacheImageData(new Uint8Array(await cover.blob.arrayBuffer()), `cover-${Date.now()}.png`);
+      const original = item.originalSource || item.source;
+      const separator = Math.max(original.lastIndexOf("/"), original.lastIndexOf("\\"));
+      const destination = settings.filePlacement === "fixed-folder" ? settings.outputFolder : separator >= 0 ? original.slice(0, separator + 1) : "";
+      const succeeded = await reoptimise(item, { mode: "manual", format: cover.format, quality: cover.quality, scale: 100, targetSizeKb: 0, preventLarger: false }, path, destination ? { exportMode: "fixed-folder", fixedFolder: destination } : {});
+      if (!succeeded) throw new Error(tr(settings.language, "封面压缩失败，请查看当前结果提示", "Cover compression failed; see the result for details"));
+      showOperationNotice(tr(settings.language, "封面已生成并压缩，可撤销", "Cover made and compressed; undo is available"));
+    } catch (error) { showOperationNotice(error instanceof Error ? error.message : String(error), "error"); }
+    finally { coverRunning.current.delete(item.id); }
+  }, [api, reoptimise, settings.language, settings.filePlacement, settings.outputFolder, showOperationNotice]);
   const rotateResults = (direction: 1 | -1) => {
     if (results.length < 2) return;
     setSelectedId((current) => {
@@ -883,9 +886,8 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style={settings.floatingStyle} style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`, "--floating-backdrop": (results.find(item => item.id === selectedId) || results[0])?.preview ? `url("${(results.find(item => item.id === selectedId) || results[0]).preview}")` : "none"} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : settings.floatingStyle === "classic" ? "has-classic-image" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(true)} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
-    {settings.floatingStyle === "classic" && results.length > 0 && <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />}
-    {settings.floatingStyle !== "classic" && settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
+  return <main data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+    {settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -901,11 +903,11 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     </section> : <>
       <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{visibleResults.map((item, index) => {
         const active = currentResult?.id === item.id;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={(overrides, source) => reoptimise(item, overrides, source || item.reencodeSource || item.output)} /></div>;
+        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(1); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
       })}</div>
-      <footer className={`floating-footer ${settings.floatingStyle === "classic" ? "classic-floating-footer" : ""}`} onPointerDown={startEmptyWindowDrag}>
+      <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        {settings.floatingStyle === "classic" ? <div>{clickThroughToggle}<button title={tr(settings.language,"打开完整工作台","Open full workbench")} onClick={()=>void api.showMainWindow()}><Icon name="results"/></button><button title={tr(settings.language,settings.floatingDisplayMode==="stack"?"展开结果":"堆叠结果",settings.floatingDisplayMode==="stack"?"Expand results":"Stack results")} onClick={()=>setSettings(current=>({...current,floatingDisplayMode:current.floatingDisplayMode==="stack"?"list":"stack"}))}><Icon name="menu"/></button>{settings.showCopyClearButtons&&<button title={tr(settings.language,"清空","Clear all")} onClick={clear}><Icon name="clear"/></button>}<button title={tr(settings.language,"关闭悬浮窗","Close floating window")} onClick={()=>void api.hideCurrentWindow()}><Icon name="close"/></button></div> : <div>{settings.floatingDisplayMode === "stack" && results.length > 1 && <button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} onClick={() => rotateResults(1)}>{results.findIndex(item=>item.id===currentResult?.id)+1}/{results.length}</button>}{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>}
+        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -980,10 +982,11 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
-const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "watermark", "preview", "reveal", "gallery"];
+const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "cover", "watermark", "preview", "reveal", "gallery"];
 
 function floatingActionLabel(language: Language, action: FloatingAction) {
   return ({
+    cover: tr(language,"自动封面","Auto cover"),
     quality: tr(language,"压缩质量","Quality"),
     save: tr(language,"保存副本","Save copy"),
     downscale: tr(language, "减半", "Half"),
@@ -998,7 +1001,7 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
 }
 
 function floatingActionIcon(action: FloatingAction) {
-  return ({ quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
+  return ({ cover:"image", quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
 }
 
 function SettingsRow({ title, note, children }: { title: React.ReactNode; note?: React.ReactNode; children: React.ReactNode }) {
@@ -1314,7 +1317,6 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </div>
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
-        <SettingsRow title={<T language={language} zh="新版悬浮窗" en="New floating window" />} note={<T language={language} zh="关闭后使用旧版经典浮窗" en="Turn off to use the classic floating window" />}><Switch label={tr(language,"新版悬浮窗","New floating window")} checked={settings.floatingStyle !== "classic"} onChange={value=>patch("floatingStyle",value?"immersive":"classic")} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="圆角弧度" en="Corner radius" />} note={<T language={language} zh="0 为直角，调整后即时应用并自动保存" en="0 gives square corners; changes apply immediately and are saved" />}><span className="floating-radius-control"><input aria-label={tr(language, "悬浮窗圆角", "Floating corner radius")} type="range" min="0" max="28" step="1" value={settings.floatingCornerRadius} onChange={event => patch("floatingCornerRadius", floatingRadius(Number(event.target.value)))} /><output>{settings.floatingCornerRadius} px</output></span></SettingsRow>
         <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后图片区域的点击会传递给下方窗口；悬浮窗底栏的穿透按钮始终可点击" en="Clicks reach the window below; the toggle in the floating footer remains clickable." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>

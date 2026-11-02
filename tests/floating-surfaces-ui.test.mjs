@@ -109,7 +109,7 @@ test('immersive and browser hover controls retain readable fills and keyboard fo
         assert.ok(contrast(ink.slice(0,3),bg.slice(0,3))>=7,`${label}: browser glyph contrast >=7`);
        }
       }
-      if (!button.browser && style!=='classic' && button.visibleOpacity>0 && !state.length && !button.label.includes('active') && !button.label.includes('primary') && !button.label.includes('Apply') && !button.label.includes('Cancel') && !button.label.includes('Save copy') && !button.label.includes('Open image')) {
+      if (!button.browser && style!=='classic' && button.visibleOpacity>0 && !state.length && !button.label.includes('active') && !button.label.includes('primary') && !button.label.includes('Apply') && !button.label.includes('Cancel') && !button.label.includes('floating-result-next') && !button.label.includes('Save copy') && !button.label.includes('Open image')) {
        if(style==='classic'&&button.visibleOpacity>0&&(button.footer||button.label.includes('result-close'))){const alpha=bg[3]??1,paper=rgba(button.paper);assert.ok(contrast(ink.slice(0,3),bg.slice(0,3).map((v,i)=>v*alpha+paper[i]*(1-alpha)))>=3,`${label}: visible classic controls retain contrast`)}
        else assert.ok(bg.length===4 && bg[3]===0, `${label}: no idle hover-action fill, got ${button.background}`);
       }

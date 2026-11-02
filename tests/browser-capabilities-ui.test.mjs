@@ -73,7 +73,7 @@ try{
   await click('▤Floating Results');
   const text=await evaluate("document.querySelector('.preferences-content').textContent");
   for(const native of ['Allow screenshot / recording capture','Floating result layout','Floating result appearance'])assert.equal(text.includes(native),false,`${native} is ignored by the browser result panel`);
-  assert.ok(text.includes('New floating window'));assert.ok(text.includes('Dismiss result after'));
+  assert.ok(!text.includes('New floating window'), 'obsolete style switch is removed');assert.ok(text.includes('Dismiss result after'));
  });
  await test('browser plugin settings do not advertise filesystem-only tools',async()=>{
   await click('◇Plugins');

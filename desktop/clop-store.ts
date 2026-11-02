@@ -44,7 +44,8 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingCorner: "bottom-right",
   floatingWidth: 320,
   floatingHeight: 230,
-  floatingCornerRadius: 10,
+  floatingCornerRadius: 24,
+  floatingSurfaceVersion: 2,
   floatingActions: ["downscale", "undo", "quality", "copy", "upload", "save"],
   floatingWatermark: {
     text: "PicLite",
@@ -169,8 +170,9 @@ export function loadSettings(): DesktopSettings {
       shortcutUploadCurrent: mainPreferences.shortcutUpload || parsed.shortcutUploadCurrent || DEFAULT_SETTINGS.shortcutUploadCurrent,
       floatingWidth: Math.max(280, Number(parsed.floatingWidth) || DEFAULT_SETTINGS.floatingWidth),
       floatingHeight: Math.max(220, Number(parsed.floatingHeight) || DEFAULT_SETTINGS.floatingHeight),
-      floatingStyle: (mainPreferences as Record<string, unknown>).floatingStyle === "classic" ? "classic" : (mainPreferences as Record<string, unknown>).floatingStyle === "immersive" ? "immersive" : parsed.floatingStyle === "classic" ? "classic" : "immersive",
-      floatingCornerRadius: floatingRadius(parsed.floatingCornerRadius),
+      floatingStyle: "immersive",
+      floatingCornerRadius: parsed.floatingSurfaceVersion !== 2 && parsed.floatingCornerRadius === 10 ? 24 : floatingRadius(parsed.floatingCornerRadius),
+      floatingSurfaceVersion: 2,
       floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
       floatingWatermark: { ...DEFAULT_SETTINGS.floatingWatermark, ...(parsed.floatingWatermark || {}) },
       watchProfiles: Array.isArray(parsed.watchProfiles) ? parsed.watchProfiles : (parsed.watchFolders || []).map((path, index) => ({
