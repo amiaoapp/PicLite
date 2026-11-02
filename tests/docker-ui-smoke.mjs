@@ -92,8 +92,8 @@ async function click(selector) {
   await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
 
-async function presentation(layout, scale, width) {
-  await page.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
+async function presentation(layout, scale, width, height = 800) {
+  await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   await evaluate(`(() => {
     localStorage.setItem('piclite.interfaceStyle.v1', ${JSON.stringify(layout)});
     for (const key of ['piclite.desktopPreferences.v1', 'piclite.desktop.clop-settings.v1']) {
@@ -153,6 +153,28 @@ async function typography(state) {
     scaled.forEach((value, index) => assert.ok(Math.abs(value / baseline[index] - 1.5) < 0.02, `${state}/${layout}/${width}: production text really scales to 150%, not just its preference`));
   }
   console.log(`PASS real production comparison typography: ${state}, classic/studio, 100/150%, 820/1120/1440px`);
+}
+
+async function welcomeLayout() {
+  report.welcome = [];
+  // Effective CSS viewports after browser zoom, plus a phone-width layout.
+  for (const [width,height] of [[1386,792],[1109,634],[924,528],[960,540],[853,480],[390,844]]) {
+    await presentation('studio',150,width,height);
+    const geometry = await evaluate(`(() => {
+      const welcome=document.querySelector('.studio-welcome'),stage=document.querySelector('.preview-stage').getBoundingClientRect();
+      return {overflow:getComputedStyle(welcome).overflowY,scroll:welcome.scrollHeight,client:welcome.clientHeight,
+        actions:[...welcome.querySelectorAll('.studio-import button')].map(button=>{const r=button.getBoundingClientRect();return {inside:r.width>0&&r.height>0&&r.x>=stage.x-1&&r.right<=stage.right+1&&r.y>=stage.y-1&&r.bottom<=stage.bottom+1,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===button}}),
+        settingsOverflow:getComputedStyle(document.querySelector('.settings-panel')).overflowY};
+    })()`);
+    const label=JSON.stringify({width,height,...geometry});
+    assert.equal(geometry.overflow,'visible',label);
+    assert.ok(geometry.scroll<=geometry.client+1,label);
+    assert.equal(geometry.actions.length,2,label);
+    assert.ok(geometry.actions.every(action=>action.inside),label);
+    if(width>800){assert.ok(geometry.actions.every(action=>action.hit),label);assert.equal(geometry.settingsOverflow,'auto',label);}
+    report.welcome.push({width,height,...geometry});
+  }
+  console.log('PASS zoomed studio welcome: no nested scroll, import actions visible, settings scroll retained');
 }
 
 async function importImage(name) {
@@ -307,6 +329,7 @@ try {
   for (const id of ['workspace','convert','resize','gallery']) assert.ok(tools.includes(id), `Browser tool ${id}`);
   for (const id of ['watcher','rename']) assert.ok(!tools.includes(id), `No native-only ${id} placeholder`);
   await typography('empty');
+  await welcomeLayout();
   await presentation('classic',150,1120);
   const source = await importImage('docker-smoke-source.png');
   const encoded = await output();
