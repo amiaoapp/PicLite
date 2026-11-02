@@ -85,13 +85,14 @@ html .floating-results[data-floating-style="immersive"] { border: 0; isolation: 
 html .floating-results[data-floating-style="immersive"].display-stack :is(.floating-window-image,.floating-card-content) { border-radius: 0; clip-path: none; }
 html .floating-window-image { border-radius: 0; clip-path: none; }
 html .floating-window-image::before, html .floating-window-image::after { border-radius: 0; }
-html .floating-results[data-floating-style="immersive"].display-list { background: var(--surface-solid,#252629) !important; grid-template-rows: minmax(0,1fr) 36px; }
-html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { padding: 8px; gap: 8px; }
+html .floating-results[data-floating-style="immersive"].display-list { background: var(--surface-solid,#252629) !important; grid-template-rows: minmax(0,1fr); }
+html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { padding: 0; gap: 8px; scrollbar-width: none; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-list.list::-webkit-scrollbar { display: none; }
 html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { overflow: visible; border: 0; border-radius: var(--floating-radius,24px); clip-path: inset(0 round var(--floating-radius,24px)); }
 html .floating-results[data-floating-style="immersive"].display-list .floating-card-content { border-radius: 0; clip-path: none; }
 
-html .floating-results[data-floating-style="immersive"].display-list > .floating-footer { color: var(--ink); background: var(--surface-solid,#252629) !important; text-shadow: none; }
-html[data-theme] .floating-results[data-floating-style="immersive"].display-list > .floating-footer :is(button,.automatic-badge) { color: var(--ink); }
+html .floating-results[data-floating-style="immersive"].display-list > .floating-footer { position: absolute; inset: auto 0 0; color: #f4f2ee; background: transparent !important; text-shadow: 0 1px 4px #000a; }
+html[data-theme] .floating-results[data-floating-style="immersive"].display-list > .floating-footer :is(button,.automatic-badge) { color: #f4f2ee; }
 /* Page count no longer competes with the footer. It stays available even when
    the action grid is hidden and is centred independently of the corner icons. */
 html .floating-results[data-floating-style="immersive"] .floating-card-header { opacity: 1; }
@@ -106,7 +107,8 @@ html .floating-results[data-floating-style="immersive"] .result-saving { font-si
 html .floating-results[data-floating-style="immersive"] .floating-card-bottom > .cover-window-trigger { left: auto; right: 16px; }
 html .floating-results[data-floating-style="immersive"] .floating-footer { height: 36px; min-height: 36px; padding: 3px 18px 3px 10px; }
 html .floating-results[data-floating-style="immersive"].has-image.display-stack > .floating-footer { height: 36px; }
-html .floating-results[data-floating-style="immersive"].has-image.display-stack .floating-card-content:not(.is-editing) > .floating-card-bottom { bottom: 36px; }
+html .floating-results[data-floating-style="immersive"].has-image .floating-card-content:not(.is-editing) > .floating-card-bottom { bottom: 36px; }
+html .floating-results[data-floating-style="immersive"].has-image .floating-card-content.is-editing { padding-bottom: 36px; }
 html .floating-results[data-floating-style="immersive"] .floating-resize-handle { width: 10px; height: 10px; right: 3px; bottom: 3px; opacity: .3; }
 @media(max-width:340px) {
   html .floating-results[data-floating-style="immersive"] .floating-footer { gap: 2px; padding-left: 7px; }
@@ -127,12 +129,7 @@ html .floating-results.is-empty .floating-empty-footer { min-width: 0; }
    image treatment. Only the active card reveals its controls. */
 .floating-card-image { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 html .floating-results.display-stack .floating-card-image { visibility: hidden; }
-html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { scroll-snap-type: y proximity; scroll-padding-block: 8px; }
+html .floating-results[data-floating-style="immersive"] .result-preview { height: 100%; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { scroll-snap-type: y mandatory; scroll-padding-block: 0; }
 html .floating-results[data-floating-style="immersive"].display-list .floating-result-slot { scroll-snap-align: start; }
-html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { width: 100%; max-width: var(--floating-history-card-width,100%); height: auto; margin-inline: auto; aspect-ratio: var(--floating-window-aspect,320 / 230); }
-@container floating-preview (max-height: 180px) {
-  html .floating-results[data-floating-style="immersive"].display-list .result-hover-actions { inset: 36px 8px 44px !important; }
-  html .floating-results[data-floating-style="immersive"].display-list .result-actions { --action-size: clamp(22px,min(17.35cqw,calc((100cqh - 86px) / 2)),32px); --action-gap: 6px; }
-  html .floating-results[data-floating-style="immersive"].display-list .floating-card-header { height: 32px; padding: 4px 8px; }
-  html .floating-results[data-floating-style="immersive"].display-list .floating-card-icon { width: 24px; height: 24px; padding: 5px; }
-}
+html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { width: 100%; height: auto; aspect-ratio: var(--floating-window-aspect,320 / 230); }
