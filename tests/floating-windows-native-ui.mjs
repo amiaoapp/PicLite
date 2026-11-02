@@ -69,14 +69,14 @@ try {
     await ev('picLite.setContentProtected(false)');
     const preset = await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset');
     for (const mode of ['stack','list']) for (const [width,height] of [[246,188],[392,300]]) {
-      await ev(`picLite.resizeDropzoneWindow(${width},${height});const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'${mode}'}));dispatchEvent(new StorageEvent('storage',{key}))`);
+      await ev(`(()=>{picLite.resizeDropzoneWindow(${width},${height});const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'${mode}'}));dispatchEvent(new StorageEvent('storage',{key}));})()`);
       await wait(`Math.abs(innerWidth-${width})<=1 && document.querySelector('main')?.classList.contains('display-${mode}')`);
       const empty=await ev(`(()=>{const f=document.querySelector('.floating-empty-footer'),r=f.getBoundingClientRect();return{bottom:r.bottom,hits:[...f.querySelectorAll('button')].map(b=>{const p=b.getBoundingClientRect();return p.width>0&&document.elementFromPoint(p.x+p.width/2,p.y+p.height/2)?.closest('button')===b})}})()`);
       assert.ok(Math.abs(height-empty.bottom-(width<=260?6:12))<2,JSON.stringify({mode,width,height,empty}));
       assert.equal(empty.hits.length,5);assert.ok(empty.hits.every(Boolean));
       report.cases.push({empty:true,mode,width,height});
     }
-    await ev(`const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'stack'}));dispatchEvent(new StorageEvent('storage',{key}))`);
+    await ev(`(()=>{const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'stack'}));dispatchEvent(new StorageEvent('storage',{key}));})()`);
     for (let n = 0; n < sources.length; n++) {
       const path = sources[n];
       const original = await readFile(path);
