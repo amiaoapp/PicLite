@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImagesIcon, FolderOpenIcon, ArrowsClockwiseIcon, SlidersHorizontalIcon, CheckCircleIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import "./image-tools-redesign.css";
+import { ConversionFormatPicker } from "./conversion-format-picker";
 
 export type NativeOutputFormat = "keep" | "image/jpeg" | "image/jfif" | "image/png" | "image/webp" | "image/avif" | "image/gif" | "image/bmp" | "image/tiff" | "image/x-icon" | "image/qoi" | "image/x-tga";
 type ConversionOutputFormat = Exclude<NativeOutputFormat, "keep">;
@@ -217,12 +218,12 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
     queue.setBusy(false);
   };
   return <section className="builtin-tool-page converter-page">
-    <header className="tool-hero"><div><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("批量转换图片格式，原图保留在本机。支持 HEIC / HEIF 导入。", "Batch convert your images locally. Original files stay intact. HEIC / HEIF supported.")}</p></div><ArrowsClockwiseIcon size={32} weight="duotone" /></header>
+    <header className="tool-hero"><div><h1>{queue.t("格式转换", "Format converter")}</h1><p>{queue.t("批量转换图片格式，原图保留在本机。支持 HEIC / HEIF 导入。", "Batch convert your images locally. Original files stay intact. HEIC / HEIF supported.")}</p></div><div className="converter-output-summary"><ArrowsClockwiseIcon size={20} /><strong>{OUTPUT_FORMAT_OPTIONS.find(option => option.value === format)?.label}</strong><span>{queue.t(`${queue.items.length} 张待转换`, `${queue.items.length} images queued`)}</span></div></header>
     <div className="tool-layout converter-layout">
       <section className="converter-input" aria-label={queue.t("源图片", "Source images")}><header className="converter-section-heading"><ImagesIcon size={22} /><div><h2>{queue.t("源图片", "Source images")}</h2><p>{queue.t("选择图片或导入整个文件夹", "Choose files or import an entire folder")}</p></div></header><div className="tool-import-actions"><button type="button" disabled={queue.busy} onClick={() => void queue.choose(false)}><ImagesIcon size={18} />{queue.t("添加图片", "Add images")}</button><button type="button" disabled={queue.busy} onClick={() => void queue.choose(true)}><FolderOpenIcon size={18} />{queue.t("导入文件夹", "Import folder")}</button></div><ToolQueue items={queue.items} remove={queue.remove} clear={queue.clear} language={language} /></section>
       <div className="tool-console"><header className="converter-section-heading"><SlidersHorizontalIcon size={22} /><div><h2>{queue.t("转换设置", "Conversion settings")}</h2><p>{queue.t("设置格式、质量与保存位置", "Format, quality and destination")}</p></div></header>
         <fieldset className="tool-fields" disabled={queue.busy}>
-          <label><span>{queue.t("目标格式", "Output format")}</span><select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}>{OUTPUT_FORMAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <ConversionFormatPicker language={language} value={format} onChange={value => setFormat(value as ConversionOutputFormat)} options={OUTPUT_FORMAT_OPTIONS} disabled={queue.busy} />
           <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
           {mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
           <label><span>{queue.t("文件名后缀", "Filename suffix")}</span><input value={suffix} onChange={(event) => setSuffix(event.target.value)} /></label>

@@ -10,7 +10,7 @@ source = (repo / "src-tauri/src/native_material.rs").read_text()
 # Compile the actual helpers, so this test cannot silently drift to a Swift reimplementation.
 helpers = source.split('    const IDENTIFIER:', 1)[1].split('    pub(super) fn apply(', 1)[0]
 helpers = 'const IDENTIFIER:' + helpers
-scratch = Path.home() / ".hermes/cache/scratch/piclite-appkit-test"
+scratch = repo / "src-tauri/target/piclite-appkit-test"
 scratch.mkdir(parents=True, exist_ok=True)
 rust = r'''
 use objc2::{msg_send, rc::Retained, runtime::{AnyClass, AnyObject}, MainThreadMarker};
@@ -109,8 +109,9 @@ fn main() { unsafe {
             let layer: Retained<AnyObject> = msg_send![view, layer];
             let actual: f64 = msg_send![&layer, cornerRadius];
             let masks: bool = msg_send![&layer, masksToBounds];
-            assert_eq!(actual, radius);
-            assert_eq!(masks, radius > 0.);
+            let expected = if std::ptr::eq(view, &*content) { radius } else { 0. };
+            assert_eq!(actual, expected);
+            assert_eq!(masks, expected > 0.);
         }
     }
     // Standard backing still updates the root and actual WebView clip.
@@ -119,7 +120,7 @@ fn main() { unsafe {
         for view in [&*content, &*web] {
             let layer: Retained<AnyObject> = msg_send![view, layer];
             let actual: f64 = msg_send![&layer, cornerRadius];
-            assert_eq!(actual, radius);
+            assert_eq!(actual, if std::ptr::eq(view, &*content) { radius } else { 0. });
         }
     }
     window.orderOut(None);
@@ -130,17 +131,21 @@ fn main() { unsafe {
     let allocated: objc2::rc::Allocated<NSView> = msg_send![wk, alloc];
     let floating_web: Retained<NSView> = msg_send![allocated, initWithFrame: floating_root.bounds()];
     floating_root.addSubview(&floating_web);
-    for radius in [10., 0.] {
+    for radius in [10., 0., 24., 28.] {
         standard_backing(&floating, true, radius).unwrap();
         let frame = floating_root.superview().unwrap();
-        clip_view(&frame, radius);
         floating.invalidateShadow();
         for view in [&*floating_root, &*floating_web, &*frame] {
             let layer: Retained<AnyObject> = msg_send![view, layer];
             let actual: f64 = msg_send![&layer, cornerRadius];
             let masks: bool = msg_send![&layer, masksToBounds];
-            assert_eq!(actual, radius);
-            assert_eq!(masks, radius > 0.);
+            let expected = if std::ptr::eq(view, &*floating_root) { radius } else { 0. };
+            assert_eq!(actual, expected);
+            assert_eq!(masks, expected > 0.);
+            let scale: f64 = msg_send![&layer, contentsScale];
+            let antialias: bool = msg_send![&layer, allowsEdgeAntialiasing];
+            assert_eq!(scale, floating.backingScaleFactor());
+            assert!(antialias);
         }
         assert!(!floating.isOpaque());
         assert_eq!(floating.backgroundColor().alphaComponent(), 0.);
@@ -151,7 +156,7 @@ fn main() { unsafe {
     titlebar_material(&floating);
     assert_eq!(floating.styleMask(), floating_style);
     assert_eq!(floating_root.bounds(), floating_bounds);
-    println!("PASS real Tauri/Wry: opaque backing, no titlebar/WKWebView intersection, preserved 820x540/1120x700 viewports, Aqua/Dark Aqua, repeated standard application; transparent floating backing and native radius10/0/24/0");
+    println!("PASS real Tauri/Wry: opaque backing, no titlebar/WKWebView intersection, preserved 820x540/1120x700 viewports, Aqua/Dark Aqua, repeated standard application; transparent floating backing, single native mask radius10/0/24/28, display scale and edge antialiasing");
 }}
 '''
 path = scratch / "probe.rs"

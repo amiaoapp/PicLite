@@ -1,7 +1,7 @@
 /* Shared desktop chrome. One row, one appearance entry, scrollable tool rail.
    Material is a web approximation; image preview pixels are never filtered. */
 .app-shell .topbar.topbar{margin:0;width:100%;border-radius:0;--desktop-bar:64px;height:64px;padding:0 16px;grid-template-columns:minmax(170px,max-content) minmax(0,1fr) auto;column-gap:16px;isolation:isolate;overflow:visible}
-.app-shell.desktop-app{--desktop-bar:64px}
+html[data-density] .app-shell.desktop-app{--desktop-bar:64px}
 .app-shell .brand{min-width:0;gap:5px}
 .app-shell .brand strong{font-size:18px;letter-spacing:-.6px}
 .app-shell .brand small{font-size:11px}
