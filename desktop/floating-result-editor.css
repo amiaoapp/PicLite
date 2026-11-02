@@ -1,6 +1,6 @@
 /* Shared radius includes the native window shell and settings preview. */
-html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.dropzone-root.dropzone-root #root {border-radius:var(--floating-radius,24px);clip-path:inset(0 round var(--floating-radius,24px))}
-.floating-results.floating-results:not(.is-collapsed){border-radius:var(--floating-radius,24px);clip-path:inset(0 round var(--floating-radius,24px));background:var(--surface-solid,#252629)}
+html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.dropzone-root.dropzone-root #root {border-radius:0;clip-path:none}
+.floating-results.floating-results:not(.is-collapsed){border-radius:var(--floating-radius,24px);clip-path:none;overflow:hidden;background:var(--surface-solid,#252629)}
 .floating-radius-control{display:flex;align-items:center;gap:12px;max-width:260px}
 .floating-radius-control input{min-width:80px;width:170px}
 .floating-radius-control output{min-width:38px;font-size:12px;font-variant-numeric:tabular-nums}

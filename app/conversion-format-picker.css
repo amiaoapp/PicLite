@@ -1,0 +1,16 @@
+.conversion-format-picker { min-width: 0; grid-column: 1 / -1; }
+.conversion-format-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
+.conversion-format-title small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.conversion-format-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.conversion-format-picker .conversion-format-grid button { display: grid; grid-template-columns: 1fr auto; align-content: start; gap: 7px; min-width: 0; min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); text-align: left; box-shadow: none; cursor: pointer; }
+.conversion-format-grid strong { font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
+.conversion-format-grid span { grid-column: 1 / -1; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.conversion-format-grid svg { visibility: hidden; }
+.conversion-format-picker .conversion-format-grid button[aria-pressed=true] { border-color: var(--deep); background: color-mix(in srgb,var(--deep) 6%,var(--surface)); box-shadow: inset 0 0 0 1px var(--deep); }
+.conversion-format-grid button[aria-pressed=true] svg { visibility: visible; }
+.conversion-format-picker .conversion-all-formats { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.conversion-all-formats > span { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.conversion-format-picker .conversion-all-formats select { width: auto; min-width: 0; flex: 0 1 170px; min-height: 32px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
+.conversion-format-grid button:focus-visible,.conversion-all-formats select:focus-visible { outline: 2px solid var(--deep); outline-offset: 3px; }
+.conversion-format-grid button:disabled { opacity: .5; cursor: default; }
+@media(max-width:360px) { .conversion-format-picker .conversion-format-grid button { padding: 10px; } }

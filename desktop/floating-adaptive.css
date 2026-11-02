@@ -82,14 +82,14 @@ html .floating-results[data-floating-style="immersive"] :is(button, input):focus
 /* Clip the image and every blur layer to the very same edge. A CSS background
    is deliberately absent: each expanded result owns its own preview. */
 html .floating-results[data-floating-style="immersive"] { border: 0; isolation: isolate; }
-html .floating-results[data-floating-style="immersive"] :is(.floating-window-image,.floating-card-content) { border-radius: inherit; }
-html .floating-window-image { border-radius: var(--floating-radius,24px); clip-path: inset(0 round var(--floating-radius,24px)); }
-html .floating-window-image::before, html .floating-window-image::after { border-radius: inherit; }
+html .floating-results[data-floating-style="immersive"].display-stack :is(.floating-window-image,.floating-card-content) { border-radius: 0; clip-path: none; }
+html .floating-window-image { border-radius: 0; clip-path: none; }
+html .floating-window-image::before, html .floating-window-image::after { border-radius: 0; }
 html .floating-results[data-floating-style="immersive"].display-list { background: var(--surface-solid,#252629) !important; grid-template-rows: minmax(0,1fr) 36px; }
 html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { padding: 8px; gap: 8px; }
 html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { overflow: hidden; border: 0; border-radius: var(--floating-radius,24px); }
-html .floating-results[data-floating-style="immersive"].display-list .floating-card-content { border-radius: inherit; clip-path: inset(0 round var(--floating-radius,24px)); }
-html .floating-results[data-floating-style="immersive"].display-list .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(transparent 40%,#131417c9); border-radius: inherit; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-card-content { border-radius: 0; clip-path: none; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-card-content:not(.is-editing)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(transparent 40%,#131417c9); border-radius: 0; }
 html .floating-results[data-floating-style="immersive"].display-list > .floating-footer { color: var(--ink); background: var(--surface-solid,#252629) !important; text-shadow: none; }
 html[data-theme] .floating-results[data-floating-style="immersive"].display-list > .floating-footer :is(button,.automatic-badge) { color: var(--ink); }
 /* Page count no longer competes with the footer. It stays available even when
@@ -115,3 +115,16 @@ html .floating-results[data-floating-style="immersive"] .floating-resize-handle 
   html .floating-results[data-floating-style="immersive"] .floating-footer > div { gap: 1px; }
 }
 html .floating-results[data-floating-style="immersive"]:is(:hover,[data-controls-visible="true"]) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
+/* AppKit supplies the single outer mask on macOS after the native call succeeds.
+   Windows and browser previews retain the one CSS rounded overflow boundary. */
+html[data-native-floating-clip="true"] .floating-results.floating-results:not(.is-collapsed) { border-radius: 0; clip-path: none; }
+/* Empty windows have one full-height child, not a result list plus a footer. */
+html .floating-results[data-floating-style="immersive"].is-empty { grid-template-rows: minmax(0,1fr); }
+html .floating-results.is-empty .floating-empty { min-height: 0; padding: 12px 12px 16px; }
+html .floating-results.is-empty .floating-empty-footer { min-width: 0; min-height: 32px; padding-inline: 2px; }
+html .floating-results.is-empty .floating-empty-footer > div { margin-left: auto; }
+@container (max-width: 340px) {
+  .floating-results.is-empty .floating-empty-footer { flex-direction: column; gap: 6px; }
+  .floating-results.is-empty .floating-empty-footer > span { flex: 0 0 auto; max-width: 100%; }
+  .floating-results.is-empty .floating-empty-footer > div { margin: 0; }
+}

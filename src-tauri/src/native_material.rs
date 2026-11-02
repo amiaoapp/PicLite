@@ -62,6 +62,10 @@ mod macos {
         unsafe {
             let layer: Option<Retained<AnyObject>> = msg_send![view, layer];
             if let Some(layer) = layer {
+                let scale = view.window().map(|window| window.backingScaleFactor()).unwrap_or(1.0);
+                let _: () = msg_send![&layer, setContentsScale: scale];
+                let _: () = msg_send![&layer, setAllowsEdgeAntialiasing: true];
+                let _: () = msg_send![&layer, setEdgeAntialiasingMask: 15u32];
                 let _: () = msg_send![&layer, setCornerRadius: radius];
                 let _: () = msg_send![&layer, setMasksToBounds: radius > 0.0];
             }
@@ -69,11 +73,12 @@ mod macos {
     }
 
     fn clip_floating_tree(view: &NSView, radius: f64) {
-        // Reset full-size ancestors and WKWebView descendants, including zero.
+        // One native mask owns the outer edge. Repeated transparent masks on
+        // the WKWebView and frame multiply edge alpha and leave a jagged fringe.
         clip_view(view, radius);
         for child in view.subviews().iter() {
             if child.frame().size == view.bounds().size {
-                clip_floating_tree(&child, radius);
+                clip_floating_tree(&child, 0.0);
             }
         }
     }
@@ -122,7 +127,7 @@ mod macos {
         if floating {
             clip_floating_tree(&content, radius);
             if let Some(frame) = unsafe { content.superview() } {
-                clip_view(&frame, radius);
+                clip_view(&frame, 0.0);
             }
             window.invalidateShadow();
         }

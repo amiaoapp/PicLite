@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { applyMaterialPreference, DEFAULT_MATERIAL, readMaterialPreference, setMaterialPreference } from "./material-preference";
+import { floatingRadius } from "../desktop/floating-appearance";
 export { setMaterialPreference } from "./material-preference";
 export type { InterfaceMaterial, MaterialPreference, TransparencyPreference } from "./material-preference";
 
@@ -25,15 +26,18 @@ export function useLiquidGlassTheme() {
       if (bridge.windowLabel === "dropzone") {
         try {
           const saved = JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1") || "{}");
-          radius = typeof saved.floatingCornerRadius === "number" && Number.isFinite(saved.floatingCornerRadius)
-            ? Math.max(0, Math.min(80, saved.floatingCornerRadius)) : 10;
-        } catch { radius = 10; }
+          radius = floatingRadius(saved.floatingCornerRadius);
+          if ((saved.floatingSurfaceVersion || 0) < 2 && radius === 10) radius = 24;
+        } catch { radius = floatingRadius(undefined); }
       }
       pending = pending.then(async () => {
         if (disposed) return;
         try {
           const result = await bridge.setWindowMaterial!({ enabled: false, radius });
-          if (!disposed) window.dispatchEvent(new CustomEvent("piclite:native-material", { detail: result }));
+          if (!disposed) {
+            if (bridge.windowLabel === "dropzone" && bridge.platform === "darwin") document.documentElement.dataset.nativeFloatingClip = "true";
+            window.dispatchEvent(new CustomEvent("piclite:native-material", { detail: result }));
+          }
         } catch (error) { console.warn("Native window appearance unavailable", error); }
       });
     };
