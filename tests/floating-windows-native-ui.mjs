@@ -141,7 +141,7 @@ try {
       assert.equal(await ev('getComputedStyle(document.querySelector("main")).backgroundImage'),'none','expanded results have no shared image backdrop');
       await wait(`(()=>{const c=document.querySelector('.integrated-result-card').getBoundingClientRect();return Math.abs(c.width/c.height-innerWidth/innerHeight)<.01})()`);
       const cardLayout=await ev(`[...document.querySelectorAll('.integrated-result-card')].map(c=>{const r=c.getBoundingClientRect();return{width:r.width,height:r.height,image:!!c.querySelector('.floating-card-image img')}})`);
-      assert.ok(cardLayout.every(c=>c.image&&c.height<=360-36-16+1),JSON.stringify(cardLayout));
+      assert.ok(cardLayout.every(c=>c.image&&Math.abs(c.width-460)<1&&Math.abs(c.height-360)<1),JSON.stringify(cardLayout));
       report.expanded=cardLayout;
       const images=await ev('[...document.querySelectorAll(".result-metrics")].map(i=>i.textContent)');
       await click('.floating-footer button[title="Stack results"]');await wait('!!document.querySelector(".floating-list.stack")');

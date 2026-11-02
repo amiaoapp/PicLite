@@ -593,7 +593,6 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       const { width, height } = root.getBoundingClientRect();
       if (width && height) {
         root.style.setProperty('--floating-window-aspect', `${width} / ${height}`);
-        root.style.setProperty('--floating-history-card-width', `${Math.max(0, height - 52) * width / height}px`);
       }
     };
     measure();
