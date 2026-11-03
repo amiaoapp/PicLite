@@ -18,6 +18,7 @@ import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state"
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
 import packageManifest from "../package.json";
+import { AboutMcp, MCP_GUIDE_URL } from "../app/about-mcp";
 
 type ResultItem = QuickCompressResult & {
   id: string;
@@ -1390,6 +1391,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
           <SettingsRow title={<T language={language} zh="检查 GitHub Releases" en="Check GitHub Releases" />} note={updateText}><button className="settings-button" onClick={() => void checkUpdates()}><T language={language} zh="立即检查" en="Check now" /></button></SettingsRow>
         </SettingsCard>
         <SettingsCard title={<T language={language} zh="关于 PicLite" en="About PicLite" />}><div className="about-pane"><p><T language={language} zh="面向自媒体工作人员和开发人员的本地优先跨平台媒体优化工具。" en="A local-first, cross-platform media optimiser for content creators and developers." /></p><small>GPL-3.0-or-later · Tauri 2 + Rust</small><p><T language={language} zh="工作流与部分实现基于 GPL 项目 Clop；PicLite 使用独立名称、图标和跨平台实现。" en="Workflow and parts of the implementation are based on the GPL-licensed Clop project. PicLite uses its own name, icons and cross-platform implementation." /></p><button className="settings-button" onClick={() => void api.openExternal("https://github.com/amiaoapp/PicLite")}><T language={language} zh="打开 GitHub" en="Open GitHub" /></button></div></SettingsCard>
+        <AboutMcp language={language} openGuide={() => void api.openExternal(MCP_GUIDE_URL)} />
       </>}
       {section === "sponsor" && <>
         <section className="sponsor-hero">
