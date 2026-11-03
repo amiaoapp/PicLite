@@ -1,201 +1,56 @@
-name: Publish Docker image
-
+name: Restore Docker release 2.1.3
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: Optional version tag, for example 1.1.10
-        required: false
-        type: string
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
-
 permissions:
   contents: read
   packages: write
-
-concurrency:
-  group: docker-publish
-  cancel-in-progress: true
-
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/piclite
-
 jobs:
-  build:
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.IMAGE }}
-          labels: |
-            org.opencontainers.image.title=PicLite
-            org.opencontainers.image.description=PicLite self-hosted web application
-
-      - name: Build native image by digest
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/${{ matrix.arch }}
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=piclite-${{ matrix.arch }}
-          cache-to: type=gha,scope=piclite-${{ matrix.arch }},mode=max
-          provenance: mode=max
-          sbom: true
-
-      - name: Set up Node for production browser smoke
-        if: matrix.arch == 'amd64'
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Smoke test native image and amd64 browser UI
-        timeout-minutes: 6
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          SMOKE_ARCH: ${{ matrix.arch }}
-          ORIGIN: http://127.0.0.1:3456
-          ARTIFACTS: ${{ runner.temp }}/docker-ui-smoke
+      - name: Restore published 2.1.3 tags and remove mistaken 2.1.4 manifest
+        shell: bash
         run: |
-          set -euo pipefail
-          container="piclite-smoke-$SMOKE_ARCH"
-          trap 'docker logs "$container" || true; docker rm -f "$container" || true' EXIT
-          docker pull "$IMAGE@$DIGEST"
-          docker run -d --name "$container" -p 127.0.0.1:3456:3456 "$IMAGE@$DIGEST"
-          healthy=false
-          for attempt in $(seq 1 30); do
-            status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
-            if [ "$status" = healthy ]; then
-              healthy=true
-              break
-            fi
-            if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]; then
-              exit 1
-            fi
-            sleep 3
-          done
-          [ "$healthy" = true ]
-          docker exec "$container" node -e '
-            (async () => {
-              const origin = "http://127.0.0.1:3456";
-              const response = await fetch(origin);
-              if (!response.ok) throw new Error("Homepage HTTP " + response.status);
-              const html = await response.text();
-              if (!html.includes("PicLite")) throw new Error("Missing PicLite application");
-              const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css)(?:\?[^\"]*)?)"/g)].map(match => match[1]);
-              if (!assets.length) throw new Error("No production assets");
-              for (const asset of assets) {
-                const result = await fetch(new URL(asset, origin));
-                if (!result.ok) throw new Error("Asset HTTP " + result.status + ": " + asset);
-              }
-              console.log("PASS native container health, homepage and " + assets.length + " assets");
-            })().catch(error => { console.error(error); process.exit(1); });'
-          if [ "$SMOKE_ARCH" = amd64 ]; then
-            # The hosted x64 runner supplies Chrome; no project or lockfile changes.
-            CHROME_BIN=$(command -v google-chrome || command -v google-chrome-stable)
-            export CHROME_BIN
-            "$CHROME_BIN" --version
-            node tests/docker-ui-smoke.mjs
-          fi
-
-      - name: Upload production browser smoke evidence
-        if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v7
-        with:
-          name: docker-ui-smoke-${{ matrix.arch }}
-          path: ${{ runner.temp }}/docker-ui-smoke
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Export tested digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/digests"
-          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
-
-      - name: Upload tested digest
-        uses: actions/upload-artifact@v7
-        with:
-          name: image-digest-${{ matrix.arch }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  merge:
-    runs-on: ubuntu-24.04
-    needs: build
-    timeout-minutes: 10
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: ${{ runner.temp }}/digests
-          pattern: image-digest-*
-          merge-multiple: true
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-            type=semver,pattern={{version}},value=${{ inputs.version || github.ref_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version || github.ref_name }}
-
-      - name: Publish multi-platform manifest
-        working-directory: ${{ runner.temp }}/digests
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          set -euo pipefail
-          mapfile -t digests < <(find . -maxdepth 1 -type f -printf '%f\n')
-          [ "${#digests[@]}" -eq 2 ]
-          args=()
-          while IFS= read -r tag; do
-            [ -z "$tag" ] || args+=(--tag "$tag")
-          done <<< "$TAGS"
-          sources=()
-          for digest in "${digests[@]}"; do
-            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
-            sources+=("$IMAGE@sha256:$digest")
-          done
-          docker buildx imagetools create "${args[@]}" "${sources[@]}"
-          docker buildx imagetools inspect "$IMAGE:latest"
+          python3 - <<'PY'
+          import urllib.request, urllib.parse, json, os, base64, time
+          token = os.environ['GH_TOKEN']
+          owner = 'amiaoapp'
+          package = 'piclite'
+          registry = 'https://ghcr.io'
+          scope = 'repository:amiaoapp/piclite:pull,push'
+          basic = base64.b64encode((owner + ':' + token).encode()).decode()
+          request = urllib.request.Request(registry + '/token?' + urllib.parse.urlencode({'service':'ghcr.io','scope':scope}),headers={'Authorization':'Basic ' + basic})
+          with urllib.request.urlopen(request) as response: bearer = json.load(response)['token']
+          accept = 'application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json'
+          def manifest(tag, data=None, media=None):
+              headers = {'Authorization':'Bearer ' + bearer,'Accept':accept}
+              if data is not None: headers['Content-Type'] = media
+              request = urllib.request.Request(registry+'/v2/'+owner+'/'+package+'/manifests/'+tag, data=data,headers=headers,method='PUT' if data is not None else 'GET')
+              with urllib.request.urlopen(request) as response: return response.read(),response.headers.get('Content-Type'),response.headers.get('Docker-Content-Digest')
+          source,media,digest = manifest('2.1.3')
+          assert json.loads(source).get('manifests'), 'Expected a multi-architecture 2.1.3 image'
+          _,_,mistake = manifest('2.1.4')
+          assert mistake != digest
+          for tag in ['latest','2.1']:
+              manifest(tag,source,media)
+              assert manifest(tag)[2] == digest
+          print('Restored latest and 2.1 to existing 2.1.3 manifest:',digest)
+          def api(path, method='GET'):
+              request=urllib.request.Request('https://api.github.com/'+path,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},method=method)
+              with urllib.request.urlopen(request) as response: return json.loads(response.read() or 'null')
+          prefix = 'users/'+owner+'/packages/container/'+package+'/versions'
+          for attempt in range(12):
+              versions=api(prefix+'?per_page=100')
+              candidates=[v for v in versions if v['name']==mistake and '2.1.4' in v['metadata']['container']['tags']]
+              assert len(candidates)==1,'Expected exactly one mistaken version'
+              version=candidates[0]
+              if set(version['metadata']['container']['tags'])=={'2.1.4'}:break
+              time.sleep(2)
+          else:raise RuntimeError('Tags have not propagated; refusing to remove a manifest with other tags')
+          api(prefix+'/'+str(version['id']),'DELETE')
+          assert not any('2.1.4' in v['metadata']['container']['tags'] for v in api(prefix+'?per_page=100'))
+          print('Removed the mistaken 2.1.4 manifest. Desktop release stays at 2.1.3.')
+          PY
