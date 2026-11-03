@@ -11,6 +11,7 @@ import { FloatingResultEditor } from "./floating-result-editor";
 import { FloatingPreviewImage } from "./floating-preview-image";
 import { renderSavedCover } from "../app/cover-preset";
 import { useFloatingTone } from "./use-floating-tone";
+import { useFloatingPointer } from "./use-floating-pointer";
 import { promoteFloatingResult } from "./floating-result-order";
 import { floatingRadius } from "./floating-appearance";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
@@ -539,9 +540,12 @@ export function ResultCard({ item, api, settings, active, allowWindowDrag = true
   const [focusInside, setFocusInside] = useState(false);
   const cardRoot = useRef<HTMLElement>(null);
   useEffect(() => {
-    const observer = new MutationObserver(() => setFocusInside(!!cardRoot.current?.querySelector(":focus-visible")));
+    const refresh = () => setFocusInside(document.hasFocus() && !!cardRoot.current?.querySelector(":focus-visible"));
+    const observer = new MutationObserver(refresh);
     if (cardRoot.current) observer.observe(cardRoot.current, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("blur", refresh);
+    return () => { observer.disconnect(); window.removeEventListener("focus", refresh); window.removeEventListener("blur", refresh); };
   }, []);
   const controlsInteraction = {
     ref: cardRoot,
@@ -778,6 +782,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const [editorInteracting, setEditorInteracting] = useState(false);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
+  useFloatingPointer(windowRoot, api, !collapsed, setPointerInside);
   useEffect(() => {
     const leaveWindow = () => { setPointerInside(false); setFocusInside(false); };
     window.addEventListener("blur", leaveWindow);
@@ -787,7 +792,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     const refresh = () => {
       setEditorInteracting(!!document.querySelector('.floating-card-content[data-interacting="true"]'));
       // Removing a focused control does not reliably emit blur in a WebView.
-      setFocusInside(!!document.querySelector('.floating-results :focus-visible'));
+      setFocusInside(document.hasFocus() && !!document.querySelector('.floating-results :focus-visible'));
     };
     const observer = new MutationObserver(refresh);
     observer.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ["data-interacting"]});

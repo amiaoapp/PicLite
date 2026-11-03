@@ -44,10 +44,10 @@ html.dropzone-root.dropzone-root,html.dropzone-root.dropzone-root body,html.drop
 .integrated-result-card .result-metrics em.bad{color:#ffd9d5;background:#60322b}
 .integrated-result-card .result-dimensions{color:#fff;font-size:9px;font-weight:400}
 .integrated-result-card .result-hover-actions{z-index:5;inset:0;padding:28px 26px 44px;display:grid;align-items:center;justify-items:center;background:transparent;backdrop-filter:none;opacity:0;pointer-events:none}
-.integrated-result-card:hover .result-hover-actions,.integrated-result-card:has(:focus-visible) .result-hover-actions{opacity:1}
+.integrated-result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]) .result-hover-actions,.integrated-result-card:has(:focus-visible):not([data-window-focused="false"]) .result-hover-actions{opacity:1}
 .integrated-result-card .result-actions{--action-size:max(22px,min(22cqw,calc((100cqh - 76px) / 2.35)));display:grid;grid-template-columns:repeat(3,var(--action-size));grid-template-rows:repeat(2,var(--action-size));gap:clamp(5px,3cqw,22px);justify-content:center;align-content:center;pointer-events:none}
 .integrated-result-card .result-actions button{width:var(--action-size);height:var(--action-size);min-width:0;min-height:0;display:grid;place-items:center;padding:0;box-sizing:border-box;line-height:1;place-content:center;border:1px solid #ffffff50;border-radius:34%;background:var(--float-button);color:var(--float-button-ink);box-shadow:inset 0 1px 0 #ffffffc0,0 2px 6px #12223326;backdrop-filter:none;pointer-events:none;transition:background .12s}
-.integrated-result-card:hover .result-actions button,.integrated-result-card:has(:focus-visible) .result-actions button{pointer-events:auto}
+.integrated-result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]) .result-actions button,.integrated-result-card:has(:focus-visible):not([data-window-focused="false"]) .result-actions button{pointer-events:auto}
 .integrated-result-card .result-actions button:hover:not(:disabled){background:#fff;transform:none}
 .integrated-result-card .result-actions button:active:not(:disabled){transform:scale(.97)}
 .integrated-result-card .result-actions svg{display:block;position:static;inset:auto;margin:0;transform:none;width:calc(var(--action-size) * .6);height:calc(var(--action-size) * .6);max-width:none;max-height:none;flex:none}

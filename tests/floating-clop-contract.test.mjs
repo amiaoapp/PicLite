@@ -7,7 +7,7 @@ const compact=css.replace(/\s+/g,'');
 test('preview hover reveals actions without a filename caption',()=>{
  const card=app.slice(app.indexOf('export function ResultCard'),app.indexOf('export function FloatingResults'));
  assert.doesNotMatch(card,/className="result-name"/);
- assert.ok(compact.includes('.result-card:is(:hover,:has(:focus-visible),[data-controls-visible="true"])' + ':is(.result-metrics,.result-dimensions,.result-saving)'));
+ assert.ok(compact.includes('.result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"],:has(:focus-visible):not([data-window-focused="false"]),[data-controls-visible="true"]:not([data-window-focused="false"]))' + ':is(.result-metrics,.result-dimensions,.result-saving)'));
  assert.match(css,/result-hover-actions[^}]*opacity:\s*0/);
 });
 test('progressive lower-image blur remains separate from exported pixels',()=>{

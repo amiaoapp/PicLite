@@ -6,6 +6,7 @@ mod animation_size;
 mod click_through;
 mod floating_collapse;
 mod floating_editor;
+mod floating_pointer;
 mod crop_editor;
 mod heic_input;
 mod png_candidate;
@@ -6918,6 +6919,7 @@ pub fn run() {
             set_floating_toggle_region,
             set_floating_collapsed,
             get_floating_collapsed,
+            floating_pointer::get_floating_pointer_position,
             move_floating_icon,
             configure_dropzone_window,
             resize_dropzone_window,

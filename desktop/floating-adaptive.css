@@ -42,13 +42,13 @@ html .floating-results[data-floating-style="immersive"] .floating-card-bottom > 
 html .floating-results[data-floating-style="immersive"] .floating-card-formats { display: flex; justify-content: space-evenly; gap: 4px; }
 html .floating-results[data-floating-style="immersive"] .floating-card-formats button { height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11px; font-weight: 400; color: #f4f2ee; background: transparent; line-height: 24px; }
 html .floating-results[data-floating-style="immersive"] .floating-card-formats button.active { background: var(--overlay-button) !important; color: var(--overlay-button-ink) !important; text-shadow: none; }
-html .floating-results[data-floating-style="immersive"]:is(:hover, [data-controls-visible="true"], :has(.result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]))) .floating-window-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger),
-html .floating-results[data-floating-style="immersive"].display-stack:is(:hover, [data-controls-visible="true"]) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger) { opacity: 1; }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) .result-actions button,
-html .floating-results[data-floating-style="immersive"].display-stack:is(:hover, [data-controls-visible="true"]) .result-actions button { pointer-events: auto; }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions, .result-saving),
-html .floating-results[data-floating-style="immersive"].display-stack:is(:hover, [data-controls-visible="true"]) :is(.result-metrics, .result-dimensions, .result-saving) { visibility: hidden; }
+html .floating-results[data-floating-style="immersive"]:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], [data-controls-visible="true"]:not([data-window-focused="false"]), :has(.result-card:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], :has(:focus-visible):not([data-window-focused="false"]), [data-controls-visible="true"]:not([data-window-focused="false"])))) .floating-window-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], :has(:focus-visible):not([data-window-focused="false"]), [data-controls-visible="true"]:not([data-window-focused="false"])) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger),
+html .floating-results[data-floating-style="immersive"].display-stack:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], [data-controls-visible="true"]:not([data-window-focused="false"])) :is(.result-hover-actions, .floating-card-header, .crop-window-trigger) { opacity: 1; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], :has(:focus-visible):not([data-window-focused="false"]), [data-controls-visible="true"]:not([data-window-focused="false"])) .result-actions button,
+html .floating-results[data-floating-style="immersive"].display-stack:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], [data-controls-visible="true"]:not([data-window-focused="false"])) .result-actions button { pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], :has(:focus-visible):not([data-window-focused="false"]), [data-controls-visible="true"]:not([data-window-focused="false"])) :is(.result-metrics, .result-dimensions, .result-saving),
+html .floating-results[data-floating-style="immersive"].display-stack:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], [data-controls-visible="true"]:not([data-window-focused="false"])) :is(.result-metrics, .result-dimensions, .result-saving) { visibility: hidden; }
 html .floating-results[data-floating-style="immersive"] .result-actions button:hover:not(:disabled) { background: #fff; transform: none; }
 html .floating-results[data-floating-style="immersive"] .result-actions button:active:not(:disabled) { transform: scale(.97); }
 /* A separate hit area keeps every window command directly reachable. */
@@ -63,7 +63,7 @@ html .floating-results[data-floating-style="immersive"] .floating-overflow-menu 
 html .floating-results[data-floating-style="immersive"] .floating-card-content.is-editing .floating-card-header { height: 30px; padding: 2px 8px; opacity: 1; }
 html .floating-results[data-floating-style="immersive"] .is-editing .floating-card-header .floating-card-icon { width: 26px; height: 26px; padding: 5px; }
 html .floating-results[data-floating-style="immersive"] .floating-list.list { isolation: isolate; z-index: 0; }
-html .floating-results[data-floating-style="immersive"].display-list .result-card:is(:hover, :has(:focus-visible), [data-controls-visible="true"]) .floating-card-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
+html .floating-results[data-floating-style="immersive"].display-list .result-card:is(:hover:not([data-pointer-tracked="true"]), [data-pointer-inside="true"], :has(:focus-visible):not([data-window-focused="false"]), [data-controls-visible="true"]:not([data-window-focused="false"])) .floating-card-image::after { inset: 0; mask-image: none; -webkit-mask-image: none; -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); background: linear-gradient(#4b4b4d8a, #18191cc2); }
 html .floating-results[data-floating-style="immersive"].display-list .floating-card-body { z-index: 2; }
 @container floating-preview (max-height: 260px) {
   html .floating-results[data-floating-style="immersive"] .result-hover-actions { inset: 42px 8px 74px !important; }
@@ -97,7 +97,7 @@ html[data-theme] .floating-results[data-floating-style="immersive"].display-list
    the action grid is hidden and is centred independently of the corner icons. */
 html .floating-results[data-floating-style="immersive"] .floating-card-header { opacity: 1; }
 html .floating-results[data-floating-style="immersive"] .floating-card-header > .floating-card-icon { opacity: 0; pointer-events: none; }
-html .floating-results[data-floating-style="immersive"] .result-card:is(:hover,:has(:focus-visible),[data-controls-visible="true"]) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"] .result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"],:has(:focus-visible):not([data-window-focused="false"]),[data-controls-visible="true"]:not([data-window-focused="false"])) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
 html .floating-results[data-floating-style="immersive"] .floating-card-header > span { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: auto; }
 html .floating-results[data-floating-style="immersive"] .floating-result-next { width: auto; min-width: 40px; height: 26px; padding: 3px 8px; border: 0; border-radius: 13px; color: #fff; background: #2228; font-size: 11px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #0008; }
 html .floating-results[data-floating-style="immersive"] .floating-result-next:disabled { opacity: 1; }
@@ -116,7 +116,7 @@ html .floating-results[data-floating-style="immersive"] .floating-resize-handle 
   html .floating-results[data-floating-style="immersive"] .automatic-badge:not(.operation-success):not(.operation-error):not(.has-notice) span { display: none; }
   html .floating-results[data-floating-style="immersive"] .floating-footer > div { gap: 1px; }
 }
-html .floating-results[data-floating-style="immersive"].display-stack:is(:hover,[data-controls-visible="true"]) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
+html .floating-results[data-floating-style="immersive"].display-stack:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"],[data-controls-visible="true"]:not([data-window-focused="false"])) .floating-card-header > .floating-card-icon { opacity: 1; pointer-events: auto; }
 /* AppKit supplies the single outer mask on macOS after the native call succeeds.
    Windows and browser previews retain the one CSS rounded overflow boundary. */
 html[data-native-floating-clip="true"] .floating-results.floating-results:not(.is-collapsed) { border-radius: 0; clip-path: none; }
