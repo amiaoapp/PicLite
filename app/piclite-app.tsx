@@ -9,7 +9,6 @@ import { DEFAULT_INTERFACE_TYPOGRAPHY, loadInterfaceTypography, normalizeInterfa
 import type { InterfaceTypography } from "./interface-typography";
 import "./interface-typography.css";
 import { AppearanceMenu } from "./appearance-menu";
-import { AboutMcp, MCP_GUIDE_URL } from "./about-mcp";
 import { useLiquidGlassTheme } from "./liquid-glass-theme";
 /* eslint-disable @next/next/no-img-element -- Blob URLs are created and revoked locally. */
 
@@ -4690,7 +4689,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className="preference-card-heading"><span>{t("关于 PicLite", "About PicLite")}</span><small>{t("版本与运行环境", "Version and runtime")}</small></div>
               <div className="about-product"><span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><div><strong>PicLite 图轻 · v{APP_VERSION}</strong><small>{t(`更新日期 ${APP_RELEASE_DATE}`, `Updated ${APP_RELEASE_DATE}`)} · Tauri 2 + Rust</small></div><em>OPEN SOURCE</em></div>
               <p>{t("图片在本机处理，不上传到 PicLite 服务器。桌面端使用系统 WebView，因此安装包不携带完整浏览器内核。", "Images are processed locally and are never uploaded to PicLite. The desktop app uses the system WebView instead of bundling a browser engine.")}</p>
-              <AboutMcp language={desktopPreferences.language} openGuide={() => openReleasePage(MCP_GUIDE_URL)} />
               <p className="license-note">{t("PicLite 以 GPL-3.0-or-later 开源；自动化工作流参考 FuzzyIdeas 的 Clop，PicLite 保留独立品牌和跨平台实现。", "PicLite is open source under GPL-3.0-or-later. Its automation workflow is inspired by FuzzyIdeas' Clop while retaining independent branding and a cross-platform implementation.")}</p>
               <div className="about-links"><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite")}>{t("GitHub 项目", "GitHub project")}</button><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite/blob/main/LICENSE")}>{t("GPLv3 许可", "GPLv3 license")}</button><button type="button" onClick={() => showToast(`PicLite ${APP_VERSION} · Tauri 2 + Rust`)}>{t("版本信息", "Version information")}</button>{nativeBridge && <button type="button" disabled={checkingUpdate} onClick={() => void checkForUpdates(true)}>{checkingUpdate ? t("检查中…", "Checking…") : updateInfo?.available ? t(`更新到 ${updateInfo.latestVersion}`, `Update to ${updateInfo.latestVersion}`) : t("检查更新", "Check for updates")}</button>}</div>
             </section>}

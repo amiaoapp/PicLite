@@ -10,7 +10,7 @@
 
 </div>
 
-![PicLite 浅色工作台](docs/images/studio-light.jpg)
+![PicLite 工作台](docs/images/studio-workbench.png)
 
 > 本 README 描述当前源码。已发布安装包和在线演示的功能以各自版本为准；体验尚未发布的更新请从源码构建。
 
@@ -24,12 +24,7 @@
 - **桌面自动化**：复制图片触发优化、全局快捷键、多目录监测和悬浮结果；关闭主窗口后继续在菜单栏/托盘工作。
 - **按需扩展**：导入可信的 HTML/JavaScript 工作台插件，或通过 MCP 让智能体调用图片处理能力。
 
-<details>
-<summary>查看深色界面</summary>
 
-![PicLite 深色工作台](docs/images/studio-dark.jpg)
-
-</details>
 
 ## 悬浮窗
 
@@ -53,7 +48,9 @@
 
 右上角“界面样式”可选择 **经典旧版** 或 **新版界面**，默认保留经典旧版，选择会自动记住。切换外观保留当前图片、压缩参数和结果。
 
-两套界面共用原来的压缩、GIF、水印、导出和插件逻辑。石墨、雾蓝、紫灰、经典绿四种配色，以及浅色、深色和跟随系统外观均保留；界面布局和颜色主题分别设置。
+两套界面共用原来的压缩、GIF、水印、导出和插件逻辑。纯白、石墨蓝、雾蓝、紫晶、经典绿五种配色，以及浅色、深色和跟随系统外观均保留；界面布局和颜色主题分别设置。
+
+![PicLite 外观设置：配色、界面字号和自定义字体](docs/images/appearance-settings.png)
 
 ## 选择适合的版本
 
@@ -117,7 +114,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ## 智能体与插件
 
-桌面程序内置 MCP。通过 `piclite --mcp` 启动 stdio 服务，智能体可以检查图片、批量压缩和缩放图片/动图，也能按配置生成封面。Claude、Hermes、WorkBuddy 等支持标准 MCP 的客户端可配置使用；ChatGPT 通过 MCP 桥接接入，具体权限与配置见 [MCP 指南](docs/MCP.md)。应用内「关于」页也提供接入指南入口。
+桌面程序内置 MCP。通过 `piclite --mcp` 启动 stdio 服务，智能体可以检查图片、批量压缩和缩放图片/动图，也能按配置生成封面。Claude、Hermes、WorkBuddy 等支持标准 MCP 的客户端可配置使用；ChatGPT 通过 MCP 桥接接入，具体权限与配置见 [MCP 指南](docs/MCP.md)。
 
 在桌面端“设置 → 插件”启用内置工具，或导入 `.html`、`.js`、`manifest.json`。插件执行的是你信任的代码，请先审阅来源。
 
@@ -140,6 +137,6 @@ npm run desktop:preview:mac   # 当前 Mac 架构的 Release 预览包
 
 ## 隐私与许可证
 
-图片默认留在本机。网页图库使用 IndexedDB，清理站点数据会移除记录；需要留存的结果请及时导出。内置工作台样张为演示素材，悬浮窗配图为使用截图。
+图片默认留在本机。网页图库使用 IndexedDB，清理站点数据会移除记录；需要留存的结果请及时导出。内置工作台样张为演示素材，README 配图为使用截图。
 
 PicLite 以 [GPL-3.0-or-later](LICENSE) 发布。桌面自动化工作流借鉴并改编自 [FuzzyIdeas/Clop](https://github.com/FuzzyIdeas/Clop)；PicLite 不使用其商标。第三方依赖与致谢见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
