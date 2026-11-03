@@ -6,7 +6,7 @@ A local image and animation workbench for compression, comparison, conversion, r
 
 [Desktop downloads](https://github.com/amiaoapp/PicLite/releases) · [Web demo](https://amiaoapp.github.io/PicLite/) · [Floating window](#floating-window) · [中文](README.md) · [MCP setup](docs/MCP.md)
 
-![PicLite Studio](docs/images/studio-light.jpg)
+![PicLite workbench](docs/images/studio-workbench.png)
 
 This README describes the current source. Published binaries and the hosted demo may use an earlier revision.
 
@@ -40,9 +40,11 @@ Floating windows, continuous clipboard monitoring and global shortcuts require t
 
 Windows, macOS and Linux packages are available in [Releases](https://github.com/amiaoapp/PicLite/releases). Browser and Docker editions process images locally in the visitor's browser and export through browser downloads or authorized file access.
 
-Choose **Classic** or **Studio** from the top-right Interface style control. Classic remains the default. Switching appearance preserves the current queue, settings and results; both layouts use the original processing code. All four colour palettes and light/dark/system modes remain available.
+Choose **Classic** or **Studio** from the top-right Interface style control. Classic remains the default. Switching appearance preserves the current queue, settings and results; both layouts use the original processing code. All five colour palettes and light/dark/system modes remain available.
 
 Format conversion, resizing and enlarging are available in both the desktop and browser editions. Parent-folder batch naming, continuous monitoring, global shortcuts and floating windows require the desktop client. Direct file writes require browser File System Access support and explicit permission.
+
+![PicLite appearance settings: colour palettes, interface scale and custom fonts](docs/images/appearance-settings.png)
 
 ## Docker
 
@@ -73,7 +75,7 @@ npm run pages:build
 
 ## Agents, plugins and license
 
-Run `piclite --mcp` for the built-in stdio server. Compatible MCP clients can inspect local images, batch compress and resize images or animations, and create covers from configuration. ChatGPT requires an MCP bridge; see the [MCP guide](docs/MCP.md), also linked from the app's About page.
+Run `piclite --mcp` for the built-in stdio server. Compatible MCP clients can inspect local images, batch compress and resize images or animations, and create covers from configuration. ChatGPT requires an MCP bridge; see the [MCP guide](docs/MCP.md).
 
 Import trusted local HTML/JavaScript plugins in Settings. URL plugins are subject to browser CORS rules. [Plugin development guide](docs/PLUGIN_DEVELOPMENT.en-US.md).
 
