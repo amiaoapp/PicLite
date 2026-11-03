@@ -1,0 +1,40 @@
+.about-mcp.about-mcp {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0 20px 20px;
+  padding: 18px;
+  border: 1px solid var(--line, #dce3de);
+  border-radius: 12px;
+  background: var(--surface, #f7f9f7);
+  color: var(--ink, #26332b);
+  text-align: left;
+}
+.about-mcp.about-mcp h3 { margin: 0; font-size: 14px; line-height: 1.4; }
+.about-mcp.about-mcp p { margin: 0; max-width: none; font-size: 13px; line-height: 1.65; color: var(--muted, #64736a); overflow-wrap: anywhere; }
+.about-mcp .about-mcp-guide {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  max-width: 100%;
+  height: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--line, #dce3de);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.about-mcp .about-mcp-guide:hover { border-color: var(--accent, #51695d); }
+.about-mcp .about-mcp-guide:focus-visible { outline: 2px solid var(--accent, #51695d); outline-offset: 3px; }
+@media (max-width: 480px) {
+  .about-mcp.about-mcp { margin-inline: 12px; padding: 14px; }
+  .about-card .about-product { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; padding: 16px; }
+  .app-shell .about-card .about-product .brand-mark { display: block; width: 32px; height: 32px; }
+  .about-card .about-product > div { grid-column: 2; min-width: 0; }
+  .about-card .about-product em { grid-column: 2; justify-self: start; }
+}
