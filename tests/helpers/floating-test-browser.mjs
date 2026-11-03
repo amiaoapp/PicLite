@@ -38,6 +38,9 @@ export async function floatingBrowser(run, options = {}) {
       if (document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') !== button) throw Error('Button is covered: ' + button.title);
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     })()`);
+    // Native cursor tracking reads the OS, so CDP alone cannot simulate a
+    // physical mouse moving over an inactive packaged WebView.
+    await options.moveMouse?.(point, evaluate);
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
     for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...point });
   };

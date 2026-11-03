@@ -151,7 +151,7 @@ svg { width: 18px; height: 18px; }
 
 /* Floating results */
 .floating-collapse-button { position: absolute; z-index: 40; right: 12px; top: 11px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); color: #24362e; backdrop-filter: blur(8px); box-shadow: 0 1px 6px rgba(0,0,0,.1); opacity: 0; pointer-events: none; transform: scale(.9); transition: opacity .15s, transform .15s; }
-.floating-results:hover .floating-collapse-button, .floating-results:has(:focus-visible) .floating-collapse-button { opacity: 1; pointer-events: auto; transform: scale(1); }
+.floating-results:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]) .floating-collapse-button, .floating-results:has(:focus-visible):not([data-window-focused="false"]) .floating-collapse-button { opacity: 1; pointer-events: auto; transform: scale(1); }
 .floating-collapse-button:hover { background: #fff; }
 .floating-collapse-button svg { width: 16px; height: 16px; stroke-width: 3; }
 .floating-empty-footer .floating-collapse-button { position: static; flex: 0 0 auto; }
@@ -178,7 +178,7 @@ svg { width: 18px; height: 18px; }
 .floating-list.list .floating-result-slot { display: block; }
 .floating-list.list .result-preview { height: 250px; }
 .result-card { position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.22); border-radius: 18px; color: white; background: rgba(20,20,19,.82); box-shadow: 0 12px 28px rgba(0,0,0,.18); transition: transform .18s ease, box-shadow .18s ease; }
-.result-card:hover, .result-card.active { box-shadow: 0 16px 34px rgba(0,0,0,.26); }
+.result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]), .result-card.active { box-shadow: 0 16px 34px rgba(0,0,0,.26); }
 .result-card.active { transform: translateY(-1px); }
 .result-preview { position: relative; display: grid; place-items: center; width: 100%; height: clamp(170px, calc(100vh - 58px), 242px); overflow: hidden; background: linear-gradient(135deg, #d8dcdf, #797d79); cursor: grab; }
 .result-preview:active { cursor: grabbing; }
@@ -201,13 +201,13 @@ svg { width: 18px; height: 18px; }
 .result-card.working .progress i { display: block; width: 44%; height: 100%; border-radius: inherit; background: #c8ff5c; animation: working 1.1s ease-in-out infinite alternate; }
 @keyframes working { to { transform: translateX(125%); } }
 .result-close { position: absolute; z-index: 8; top: 10px; left: 10px; width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 50%; color: #222; background: rgba(250,247,243,.92); box-shadow: 0 3px 10px rgba(0,0,0,.18); opacity: 0; pointer-events: none; transform: scale(.9); transition: opacity .15s, transform .15s; }
-.result-card:hover .result-close, .result-card:has(:focus-visible) .result-close { opacity: 1; pointer-events: auto; transform: scale(1); }
+.result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]) .result-close, .result-card:has(:focus-visible):not([data-window-focused="false"]) .result-close { opacity: 1; pointer-events: auto; transform: scale(1); }
 .result-close svg { width: 15px; height: 15px; }
 .format-bar { display: flex; align-items: center; justify-content: center; gap: 2px; width: 100%; }
 .format-bar button { height: 20px; padding: 0 7px; border: 0; border-radius: 7px; color: rgba(255,255,255,.6); background: transparent; font-size: 9px; font-weight: 850; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
 .format-bar button.active { color: #27231f; background: rgba(250,247,243,.94); text-shadow: none; }
 .result-hover-actions { position: absolute; z-index: 6; inset: 0 0 29px; display: grid; place-items: center; opacity: 0; pointer-events: none; background: transparent; transition: opacity .16s ease; }
-.result-card:hover .result-hover-actions, .result-card:has(:focus-visible) .result-hover-actions { opacity: 1; }
+.result-card:is(:hover:not([data-pointer-tracked="true"]),[data-pointer-inside="true"]) .result-hover-actions, .result-card:has(:focus-visible):not([data-window-focused="false"]) .result-hover-actions { opacity: 1; }
 .result-actions { display: grid; grid-template-columns: repeat(3, 42px); justify-content: center; gap: 9px 11px; pointer-events: auto; }
 .result-actions button { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.34); border-radius: 50%; color: #242321; background: rgba(250,247,243,.9); box-shadow: 0 4px 12px rgba(0,0,0,.18); backdrop-filter: blur(12px); transition: transform .15s, background .15s; }
 .result-actions button:hover { transform: translateY(-1px) scale(1.04); background: white; }

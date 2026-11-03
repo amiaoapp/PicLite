@@ -179,6 +179,7 @@ if ("__TAURI_INTERNALS__" in window) {
     setFloatingToggleRegion: (region, control) => invoke("set_floating_toggle_region", { region, control }),
     setFloatingCollapsed: (collapsed) => invoke("set_floating_collapsed", { collapsed }),
     getFloatingCollapsed: () => invoke("get_floating_collapsed"),
+    getFloatingPointerPosition: () => invoke("get_floating_pointer_position"),
     moveFloatingIcon: (deltaX, deltaY) => invoke("move_floating_icon", { deltaX, deltaY }),
     configureFloatingBehavior: (corner, clickThrough) => invoke("configure_floating_behavior", { corner, clickThrough }),
     configureDropzoneWindow: (width, height) => invoke("configure_dropzone_window", { width, height }),

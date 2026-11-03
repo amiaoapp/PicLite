@@ -239,6 +239,7 @@ type NativeBridge = {
   setFloatingToggleRegion: (region: { x: number; y: number; width: number; height: number } | null, control?: "click-through" | "collapse") => Promise<void>;
   setFloatingCollapsed: (collapsed: boolean) => Promise<void>;
   getFloatingCollapsed: () => Promise<boolean>;
+  getFloatingPointerPosition?: () => Promise<{ x: number; y: number; focused: boolean } | null>;
   moveFloatingIcon: (deltaX: number, deltaY: number) => Promise<void>;
   configureFloatingBehavior: (corner: string, clickThrough: boolean) => Promise<void>;
   configureDropzoneWindow: (width: number, height: number) => Promise<void>;

@@ -6,6 +6,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { floatingBrowser } from './helpers/floating-test-browser.mjs';
+import { windowsNativePointer } from './helpers/windows-native-pointer.mjs';
 
 assert.equal(process.platform, 'win32', 'This test requires actual Windows WebView2');
 const binary = resolve(process.env.PICLITE_BINARY);
@@ -56,6 +57,7 @@ async function targetFor(dropzone) {
   throw Error('Timed out waiting for native WebView2\n' + JSON.stringify(lastObservation) + '\n' + diagnostics.stdout + '\n' + appLog);
 }
 const report = { platform: process.arch, cases: [], pages: [] };
+const pointer = windowsNativePointer();
 try {
   await floatingBrowser(async ({ evaluate: ev, wait }) => {
     await wait('!!window.picLite?.showDropzoneWindow');
@@ -66,6 +68,10 @@ try {
 
   await floatingBrowser(async ({ send, evaluate: ev, wait, click }) => {
     await wait('picLite?.windowLabel === "dropzone"');
+    const move = async (x, y) => {
+      await pointer.move({ x, y }, ev);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    };
     await ev('picLite.setContentProtected(false)');
     const preset = await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset');
     for (const mode of ['stack','list']) for (const [width,height] of [[246,188],[392,300]]) {
@@ -95,7 +101,7 @@ try {
       for (const style of ['immersive']) for (const theme of ['light','dark']) {
         await ev(`localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({...JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')),theme:'${theme}',floatingStyle:'${style}'}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}));document.activeElement?.blur()`);
         await wait(`document.querySelector('main')?.dataset.floatingStyle==='${style}' && document.documentElement.dataset.theme==='${theme}'`);
-        await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:width-20,y:height*.4});
+        await move(width-20,height*.4);
         await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='1'`);
         const layout = await ev(`(() => {
           const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}};
@@ -112,7 +118,7 @@ try {
         if (style==='classic') assert.ok(layout.actions.every(b=>b.w===(width<=340?38:42)));
         await click('[data-action="more"]');
         await wait('!!document.querySelector(".floating-overflow-menu")');
-        await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:width+30,y:height+30});
+        await move(width+30,height+30);
         await wait('!document.querySelector(".floating-overflow-menu")');
         await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='0'`);
         assert.equal(await ev('getComputedStyle(document.querySelector(".result-metrics")).visibility'),'visible','mouse click focus must not pin the mask');
@@ -152,13 +158,13 @@ try {
     assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
     await ev(`localStorage.setItem('piclite.cover-preset.v1',JSON.stringify({version:1,ui:{canvasW:'640',canvasH:'360',innerSize:'200',transparent:false,bgColor:'#1555aa',textContent:'Native cover',format:'image/webp',qualityNum:'77'},pos:{iconPos:{x:320,y:180},textPos:{x:320,y:300}},images:{bg:null}}));const original=picLite.quickCompressPaths.bind(picLite);picLite.quickCompressPaths=async(...args)=>{window.coverCompressionArgs=args;const result=await original(...args);window.coverCompressionResult=result;return result;}`);
     const beforeCover=await ev('document.querySelector(".result-metrics").textContent');
-    await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:350,y:120});
+    await move(350,120);
     await click('.cover-window-trigger');
     await wait(`document.querySelector('.result-dimensions')?.textContent.includes('640') && document.querySelector('.automatic-badge').textContent.includes('Cover made')`);
     const cover=await ev('({args:coverCompressionArgs,result:coverCompressionResult,dimensions:document.querySelector(".result-dimensions").textContent})');
     assert.equal(cover.args[1].format,'image/webp');assert.equal(cover.args[1].quality,77);assert.equal(cover.args[1].scale,100);assert.match(cover.dimensions,/640.*360/);
     const coverBytes=await readFile(cover.result[0].output);assert.equal(coverBytes.toString('ascii',0,4),'RIFF');assert.equal(coverBytes.toString('ascii',8,12),'WEBP');
-    await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:350,y:120});
+    await move(350,120);
     // Native test config keeps undo among the six direct actions.
     await click('.result-actions [data-action="undo"]');
     await wait(`document.querySelector('.result-metrics').textContent===${JSON.stringify(beforeCover)}`);
@@ -167,8 +173,9 @@ try {
     report.status='passed';
     await writeFile(join(artifacts,'report.json'),JSON.stringify(report,null,2));
     console.log('PASS Windows packaged app: native compression, source preservation, 10 WebView2 layouts, menu focus recovery, isolated expanded backgrounds and native automatic cover/undo, footer hits, collapse/restore, cyclic paging, stable history and preset preservation');
-  }, { endpoint, target: await targetFor(true) });
+  }, { endpoint, target: await targetFor(true), moveMouse: pointer.move });
 } finally {
+  pointer.close();
   await writeFile(join(artifacts,'app.log'),appLog);
   if (app.pid) spawnSync('taskkill', ['/PID',String(app.pid),'/T','/F'],{stdio:'ignore'});
   if (useMachinePolicy) spawnSync('reg.exe',['delete',policyKey,'/v',executableName,'/f','/reg:64'],{stdio:'ignore'});
