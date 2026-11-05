@@ -133,3 +133,7 @@ html .floating-results[data-floating-style="immersive"] .result-preview { height
 html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { scroll-snap-type: y mandatory; scroll-padding-block: 0; }
 html .floating-results[data-floating-style="immersive"].display-list .floating-result-slot { scroll-snap-align: start; }
 html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { width: 100%; height: auto; aspect-ratio: var(--floating-window-aspect,320 / 230); }
+/* Match native hit testing even while the WebView retains a stale hover. */
+html .floating-results.is-click-through,
+html .floating-results.is-click-through * { pointer-events: none !important; }
+html .floating-results.is-click-through .click-through-toggle { pointer-events: auto !important; }

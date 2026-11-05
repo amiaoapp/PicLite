@@ -303,7 +303,8 @@ html[data-theme="dark"] .settings-sidebar nav button.active { color: #18211c; }
 .floating-action-library button { position: relative; min-height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); font-size: 10px; }
 .floating-action-library button svg { width: 15px; height: 15px; }
 .floating-action-library button small { margin-left: auto; color: var(--muted); font-size: 8px; }
-.floating-preview { width: 360px; margin: 28px auto; padding: 12px; border-radius: 18px; background: rgba(127,127,127,.08); }
+.floating-preview { width: min(100%, 392px); aspect-ratio: 392 / 300; margin: 28px auto; overflow: hidden; border-radius: var(--floating-radius,24px); box-shadow: 0 12px 32px #12223320; }
+html .floating-preview > .floating-results.floating-results { width: 100%; height: 100%; border-radius: 0; }
 .settings-row kbd { padding: 5px 8px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--surface); font-size: 12px; }
 .inline-fields { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .settings-control .inline-fields input { min-width: 0; width: 150px; }

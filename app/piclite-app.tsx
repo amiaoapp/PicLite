@@ -1,4 +1,6 @@
 "use client";
+import { shortcutFromEvent, shortcutLabel } from "../desktop/shortcuts";
+import type { ShortcutKeyEvent } from "../desktop/shortcuts";
 import { loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
 import "./library-organization.css";
 import "./workspace-chrome.css";
@@ -832,44 +834,6 @@ function resolveTheme(theme: ThemeMode) {
   return theme === "system"
     ? (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme;
-}
-
-type ShortcutKeyEvent = Pick<globalThis.KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
-
-function shortcutFromKeyboardEvent(event: ShortcutKeyEvent) {
-  const key = event.key;
-  if (["Control", "Meta", "Alt", "Shift"].includes(key)) return null;
-  if (key === "Escape") return "escape";
-  if (key === "Backspace" || key === "Delete") return "";
-  const modifiers: string[] = [];
-  if (event.metaKey || event.ctrlKey) modifiers.push("CommandOrControl");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
-  if (!modifiers.length) return null;
-  const codeAliases: Record<string, string> = {
-    Space: "Space", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
-    Enter: "Enter", Tab: "Tab", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
-  };
-  const normalizedKey = event.code.startsWith("Key")
-    ? event.code.slice(3)
-    : event.code.startsWith("Digit")
-      ? event.code.slice(5)
-      : /^F(?:[1-9]|1\d|2[0-4])$/.test(event.code)
-        ? event.code
-        : codeAliases[event.code] || (key.length === 1 && /[a-z0-9]/i.test(key) ? key.toUpperCase() : "");
-  if (!normalizedKey) return null;
-  return [...modifiers, normalizedKey].join("+");
-}
-
-function shortcutLabel(value: string, platform: string) {
-  if (!value) return "未设置";
-  const labels = value.split("+").map((part) => {
-    if (part === "CommandOrControl") return platform === "darwin" ? "⌘" : "Ctrl";
-    if (part === "Alt") return platform === "darwin" ? "⌥" : "Alt";
-    if (part === "Shift") return platform === "darwin" ? "⇧" : "Shift";
-    return part;
-  });
-  return labels.join(platform === "darwin" ? "  " : " + ");
 }
 
 function presetSettings(mode: CompressionMode, quality: number, scale = 100): CompressionSettings {
@@ -3507,7 +3471,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const captureShortcut = useCallback((event: ShortcutKeyEvent & { preventDefault: () => void; stopPropagation: () => void }, preference: ShortcutPreferenceKey) => {
     event.preventDefault();
     event.stopPropagation();
-    const shortcut = shortcutFromKeyboardEvent(event);
+    const shortcut = shortcutFromEvent(event);
     if (shortcut === null) return;
     if (shortcut === "escape") {
       setRecordingShortcut(null);
@@ -4204,9 +4168,9 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <label className="setting-label">{t("快速方案", "Quick modes")}</label>
               <div className="mode-grid">
                 {([
-                  ["lossless", 92, t("无损优先", "Lossless priority"), t("肉眼高质量", "Visually high quality"), "◌"],
-                  ["balanced", 82, t("智能平衡", "Smart balance"), t("快速实测", "Fast measured pass"), "◐"],
-                  ["small", 45, t("更小体积", "Smaller files"), t("快速压缩", "Fast compression"), "●"],
+                  ["lossless", 92, t("无损优先", "Lossless priority"), t("肉眼高质量", "Visually high quality"), "eye"],
+                  ["balanced", 82, t("智能平衡", "Smart balance"), t("快速实测", "Fast measured pass"), "sliders"],
+                  ["small", 45, t("更小体积", "Smaller files"), t("快速压缩", "Fast compression"), "down15"],
                 ] as const).map(([value, quality, label, note, icon]) => (
                   <button className={settings.mode === value ? "active" : ""} type="button" key={value} onClick={() => {
                     const preset = BUILT_IN_PRESETS.find((candidate) => candidate.id === value);
@@ -4223,7 +4187,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                       },
                     });
                   }}>
-                    <span>{icon}</span><strong>{label}</strong><small>{note}</small>
+                    <span className="quick-mode-icon"><HeaderIcon name={icon} /></span><strong>{label}</strong><small>{note}</small>
                   </button>
                 ))}
               </div>

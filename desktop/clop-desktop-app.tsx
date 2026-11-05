@@ -1,3 +1,5 @@
+import { shortcutFromEvent, shortcutLabel } from "./shortcuts";
+import type { ShortcutKeyEvent } from "./shortcuts";
 import { InterfaceTypographyControls, useInterfaceTypography } from "../app/interface-typography-controls";
 import "../app/interface-typography.css";
 import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
@@ -150,34 +152,6 @@ function Select<T extends string>({ value, onChange, children, label, disabled =
 function percentage(item: QuickCompressResult) {
   if (!item.originalBytes || item.outputBytes == null) return null;
   return Math.round((1 - item.outputBytes / item.originalBytes) * 100);
-}
-
-type ShortcutKeyEvent = Pick<globalThis.KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
-
-function shortcutFromEvent(event: ShortcutKeyEvent) {
-  if (event.key === "Escape") return "escape";
-  if (event.key === "Backspace" || event.key === "Delete") return "";
-  if (["Meta", "Control", "Alt", "Shift"].includes(event.key)) return null;
-  const modifiers: string[] = [];
-  if (event.metaKey || event.ctrlKey) modifiers.push("CommandOrControl");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
-  if (!modifiers.length) return null;
-  const aliases: Record<string, string> = { Space: "Space", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Enter: "Enter", Tab: "Tab", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown" };
-  const key = event.code.startsWith("Key")
-    ? event.code.slice(3)
-    : event.code.startsWith("Digit")
-      ? event.code.slice(5)
-      : /^F(?:[1-9]|1\d|2[0-4])$/.test(event.code)
-        ? event.code
-        : aliases[event.code] || (event.key.length === 1 && /[a-z0-9]/i.test(event.key) ? event.key.toUpperCase() : "");
-  if (!key) return null;
-  return [...modifiers, key].join("+");
-}
-
-function shortcutLabel(value: string, platform: string) {
-  if (!value) return "—";
-  return value.split("+").map((part) => part === "CommandOrControl" ? platform === "darwin" ? "⌘" : "Ctrl" : part === "Alt" && platform === "darwin" ? "⌥" : part === "Shift" && platform === "darwin" ? "⇧" : part).join(platform === "darwin" ? " " : " + ");
 }
 
 function cleanupSeconds(settings: DesktopSettings) {
@@ -1338,7 +1312,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       </SettingsCard>}
       {section === "floating" && <SettingsCard title={<T language={language} zh="悬浮结果" en="Floating results" />} note={<T language={language} zh="优化结束后在桌面边缘显示结果卡片" en="Show result cards at the edge of the desktop" />}>
         <SettingsRow title={<T language={language} zh="圆角弧度" en="Corner radius" />} note={<T language={language} zh="0 为直角，调整后即时应用并自动保存" en="0 gives square corners; changes apply immediately and are saved" />}><span className="floating-radius-control"><input aria-label={tr(language, "悬浮窗圆角", "Floating corner radius")} type="range" min="0" max="28" step="1" value={settings.floatingCornerRadius} onChange={event => patch("floatingCornerRadius", floatingRadius(Number(event.target.value)))} /><output>{settings.floatingCornerRadius} px</output></span></SettingsRow>
-        <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后图片区域的点击会传递给下方窗口；悬浮窗底栏的穿透按钮始终可点击" en="Clicks reach the window below; the toggle in the floating footer remains clickable." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
+        <SettingsRow title={<T language={language} zh="鼠标穿透" en="Click through" />} note={<T language={language} zh="开启后仅穿透开关可点击，其余区域的点击均传递给下方窗口" en="Only the click-through toggle stays clickable; all other areas pass clicks to the window below." />}><Switch label="click through" checked={settings.floatingClickThrough} onChange={(value) => patch("floatingClickThrough", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>
@@ -1351,7 +1325,13 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="颜色 / 透明度" en="Colour / opacity" />}><span className="inline-fields compact"><input type="color" value={settings.floatingWatermark.color} onChange={(event) => patch("floatingWatermark", { ...settings.floatingWatermark, color: event.target.value })} /><input type="number" min="1" max="100" value={settings.floatingWatermark.opacity} onChange={(event) => patch("floatingWatermark", { ...settings.floatingWatermark, opacity: Number(event.target.value) })} /></span></SettingsRow>
         <SettingsRow title={<T language={language} zh="自动隐藏" en="Auto hide" />}><Switch label="hide" checked={settings.autoHideResults} onChange={(value) => patch("autoHideResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="结果保留时间" en="Dismiss result after" />}><span className="number-field"><input type="number" min="1" max="300" value={settings.autoHideSeconds} onChange={(event) => patch("autoHideSeconds", Math.max(1, Number(event.target.value)))} /> {tr(language, "秒", "seconds")}</span></SettingsRow>
-        <div className="floating-preview"><ResultCard item={{ id: "preview", source: "example-photo.jpg", output: "example-photo-piclite.webp", originalBytes: 750000, outputBytes: 211000, keptOriginal: false, status: "done", width: 1920, height: 1080 }} api={api} settings={settings} active select={() => undefined} remove={() => undefined} downscale={() => undefined} watermark={() => undefined} upload={() => undefined} undo={() => undefined} updateFormat={() => undefined} /></div>
+        <div className="floating-preview" aria-hidden="true" inert style={{ "--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px` } as React.CSSProperties}>
+          <div className="floating-results has-image display-stack" data-floating-style="immersive">
+            <div className="floating-window-image"><FloatingPreviewImage src={`${import.meta.env.BASE_URL}studio-coast.webp`} alt="" width={1536} height={1024} /></div>
+            <div className="floating-list stack"><ResultCard item={{ id: "preview", source: "example-photo.jpg", output: "example-photo-piclite.webp", preview: `${import.meta.env.BASE_URL}studio-coast.webp`, originalBytes: 750000, outputBytes: 211000, keptOriginal: false, status: "done", width: 1536, height: 1024 }} api={api} settings={settings} active pageControl={<span className="floating-result-next">1/3</span>} select={() => undefined} remove={() => undefined} downscale={() => undefined} watermark={() => undefined} upload={() => undefined} undo={() => undefined} updateFormat={() => undefined} /></div>
+            <footer className="floating-footer"><span className="automatic-badge"><Icon name="spark" /></span><div>{["pointer-through", "minus", "results", "menu", "clear", "close"].map(name => <button tabIndex={-1} key={name}><Icon name={name} /></button>)}</div></footer>
+          </div>
+        </div>
       </SettingsCard>}
       {section === "hosting" && <SettingsCard title={<T language={language} zh="图床上传" en="Image hosting" />} note={<T language={language} zh="兼容 WebDAV、S3/R2、OSS、FTP 和 SFTP；成功后自动复制链接" en="WebDAV, S3/R2, OSS, FTP and SFTP; the resulting URL is copied automatically" />}>
         <SettingsRow title={<T language={language} zh="服务类型" en="Provider" />}><Select label="provider" value={uploadProfile.provider} onChange={(provider) => setUploadProfile((current) => ({ ...current, provider }))}><option value="webdav">WebDAV</option><option value="s3">S3 / MinIO</option><option value="r2">Cloudflare R2</option><option value="oss">Aliyun OSS</option><option value="ftp">FTP</option><option value="sftp">SFTP</option></Select></SettingsRow>

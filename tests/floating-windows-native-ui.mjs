@@ -83,17 +83,29 @@ try {
       report.cases.push({empty:true,mode,width,height});
     }
     await ev(`(()=>{const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'stack'}));dispatchEvent(new StorageEvent('storage',{key}));})()`);
+    let latestOutput;
     for (let n = 0; n < sources.length; n++) {
       const path = sources[n];
       const original = await readFile(path);
       const [result] = await ev(`picLite.quickCompressPaths([${JSON.stringify(path)}],{mode:'manual',quality:${70 + n},scale:80,format:'image/webp',stripMetadata:true,preventLarger:false,exportMode:'rename',exportSuffix:'-ci'})`);
       assert.ok(result?.output && !result.error, JSON.stringify(result));
+      latestOutput = result.output;
       assert.ok((await readFile(result.output)).length > 0);
       assert.deepEqual(await readFile(path), original, 'Source file preserved');
       const event = { type: 'success', file: path, output: result.output, originalBytes: result.originalBytes, outputBytes: result.outputBytes, time: n + 1 };
       await ev(`window.__TAURI_INTERNALS__.invoke('plugin:event|emit',{event:'watcher:event',payload:${JSON.stringify(event)}})`);
       await wait(`document.querySelector('.floating-result-next')?.textContent === '1/${n + 1}' || (${n}===0 && !!document.querySelector('.result-metrics'))`);
     }
+    await click('.result-actions [data-action="copy"]');
+    await wait(`document.querySelector('.automatic-badge').textContent.includes('Copied successfully')`);
+    const clipboard = spawnSync('powershell.exe', ['-NoProfile','-NonInteractive','-STA','-Command', `Add-Type -AssemblyName System.Windows.Forms; $stream=[Windows.Forms.Clipboard]::GetData('image/webp'); if ($null -eq $stream) { throw 'Missing original encoded image' }; @{files=@([Windows.Forms.Clipboard]::GetFileDropList()); image=[Windows.Forms.Clipboard]::ContainsImage(); encoded=[Convert]::ToBase64String($stream.ToArray())} | ConvertTo-Json -Compress`], {encoding:'utf8'});
+    assert.equal(clipboard.status,0,clipboard.stderr);
+    const copied=JSON.parse(clipboard.stdout);
+    assert.equal(copied.image,true,'Image-only paste targets must recognise an image');
+    assert.deepEqual(copied.files,[latestOutput],'Attachment paste must retain the compressed file');
+    const compressed=await readFile(latestOutput);
+    assert.deepEqual(Buffer.from(copied.encoded,'base64'),compressed,'Copied bytes and size must exactly match the compressed result');
+    report.clipboard={image:true,exactCompressedBytes:compressed.length};
     // Native resize commands cap logical dimensions at 520 × 420.
     for (const [width, height] of [[392,330],[520,420],[280,220],[246,188],[460,360]]) {
       await ev(`picLite.resizeDropzoneWindow(${width},${height})`);

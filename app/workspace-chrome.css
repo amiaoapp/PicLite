@@ -143,3 +143,5 @@ html[data-density] .app-shell .topbar-quick-controls>.appearance-menu{display:fl
 html[data-density] .app-shell .topbar-quick-controls>button,html[data-density] .app-shell .topbar-quick-controls .appearance-trigger{display:grid;flex:0 0 30px;width:30px;height:30px;min-width:30px}
 @media(max-width:1000px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:max-content minmax(0,1fr) 168px;gap:8px}}
 @media(max-width:680px){html[data-density] .app-shell .topbar.topbar{grid-template-columns:88px minmax(0,1fr) 98px;gap:4px}html[data-density] .app-shell .topbar .topbar-actions,html[data-density] .app-shell .topbar-quick-controls{width:98px;min-width:98px;max-width:98px}html[data-density] .app-shell .topbar-quick-controls>.floating-entry-button,html[data-density] .app-shell .topbar-quick-controls>.language-entry-button{display:none}}
+.app-shell .mode-grid button > .quick-mode-icon { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 24px; margin-inline: auto; color: var(--deep); }
+.app-shell .mode-grid .quick-mode-icon svg { display: block; width: 18px; height: 18px; }

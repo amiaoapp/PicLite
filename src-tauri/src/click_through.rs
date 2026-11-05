@@ -22,6 +22,12 @@ impl ToggleRegion {
     }
 }
 
+fn hits_toggle(regions: &HashMap<String, ToggleRegion>, x: f64, y: f64) -> bool {
+    regions
+        .get("click-through")
+        .is_some_and(|region| region.contains(x, y))
+}
+
 pub(super) fn ignore_at_cursor(window: &tauri::WebviewWindow, state: &DesktopState) -> bool {
     if !state.floating_click_through.load(Ordering::Relaxed)
         || state.floating_collapsed.load(Ordering::Relaxed)
@@ -36,12 +42,11 @@ pub(super) fn ignore_at_cursor(window: &tauri::WebviewWindow, state: &DesktopSta
     ) else {
         return true;
     };
-    !regions.values().any(|region| {
-        region.contains(
-            (cursor.x - origin.x as f64) / scale,
-            (cursor.y - origin.y as f64) / scale,
-        )
-    })
+    !hits_toggle(
+        &regions,
+        (cursor.x - origin.x as f64) / scale,
+        (cursor.y - origin.y as f64) / scale,
+    )
 }
 
 pub(super) fn start(app: AppHandle) {
@@ -99,6 +104,16 @@ mod tests {
         assert!(region.contains(255.0, 295.0));
         assert!(!region.contains(239.0, 295.0));
         assert!(!region.contains(269.0, 295.0));
+        let regions = HashMap::from([
+            ("click-through".into(), region),
+            ("collapse".into(), ToggleRegion { x: 280.0, ..region }),
+        ]);
+        assert!(hits_toggle(&regions, 255.0, 295.0));
+        assert!(
+            !hits_toggle(&regions, 295.0, 295.0),
+            "collapse must pass through too"
+        );
+        assert!(!hits_toggle(&HashMap::new(), 255.0, 295.0));
         // A monitor at a negative desktop origin and a 2x DPI scale.
         let (origin_x, origin_y, scale) = (-1920.0, 100.0, 2.0);
         assert!(region.contains((-1410.0 - origin_x) / scale, (690.0 - origin_y) / scale));
