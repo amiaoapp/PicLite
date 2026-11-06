@@ -1,3 +1,4 @@
+import {coverFixture,inspectCoverExport} from "./helpers/cover-export.mjs";
 // Runs against the real published container, never a fixture renderer or native IPC mock.
 // Node 24 + installed Chrome; ORIGIN defaults to Docker's published localhost port.
 // Set CDP to a debugging port/HTTP endpoint to reuse an isolated external Chrome.
@@ -385,6 +386,13 @@ try {
   await responsivePreferences();
   assert.deepEqual(runtimeErrors,[],'No uncaught production runtime exceptions');
   assert.deepEqual(failedResponses,[],'No failed same-origin production requests');
+  await evaluate(`localStorage.setItem('piclite.cover-preset.v1',${JSON.stringify(JSON.stringify(coverFixture))})`);
+  await click('[data-tool-id=banner]');
+  await wait(`!!document.querySelector('.banner-page iframe')?.contentWindow.picLiteCover`);
+  report.cover=await evaluate(`(${inspectCoverExport.toString()})()`);
+  assert.deepEqual([report.cover.width,report.cover.height],[200,200]);
+  assert.ok(report.cover.partial>40 && report.cover.maxError<.06,JSON.stringify(report.cover));
+  console.log('PASS actual container rounded cover export',report.cover);
   report.status='passed';
   console.log('PASS Docker UI smoke:',JSON.stringify({geometryCases:report.geometry.length,sourceBytes:source.bytes,outputBytes:encoded.bytes,download:report.download,chrome:report.chrome}));
 } catch (error) {

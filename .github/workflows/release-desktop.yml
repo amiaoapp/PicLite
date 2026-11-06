@@ -78,6 +78,16 @@ jobs:
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: ${{ matrix.artifact }}-[bundle]
 
+      - name: Cover renderer pixel regression
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          npm run desktop:renderer:dev -- --host 127.0.0.1 --port 1551 > /tmp/cover-vite.log 2>&1 &
+          npx --yes @puppeteer/browsers install chrome@stable --path /tmp/cover-chrome > /tmp/cover-chrome-path
+          chrome=$(find /tmp/cover-chrome -type f -name chrome | head -1)
+          "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9443 --user-data-dir=/tmp/cover-profile about:blank > /tmp/cover-chrome.log 2>&1 &
+          for n in {1..60}; do curl -fsS http://127.0.0.1:1551/ >/dev/null && curl -fsS http://127.0.0.1:9443/json/version >/dev/null && break; sleep 1; done
+          node tests/cover-entrypoints-ui.mjs
       - name: MCP protocol integration tests
         shell: bash
         env:

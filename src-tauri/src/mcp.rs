@@ -23,6 +23,57 @@ fn tools() -> Value {
         tool("piclite_inspect", "Inspect a local image's dimensions, format, size and animation status without modifying it.", json!({"path":{"type":"string"}}), json!(["path"]))
     ])
 }
+// Integrate boundary pixels on an 8x8 grid; skip sampling for pixels entirely
+// inside/outside the rounded rectangle. This changes alpha, not image sharpness.
+fn rounded_cover_coverage(x: u32, y: u32, size: u32, radius: f64, inset: f64) -> f64 {
+    let half = size as f64 / 2.0 - inset;
+    if half <= 0.0 { return 0.0; }
+    let r = (radius - inset).clamp(0.0, half);
+    let distance = |px: f64, py: f64| {
+        let qx = (px - size as f64 / 2.0).abs() - (half - r);
+        let qy = (py - size as f64 / 2.0).abs() - (half - r);
+        qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
+    };
+    let d = distance(x as f64 + 0.5, y as f64 + 0.5);
+    if d < -std::f64::consts::FRAC_1_SQRT_2 { return 1.0; }
+    if d > std::f64::consts::FRAC_1_SQRT_2 { return 0.0; }
+    let mut covered = 0;
+    for sy in 0..8 { for sx in 0..8 {
+        if distance(x as f64 + (sx as f64 + 0.5) / 8.0, y as f64 + (sy as f64 + 0.5) / 8.0) <= 0.0 { covered += 1; }
+    }}
+    covered as f64 / 64.0
+}
+
+fn resample_cover_source(source: &image::RgbaImage, size: u32, x: f64, y: f64, side: f64) -> image::RgbaImage {
+    // Filter premultiplied color so invisible RGB cannot bleed into the edge.
+    // A padded square also preserves transparent space when zooming out.
+    let side_pixels = side.ceil().clamp(1.0, 4096.0) as u32;
+    let mut crop = image::Rgba32FImage::new(side_pixels, side_pixels);
+    for (cx, cy, pixel) in crop.enumerate_pixels_mut() {
+        let sx = x + (cx as f64 + 0.5) * side / side_pixels as f64 - 0.5;
+        let sy = y + (cy as f64 + 0.5) * side / side_pixels as f64 - 0.5;
+        let ix = sx.floor() as i64; let iy = sy.floor() as i64;
+        let fx = (sx - ix as f64) as f32; let fy = (sy - iy as f64) as f32;
+        let mut values = [0.0; 4];
+        for (dx, dy, weight) in [(0,0,(1.0-fx)*(1.0-fy)),(1,0,fx*(1.0-fy)),(0,1,(1.0-fx)*fy),(1,1,fx*fy)] {
+            let px = ix + dx; let py = iy + dy;
+            if px < 0 || py < 0 || px >= source.width() as i64 || py >= source.height() as i64 { continue; }
+            let p = source.get_pixel(px as u32, py as u32).0;
+            let alpha = p[3] as f32 / 255.0;
+            for c in 0..3 { values[c] += p[c] as f32 / 255.0 * alpha * weight; }
+            values[3] += alpha * weight;
+        }
+        *pixel = image::Rgba(values);
+    }
+    let filtered = image::imageops::resize(&crop, size, size, image::imageops::FilterType::Lanczos3);
+    image::RgbaImage::from_fn(size, size, |x, y| {
+        let p = filtered.get_pixel(x, y).0;
+        let alpha = p[3].clamp(0.0, 1.0);
+        if alpha <= 0.0 { return image::Rgba([0;4]); }
+        image::Rgba([(p[0] / alpha).clamp(0.0,1.0).mul_add(255.0,0.5) as u8, (p[1] / alpha).clamp(0.0,1.0).mul_add(255.0,0.5) as u8, (p[2] / alpha).clamp(0.0,1.0).mul_add(255.0,0.5) as u8, (alpha*255.0).round() as u8])
+    })
+}
+
 fn create_cover(args: &Value) -> Result<Value, String> {
     let input = args["imagePath"].as_str().ok_or("imagePath is required")?;
     let input_path = Path::new(input);
@@ -127,66 +178,41 @@ fn create_cover(args: &Value) -> Result<Value, String> {
     let crop_number = |key: &str, default: f64| config["crop"][key].as_f64().unwrap_or(default);
     let center_x = crop_number("centerX", source.width() as f64 / 2.0);
     let center_y = crop_number("centerY", source.height() as f64 / 2.0);
-    let source_x = (center_x - source_side / 2.0)
-        .min(source.width() as f64 - source_side)
-        .max(0.0);
-    let source_y = (center_y - source_side / 2.0)
-        .min(source.height() as f64 - source_side)
-        .max(0.0);
-    let mut scaled = image::RgbaImage::new(size, size);
-    for y in 0..size {
-        for x in 0..size {
-            let sx = source_x + (x as f64 + 0.5) * source_side / size as f64 - 0.5;
-            let sy = source_y + (y as f64 + 0.5) * source_side / size as f64 - 0.5;
-            if sx < -0.5
-                || sy < -0.5
-                || sx >= source.width() as f64 - 0.5
-                || sy >= source.height() as f64 - 0.5
-            {
-                continue;
-            }
-            let ix = sx.max(0.0).floor() as u32;
-            let iy = sy.max(0.0).floor() as u32;
-            let fx = (sx - ix as f64).max(0.0);
-            let fy = (sy - iy as f64).max(0.0);
-            let mut values = [0u8; 4];
-            for c in 0..4 {
-                let a = source.get_pixel(ix, iy).0[c] as f64;
-                let b = source.get_pixel((ix + 1).min(source.width() - 1), iy).0[c] as f64;
-                let d = source.get_pixel(ix, (iy + 1).min(source.height() - 1)).0[c] as f64;
-                let e = source
-                    .get_pixel(
-                        (ix + 1).min(source.width() - 1),
-                        (iy + 1).min(source.height() - 1),
-                    )
-                    .0[c] as f64;
-                values[c] = ((a * (1.0 - fx) + b * fx) * (1.0 - fy)
-                    + (d * (1.0 - fx) + e * fx) * fy)
-                    .round() as u8;
-            }
-            scaled.put_pixel(x, y, image::Rgba(values));
-        }
-    }
-    let radius = number("borderRadius", 24.0).clamp(0.0, size as f64 / 2.0) as u32;
+    let crop_origin = |center: f64, dimension: u32| {
+        if source_side <= dimension as f64 { (center - source_side / 2.0).clamp(0.0, dimension as f64 - source_side) }
+        else { center - source_side / 2.0 }
+    };
+    let source_x = crop_origin(center_x, source.width());
+    let source_y = crop_origin(center_y, source.height());
+    let mut scaled = resample_cover_source(&source, size, source_x, source_y, source_side);
+    let radius = number("borderRadius", 24.0).clamp(0.0, size as f64 / 2.0);
     let border_type = config["borderType"].as_str().unwrap_or("none");
     let bw = number("borderWidth", 4.0).clamp(0.0, 40.0) as u32;
     let border = parse_cover_color(config["borderColor"].as_str().unwrap_or("#ffffff"))?;
     let shadow = boolv("enableShadow", true);
     let blur = number("shadowBlur", 20.0).clamp(0.0, 150.0) as u32;
     let shadow_color = parse_cover_color(config["shadowColor"].as_str().unwrap_or("#5b21b6"))?;
+    // One coverage mask is shared by the image, rounded border and shadow.
+    // Fractional alpha is essential: deleting whole pixels produces stair steps.
+    for (x, y, pixel) in scaled.enumerate_pixels_mut() {
+        let coverage = rounded_cover_coverage(x, y, size, radius, 0.0);
+        if coverage == 0.0 { *pixel = image::Rgba([0; 4]); continue; }
+        let dashed_gap = border_type == "dashed" && ((x + y) / (bw.max(1) * 3)) % 2 == 1;
+        if border_type != "none" && bw > 0 && !dashed_gap {
+            let inner = rounded_cover_coverage(x, y, size, radius, bw as f64);
+            let mut stroke = border;
+            stroke.0[3] = (border.0[3] as f64 * (coverage - inner).max(0.0) / coverage).round() as u8;
+            use image::Pixel;
+            pixel.blend(&stroke);
+        }
+        pixel.0[3] = (pixel.0[3] as f64 * coverage).round() as u8;
+    }
     let dst_x = (width as i64 - size as i64) / 2;
     let dst_y = (height as i64 - size as i64) / 2;
     if shadow && blur > 0 {
         let mut mask = image::GrayImage::new(width, height);
         for sy in 0..size {
             for sx in 0..size {
-                let cx = sx.clamp(radius, size.saturating_sub(radius + 1).max(radius));
-                let cy = sy.clamp(radius, size.saturating_sub(radius + 1).max(radius));
-                let rx = sx as i64 - cx as i64;
-                let ry = sy as i64 - cy as i64;
-                if radius > 0 && rx * rx + ry * ry > radius as i64 * radius as i64 {
-                    continue;
-                }
                 let x = dst_x + sx as i64;
                 let y = dst_y + sy as i64 + blur as i64 / 3;
                 if x >= 0 && y >= 0 && x < width as i64 && y < height as i64 {
@@ -210,50 +236,7 @@ fn create_cover(args: &Value) -> Result<Value, String> {
         }
         image::imageops::overlay(&mut canvas, &layer, 0, 0);
     }
-    for sy in 0..size {
-        for sx in 0..size {
-            let dx = sx.min(size - 1 - sx);
-            let dy = sy.min(size - 1 - sy);
-            if radius > 0 {
-                let cx = if sx < radius {
-                    radius
-                } else if sx >= size - radius {
-                    size - radius - 1
-                } else {
-                    sx
-                };
-                let cy = if sy < radius {
-                    radius
-                } else if sy >= size - radius {
-                    size - radius - 1
-                } else {
-                    sy
-                };
-                let rx = sx as i64 - cx as i64;
-                let ry = sy as i64 - cy as i64;
-                if rx * rx + ry * ry > radius as i64 * radius as i64 {
-                    continue;
-                }
-            }
-            let is_border = border_type != "none" && bw > 0 && dx.min(dy) < bw;
-            let mut p = if is_border {
-                border
-            } else {
-                *scaled.get_pixel(sx, sy)
-            };
-            if border_type == "dashed" && is_border && ((sx + sy) / (bw.max(1) * 3)) % 2 == 1 {
-                p = image::Rgba([0, 0, 0, 0]);
-            }
-            let x = dst_x + sx as i64;
-            let y = dst_y + sy as i64;
-            if x >= 0 && y >= 0 && x < width as i64 && y < height as i64 {
-                {
-                    use image::Pixel;
-                    canvas.get_pixel_mut(x as u32, y as u32).blend(&p);
-                }
-            }
-        }
-    }
+    image::imageops::overlay(&mut canvas, &scaled, dst_x, dst_y);
     let output = args["outputPath"]
         .as_str()
         .map(PathBuf::from)
@@ -522,6 +505,42 @@ mod tests {
         assert_eq!(rendered.get_pixel(150, 100).0[0], 230);
         assert_eq!(result["format"], "png");
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn mcp_cover_has_smooth_symmetric_corners_and_a_rounded_border() {
+        let dir = std::env::temp_dir().join(format!("piclite-aa-cover-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.png");
+        image::RgbaImage::from_pixel(400,400,image::Rgba([230,30,20,255])).save(&source).unwrap();
+        for (index,border) in ["none","solid","dashed"].iter().enumerate() {
+            let output = dir.join(format!("cover-{index}.png"));
+            call("piclite_create_cover", json!({"imagePath":source,"outputPath":output,"config":{"canvasW":200,"canvasH":200,"innerSize":158,"borderRadius":37.5,"borderType":border,"borderWidth":4,"borderColor":"#ffffff","enableShadow":false,"transparent":true}})).unwrap();
+            let rendered=image::open(output).unwrap().to_rgba8();
+            let mut partial=0; let mut max_error=0.0_f64;
+            for y in 0..40 { for x in 0..40 {
+                let mut expected=0;
+                for sy in 0..32 { for sx in 0..32 {
+                    let px=x as f64+(sx as f64+0.5)/32.0;
+                    let py=y as f64+(sy as f64+0.5)/32.0;
+                    let dx=(37.5-px).max(0.0); let dy=(37.5-py).max(0.0);
+                    if dx*dx+dy*dy<=37.5*37.5 {expected+=1;}
+                }}
+                let alpha=rendered.get_pixel(x+21,y+21).0[3];
+                if alpha>0&&alpha<255 { partial+=1; }
+                max_error=max_error.max((alpha as f64/255.0-expected as f64/1024.0).abs());
+                assert_eq!(alpha,rendered.get_pixel(178-x,y+21).0[3]);
+            }}
+            assert!(partial>40,"rounded boundary must contain fractional alpha");
+            assert!(max_error<0.03,"coverage error {max_error}");
+            if *border=="solid" { assert_eq!(rendered.get_pixel(22,100).0,[255,255,255,255]); assert!(rendered.get_pixel(25,25).0[3]==0); }
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn cover_resampling_does_not_bleed_invisible_rgb_or_alias_fine_detail() {
+        let source=image::RgbaImage::from_fn(256,256,|x,_| if x%2==0 {image::Rgba([255,0,0,255])}else{image::Rgba([0,255,0,0])});
+        let scaled=resample_cover_source(&source,32,0.0,0.0,256.0);
+        for p in scaled.pixels() { assert!(p.0[0]>250); assert!(p.0[1]<2); assert!((120..=136).contains(&p.0[3])); }
     }
     #[test]
     fn malformed_rpc_envelope_is_rejected() {
