@@ -35,13 +35,19 @@ export async function floatingBrowser(run, options = {}) {
   const click = async selector => {
     const point = await evaluate(`(() => {
       const button = document.querySelector(${JSON.stringify(selector)}), r = button.getBoundingClientRect();
-      if (document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') !== button) throw Error('Button is covered: ' + button.title);
+      if (!r.width || !r.height || button.disabled) throw Error('Button is unavailable: ' + button.title);
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     })()`);
     // Native cursor tracking reads the OS, so CDP alone cannot simulate a
     // physical mouse moving over an inactive packaged WebView.
     await options.moveMouse?.(point, evaluate);
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+    // Hover-only actions cannot pass a hit test until the real cursor enters
+    // the window and the overlay finishes its transition.
+    await wait(`(() => {
+      const button = document.querySelector(${JSON.stringify(selector)}), r = button.getBoundingClientRect();
+      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') === button;
+    })()`);
     for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...point });
   };
   try {

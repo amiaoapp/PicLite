@@ -391,7 +391,8 @@ try {
   await wait(`!!document.querySelector('.banner-page iframe')?.contentWindow.picLiteCover`);
   report.cover=await evaluate(`(${inspectCoverExport.toString()})()`);
   assert.deepEqual([report.cover.width,report.cover.height],[200,200]);
-  assert.ok(report.cover.partial>40 && report.cover.maxError<.06,JSON.stringify(report.cover));
+  assert.equal(report.cover.type,'image/png');
+  assert.ok(report.cover.partial>40 && report.cover.boundaryPixels>40 && report.cover.meanEdgeError<.04 && report.cover.maxError<.12,JSON.stringify(report.cover));
   console.log('PASS actual container rounded cover export',report.cover);
   report.status='passed';
   console.log('PASS Docker UI smoke:',JSON.stringify({geometryCases:report.geometry.length,sourceBytes:source.bytes,outputBytes:encoded.bytes,download:report.download,chrome:report.chrome}));

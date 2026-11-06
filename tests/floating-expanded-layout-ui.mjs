@@ -12,6 +12,12 @@ await floatingBrowser(async({send,evaluate:ev,wait,click})=>{
  `});
  await send('Page.navigate',{url:origin+'/?window=dropzone'});await wait('typeof publishResult==="function"');
  for(let n=1;n<=3;n++){await ev(`publishResult({type:'success',file:'/source-${n}.png',output:'/source-${n}.png',time:${n},originalBytes:10000,outputBytes:${n*2000}})`);await wait(`document.querySelector('.floating-result-next')?.textContent==='1/${n}'`);}
+ // Copy starts with the cursor outside the window, as in packaged Windows CI.
+ // The shared click driver must reveal the hover overlay before checking hits.
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:-20,y:-20});
+ await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='0'`);
+ await click('.result-card [data-action="copy"]');
+ await wait(`window.copyCalls===1`);
  const report=[];
  for(const [width,height] of [[246,188],[320,230],[392,330],[520,420]]){
   await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:2,mobile:false});

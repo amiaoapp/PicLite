@@ -10,7 +10,7 @@ export async function inspectCoverExport() {
  const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
  const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);
  const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
- let partial=0,maxError=0;
+ let partial=0,maxError=0,boundaryError=0,boundaryPixels=0;
  for(let y=0;y<40;y++)for(let x=0;x<40;x++){
   let coverage=0;
   for(let sy=0;sy<32;sy++)for(let sx=0;sx<32;sx++){
@@ -20,6 +20,7 @@ export async function inspectCoverExport() {
   const alpha=pixels[((y+21)*canvas.width+x+21)*4+3];
   if(alpha>0&&alpha<255)partial++;
   maxError=Math.max(maxError,Math.abs(alpha/255-coverage/1024));
+  if(coverage>0&&coverage<1024){boundaryError+=Math.abs(alpha/255-coverage/1024);boundaryPixels++;}
  }
- return {width:canvas.width,height:canvas.height,partial,maxError,type:rendered.blob.type};
+ return {width:canvas.width,height:canvas.height,partial,maxError,meanEdgeError:boundaryError/boundaryPixels,boundaryPixels,type:rendered.blob.type};
 }
