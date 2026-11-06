@@ -1,4 +1,5 @@
 "use client";
+import { clipboardImageFile, type ClipboardImageMetadata, type ClipboardImagePayload } from "./clipboard-image";
 import { shortcutFromEvent, shortcutLabel } from "../desktop/shortcuts";
 import type { ShortcutKeyEvent } from "../desktop/shortcuts";
 import { loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
@@ -187,9 +188,9 @@ type BatchRenameResult = {
 type NativeBridge = {
   platform: string;
   windowLabel: string;
-  readClipboardImage: () => Promise<{ data: Uint8Array } | null>;
+  readClipboardImage: () => Promise<ClipboardImagePayload | null>;
   readClipboardPaths: () => Promise<string[]>;
-  takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | { kind: "image"; data: Uint8Array } | null>;
+  takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | ({ kind: "image" } & ClipboardImagePayload) | null>;
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;
   cacheImageData: (data: Uint8Array, fileName: string) => Promise<string>;
@@ -255,7 +256,7 @@ type NativeBridge = {
   onTrayAction: (callback: (action: string) => void) => () => void;
   onImageImportProgress: (callback: (progress: { current: number; total: number } | null) => void) => () => void;
   onWatcherEvent: (callback: (event: WatcherEvent) => void) => () => void;
-  onClipboardImage: (callback: (data: Uint8Array) => void) => () => void;
+  onClipboardImage: (callback: (data: Uint8Array, metadata?: ClipboardImageMetadata) => void) => () => void;
   onClipboardPaths: (callback: (paths: string[]) => void) => () => void;
   onWindowResized: (callback: (size: { width: number; height: number }) => void) => () => void;
   checkForUpdates: () => Promise<UpdateInfo>;
@@ -2079,13 +2080,13 @@ function TrayDropDock({ bridge }: { bridge: NativeBridge }) {
     void saveDockResults([next]);
   }), [bridge, dt, saveDockResults]);
 
-  const compressClipboardImage = useCallback(async (data: Uint8Array) => {
+  const compressClipboardImage = useCallback(async (data: Uint8Array, metadata?: ClipboardImageMetadata) => {
     if (clipboardBusyRef.current || isProcessing) return;
     clipboardBusyRef.current = true;
     setIsProcessing(true);
     setNotice(dt("检测到剪贴板图片，正在自动压缩…", "Clipboard image detected; optimising…"));
     try {
-      const file = new File([new Uint8Array(data)], `clipboard-${Date.now()}.png`, { type: "image/png" });
+      const file = clipboardImageFile(data, metadata);
       const dimensions = await getDimensions(file);
       const item: ImageItem = {
         id: uid(),
@@ -2131,8 +2132,8 @@ function TrayDropDock({ bridge }: { bridge: NativeBridge }) {
     }
   }, [bridge, dt, format, isProcessing, quality, saveDockResults, scale]);
 
-  useEffect(() => bridge.onClipboardImage((data) => {
-    if (clipboardWatcherEnabled) void compressClipboardImage(data);
+  useEffect(() => bridge.onClipboardImage((data, metadata) => {
+    if (clipboardWatcherEnabled) void compressClipboardImage(data, metadata);
   }), [bridge, clipboardWatcherEnabled, compressClipboardImage]);
 
   useEffect(() => bridge.onClipboardPaths((paths) => {
@@ -3015,12 +3016,15 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (files.some((file) => file.type.startsWith("image/"))) {
         event.preventDefault();
         if (!nativeBridge && (view === "convert" || view === "resize")) void addBrowserToolFiles(files);
+        else if (nativeBridge) void nativeBridge.readClipboardImage().then(image =>
+          addFiles(image ? [clipboardImageFile(image.data, image)] : files)
+        ).catch(error => showToast(String(error)));
         else void addFiles(files);
       }
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [addFiles, addBrowserToolFiles, nativeBridge, view]);
+  }, [addFiles, addBrowserToolFiles, nativeBridge, showToast, view]);
 
   useEffect(() => {
     if (!nativeBridge) return;
@@ -3437,7 +3441,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (nativeBridge) {
         const nativeImage = await nativeBridge.readClipboardImage();
         if (nativeImage) {
-          await addFiles([new File([new Uint8Array(nativeImage.data)], `clipboard-${Date.now()}.png`, { type: "image/png" })]);
+          await addFiles([clipboardImageFile(nativeImage.data, nativeImage)]);
           return;
         }
       }
@@ -4590,12 +4594,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 </div>
               </div>
               {preferenceSection === "floating" && <label className="preference-row clickable"><div><strong>{t("允许截图 / 录屏捕获", "Allow screenshot / recording capture")}</strong><small>{desktopPreferences.allowFloatingCapture ? t("悬浮窗会出现在系统截图和录屏中", "The floating window can appear in screenshots and recordings") : t("系统截图和录屏会隐藏悬浮窗；部分第三方工具可能不遵守", "OS screenshots and recordings hide the floating window; some third-party tools may ignore this")}</small></div><button className={`switch ${desktopPreferences.allowFloatingCapture ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.allowFloatingCapture} onClick={() => setDesktopPreferences((current) => ({ ...current, allowFloatingCapture: !current.allowFloatingCapture }))}><i /></button></label>}
-              <div className="preference-row column">
-                <div><strong>{t("悬浮结果布局", "Floating result layout")}</strong><small>{t("选择紧凑或完整图片卡片", "Choose compact or full image cards")}</small></div>
-                <div className="preference-segments">
-                  {([['compact', t('紧凑', 'Compact')], ['full', t('完整', 'Full')]] as const).map(([value, label]) => <button className={desktopPreferences.dockLayout === value ? "active" : ""} type="button" key={value} onClick={() => setDesktopPreferences((current) => ({ ...current, dockLayout: value }))}>{label}</button>)}
-                </div>
-              </div></>}
+</>}
               <label className="preference-row"><div><strong>{t("结果自动收起", "Dismiss result after")}</strong><small>{t("设为 0 秒则不自动收起", "Set to 0 to keep results visible")}</small></div><span className="preference-number"><input type="number" min="0" max="120" step="1" value={desktopPreferences.floatingResultSeconds} onChange={(event) => setDesktopPreferences((current) => ({ ...current, floatingResultSeconds: Math.max(0, Math.min(120, Number(event.target.value) || 0)) }))} /> {t("秒", "sec")}</span></label>
             </section>}
 

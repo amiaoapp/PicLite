@@ -54,13 +54,13 @@ if ("__TAURI_INTERNALS__" in window) {
     platform: platformName(),
     windowLabel: currentWindow.label,
     readClipboardImage: async () => {
-      const result = await invoke<{ data: string } | null>("read_clipboard_image");
-      return result ? { data: decodeBase64(result.data) } : null;
+      const result = await invoke<{ data: string; name?: string; type?: string } | null>("read_clipboard_image");
+      return result ? { ...result, data: decodeBase64(result.data) } : null;
     },
     readClipboardPaths: () => invoke<string[]>("read_clipboard_paths"),
     takePendingClipboard: async () => {
-      const result = await invoke<{ kind: "paths"; paths: string[] } | { kind: "image"; data: string } | null>("take_pending_clipboard");
-      return result?.kind === "image" ? { kind: "image" as const, data: decodeBase64(result.data) } : result;
+      const result = await invoke<{ kind: "paths"; paths: string[] } | { kind: "image"; data: string; name?: string; type?: string } | null>("take_pending_clipboard");
+      return result?.kind === "image" ? { ...result, kind: "image" as const, data: decodeBase64(result.data) } : result;
     },
     copyImageData: (data) => invoke("copy_image_data", { data: Array.from(data) }),
     copyCompressedData: (data, fileName) => invoke("copy_compressed_data", { data: Array.from(data), fileName }),
@@ -242,7 +242,7 @@ if ("__TAURI_INTERNALS__" in window) {
     onClipboardImage: (callback) => {
       let unlisten: (() => void) | undefined;
       let disposed = false;
-      void listen<{ data: string }>("clipboard:image", (event) => callback(decodeBase64(event.payload.data))).then((stop) => {
+      void listen<{ data: string; name?: string; type?: string }>("clipboard:image", (event) => callback(decodeBase64(event.payload.data), event.payload)).then((stop) => {
         if (disposed) stop();
         else unlisten = stop;
       });

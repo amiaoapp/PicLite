@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { floatingBrowser } from './helpers/floating-test-browser.mjs';
 import { windowsNativePointer } from './helpers/windows-native-pointer.mjs';
 
@@ -105,7 +105,10 @@ try {
     assert.deepEqual(copied.files,[latestOutput],'Attachment paste must retain the compressed file');
     const compressed=await readFile(latestOutput);
     assert.deepEqual(Buffer.from(copied.encoded,'base64'),compressed,'Copied bytes and size must exactly match the compressed result');
-    report.clipboard={image:true,exactCompressedBytes:compressed.length};
+    const imported=await ev('(async()=>{const image=await picLite.readClipboardImage();return {...image,data:Array.from(image.data)}})()');
+    assert.deepEqual(Buffer.from(imported.data),compressed,'Native re-import must not decode WebP into PNG');
+    assert.equal(imported.type,'image/webp');assert.equal(imported.name,basename(latestOutput));
+    report.clipboard={image:true,exactCompressedBytes:compressed.length,reimport:{name:imported.name,type:imported.type,bytes:imported.data.length}};
     // Native resize commands cap logical dimensions at 520 × 420.
     for (const [width, height] of [[392,330],[520,420],[280,220],[246,188],[460,360]]) {
       await ev(`picLite.resizeDropzoneWindow(${width},${height})`);

@@ -447,13 +447,16 @@ struct ImageImportProgress {
 #[derive(Clone, Serialize)]
 struct ClipboardImage {
     data: String,
+    name: String,
+    #[serde(rename = "type")]
+    mime: String,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum PendingClipboard {
     Paths { paths: Vec<String> },
-    Image { data: String },
+    Image { data: String, name: String, #[serde(rename = "type")] mime: String },
 }
 
 #[derive(Clone, Serialize)]
@@ -4222,11 +4225,27 @@ async fn select_image_folder_entries(
     )
 }
 
+enum ObservedClipboardImage {
+    Encoded(ClipboardImage),
+    Bitmap(arboard::ImageData<'static>),
+}
+impl ObservedClipboardImage {
+    fn fingerprint(&self) -> String {
+        match self {
+            Self::Encoded(image) => format!("{:x}",Sha256::digest(image.data.as_bytes())),
+            Self::Bitmap(image) => clipboard_bitmap_fingerprint(image),
+        }
+    }
+    fn into_encoded(self) -> Result<ClipboardImage,String> {
+        match self { Self::Encoded(image)=>Ok(image), Self::Bitmap(image)=>encode_clipboard_bitmap(&image) }
+    }
+}
+fn observe_clipboard_image() -> Result<Option<ObservedClipboardImage>,String> {
+    if let Some(image)=image_clipboard::read_encoded()? {return Ok(Some(ObservedClipboardImage::Encoded(image)));}
+    clipboard_bitmap().map(|image|image.map(ObservedClipboardImage::Bitmap))
+}
 fn clipboard_image() -> Result<Option<ClipboardImage>, String> {
-    clipboard_bitmap()?
-        .as_ref()
-        .map(encode_clipboard_bitmap)
-        .transpose()
+    observe_clipboard_image()?.map(ObservedClipboardImage::into_encoded).transpose()
 }
 
 fn clipboard_bitmap() -> Result<Option<arboard::ImageData<'static>>, String> {
@@ -4419,6 +4438,8 @@ fn encode_clipboard_bitmap(image: &arboard::ImageData<'_>) -> Result<ClipboardIm
         .map_err(|error| error.to_string())?;
     Ok(ClipboardImage {
         data: BASE64.encode(png),
+        name: format!("clipboard-{}.png", now_ms()),
+        mime: "image/png".into(),
     })
 }
 
@@ -4548,8 +4569,9 @@ fn clipboard_image_paths() -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn read_clipboard_image() -> Result<Option<ClipboardImage>, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        if clipboard_file_image_paths()?.is_some() {
-            return Ok(None);
+        if let Some(image) = image_clipboard::read_encoded()? { return Ok(Some(image)); }
+        if let Some(paths) = clipboard_file_image_paths()? {
+            return paths.first().map(|path| image_clipboard::read_image_file(Path::new(path))).transpose();
         }
         clipboard_image()
     })
@@ -4618,18 +4640,20 @@ fn config_directory(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn clipboard_cache_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    static NEXT_CACHE: AtomicU64 = AtomicU64::new(0);
     let directory = portable_directory()
         .map(Ok)
         .unwrap_or_else(|| app.path().app_cache_dir().map_err(|e| e.to_string()))?
-        .join("clipboard");
+        .join("clipboard")
+        .join(format!("{}-{}", now_ms(), NEXT_CACHE.fetch_add(1,Ordering::Relaxed)));
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let safe = safe_file_name(file_name);
-    let safe = if safe.trim().is_empty() {
+    let safe = if safe.trim().is_empty() || matches!(safe.as_str(),"."|"..") {
         "piclite-result.png".to_string()
     } else {
         safe
     };
-    Ok(directory.join(format!("{}-{safe}", now_ms())))
+    Ok(directory.join(safe))
 }
 
 #[tauri::command]
@@ -6520,7 +6544,7 @@ fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>) {
 fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage) {
     if app.get_webview_window("dropzone").is_none() {
         if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
-            *pending = Some(PendingClipboard::Image { data: image.data });
+            *pending = Some(PendingClipboard::Image { data: image.data, name: image.name, mime: image.mime });
         }
         let _ = ensure_dropzone_window(app);
     } else {
@@ -6597,10 +6621,10 @@ fn start_clipboard_monitor(app: AppHandle) {
                     true
                 }
                 Ok(None) => {
-                    let bitmap = clipboard_bitmap();
+                    let bitmap = observe_clipboard_image();
                     match bitmap {
                         Ok(Some(image)) => {
-                            let fingerprint = clipboard_bitmap_fingerprint(&image);
+                            let fingerprint = image.fingerprint();
                             let ignored = ignore_until_ms > now_ms().min(u64::MAX as u128) as u64;
                             let fingerprint_changed =
                                 last_fingerprint.as_deref() != Some(fingerprint.as_str());
@@ -6614,9 +6638,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                             last_fingerprint = Some(fingerprint);
                             was_enabled = true;
                             if should_deliver && !ignored {
-                                if let Ok(encoded) = encode_clipboard_bitmap(&image) {
-                                    deliver_clipboard_image(&app, encoded);
-                                }
+                                if let Ok(encoded)=image.into_encoded() {deliver_clipboard_image(&app, encoded);}
                             }
                             true
                         }

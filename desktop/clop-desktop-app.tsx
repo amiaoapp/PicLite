@@ -1,3 +1,4 @@
+import { clipboardImageFile, type ClipboardImageMetadata } from "../app/clipboard-image";
 import { shortcutFromEvent, shortcutLabel } from "./shortcuts";
 import type { ShortcutKeyEvent } from "./shortcuts";
 import { InterfaceTypographyControls, useInterfaceTypography } from "../app/interface-typography-controls";
@@ -243,10 +244,22 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
     });
     try {
       const output = await api.quickCompressPaths(unique, nativeSettings(effectiveSettings));
-      const finished = await attachPreviews(output.map((item,index)=>({...item,originalSource:item.source,id:placeholders[index].id,smartCompression,formatChoice:smartCompression?"auto":undefined,status:item.error?"error":"done"})),api);
+      const finished: ResultItem[] = placeholders.map((placeholder, index) => {
+        const item = output[index];
+        const error = item?.error || (!item?.output ? tr(settings.language, "没有生成压缩结果", "No optimised result was created") : undefined);
+        return { ...placeholder, ...item, originalSource: placeholder.source, error, status: error ? "error" : "done" };
+      });
+      // Native completion is independent of preview I/O and WebView decoding.
+      // Keep the exact output and metrics usable even if its preview stalls.
       setResults(current=>current.map(item=>finished.find(candidate=>candidate.id===item.id)||item));
       const latest=finished.slice(0,resultLimit).filter(item=>item.status==="done").at(-1);
       if(latest){onFocus?.(latest.id);setResults(current=>promoteFloatingResult(current,latest.id));}
+      void attachPreviews(finished, api).then((previewed) => {
+        setResults(current => current.map(item => {
+          const index = finished.indexOf(item);
+          return index < 0 ? item : previewed[index];
+        }));
+      });
       return finished;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -661,9 +674,9 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     if (!settings.clipboardOptimiser || !settings.clipboardImageFiles || settings.pauseAutomaticOptimisations) return;
     void api.showDropzoneWindow().then(() => optimise(paths));
   }, [api, optimise, settings.clipboardImageFiles, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
-  const handleClipboardImage = useCallback((data: Uint8Array) => {
+  const handleClipboardImage = useCallback((data: Uint8Array, metadata?: ClipboardImageMetadata) => {
     if (!settings.clipboardOptimiser || !settings.clipboardImageData || settings.pauseAutomaticOptimisations) return;
-    void api.cacheImageData(data, `clipboard-${Date.now()}.png`).then((path) => api.showDropzoneWindow().then(() => optimise([path])));
+    void api.cacheImageData(data, clipboardImageFile(data, metadata).name).then((path) => api.showDropzoneWindow().then(() => optimise([path])));
   }, [api, optimise, settings.clipboardImageData, settings.clipboardOptimiser, settings.pauseAutomaticOptimisations]);
   useEffect(() => api.onClipboardPaths(handleClipboardPaths), [api, handleClipboardPaths]);
   useEffect(() => api.onClipboardImage(handleClipboardImage), [api, handleClipboardImage]);
@@ -672,7 +685,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     void api.takePendingClipboard().then((pending) => {
       if (disposed || !pending) return;
       if (pending.kind === "paths") handleClipboardPaths(pending.paths);
-      else handleClipboardImage(pending.data);
+      else handleClipboardImage(pending.data, pending);
     }).catch(() => undefined);
     return () => { disposed = true; };
   }, [api, handleClipboardImage, handleClipboardPaths]);
@@ -745,7 +758,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     void api.readClipboardImage().then(async (image) => {
       const clipboardPaths = image ? [] : await api.readClipboardPaths();
       if (!image && !clipboardPaths.length) return;
-      const paths = image ? [await api.cacheImageData(image.data, `clipboard-${Date.now()}.png`)] : clipboardPaths;
+      const paths = image ? [await api.cacheImageData(image.data, clipboardImageFile(image.data, image).name)] : clipboardPaths;
       const overrides: Partial<OptimisationPreset> = action === "optimise_clipboard_aggressive"
         ? { mode: "manual", quality: 45 }
         : action === "downscale_clipboard"
@@ -1318,7 +1331,6 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>
-        <SettingsRow title={<T language={language} zh="布局" en="Layout" />}><div className="segmented"><button className={settings.floatingLayout === "compact" ? "active" : ""} onClick={() => patch("floatingLayout", "compact")}>{tr(language, "紧凑", "Compact")}</button><button className={settings.floatingLayout === "full" ? "active" : ""} onClick={() => patch("floatingLayout", "full")}>{tr(language, "完整", "Full")}</button></div></SettingsRow>
         <SettingsRow title={<T language={language} zh="结果展示方式" en="Result presentation" />} note={<T language={language} zh="堆叠占用更少空间，展开可连续浏览" en="Stacked uses less space; list shows every result" />}><div className="segmented"><button className={settings.floatingDisplayMode === "stack" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "stack")}>{tr(language, "堆叠", "Stacked")}</button><button className={settings.floatingDisplayMode === "list" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "list")}>{tr(language, "展开", "List")}</button></div></SettingsRow>
         <SettingsRow title={<T language={language} zh="最多保留结果" en="Maximum results" />} note={<T language={language} zh="超过数量时自动移除最早的结果" en="The oldest result is dismissed when the limit is reached" />}><span className="number-field"><input type="number" min="1" max="20" value={settings.floatingMaxResults} onChange={(event) => patch("floatingMaxResults", Math.max(1, Math.min(20, Number(event.target.value) || 1)))} /> {tr(language, "张", "images")}</span></SettingsRow>
         <SettingsRow title={<T language={language} zh="悬浮按钮" en="Floating actions" />} note={<T language={language} zh="已移到“悬浮按钮”页面，可配置顺序和最多 6 个功能。" en="Configure the order and up to six actions on the Action Buttons page." />}><button className="settings-button" onClick={() => setSection("zones")}><T language={language} zh="配置按钮" en="Configure actions" /></button></SettingsRow>

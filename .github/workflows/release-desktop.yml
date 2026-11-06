@@ -69,7 +69,7 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run desktop:renderer
-          node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs tests/floating-window-state.test.mjs tests/shortcuts.test.mjs
+          node --experimental-strip-types --test tests/operation-feedback.test.mjs tests/watch-settings.test.mjs tests/floating-window-state.test.mjs tests/shortcuts.test.mjs tests/clipboard-import.test.mjs
           cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Build Tauri bundle
         uses: tauri-apps/tauri-action@v1
@@ -88,6 +88,8 @@ jobs:
           "$chrome" --headless=new --no-sandbox --disable-gpu --remote-debugging-port=9443 --user-data-dir=/tmp/cover-profile about:blank > /tmp/cover-chrome.log 2>&1 &
           for n in {1..60}; do curl -fsS http://127.0.0.1:1551/ >/dev/null && curl -fsS http://127.0.0.1:9443/json/version >/dev/null && break; sleep 1; done
           node tests/cover-entrypoints-ui.mjs
+          node tests/clipboard-roundtrip-ui.mjs
+          node tests/floating-completion-ui.mjs
       - name: MCP protocol integration tests
         shell: bash
         env:
