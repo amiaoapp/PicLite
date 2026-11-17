@@ -13,7 +13,8 @@ PicLite 2.0 内置本地 MCP 服务，复用桌面压缩引擎，无需打开界
 Windows command 指向安装目录的 `piclite.exe` 或便携版 `PicLite.exe`；Linux 指向 PicLite 二进制。Windows 使用标准流启动，禁止通过图形界面双击 `--mcp`。
 
 工具：
-- `piclite_compress`：paths 为绝对路径数组，支持 quality（1–100）、scale（0.1–100）、format（keep/image/webp/image/png/image/jpeg/image/avif）、outputDirectory、targetSizeKb。默认原目录另存，源文件不会被覆盖。
+- `piclite_compress`：paths 为绝对路径数组，支持 quality（1–100）、scale（0.1–100）、format（keep 或[转换格式表](IMAGE-FORMATS.md)中的 MIME 类型）、outputDirectory、targetSizeKb。默认原目录另存，源文件不会被覆盖。保留 SVG 时仅无损清理，quality 与 targetSizeKb 不适用；scale 改变 SVG 画布尺寸，不保证字节体积随之下降。
+- `piclite_convert`：paths 为绝对路径数组，format 为必填输出 MIME 类型；支持 quality、scale、outputDirectory。明确执行格式转换，即使输出较大也不退回原格式。SVG → SVG 保留矢量；SVG → PNG / WebP 等渲染为位图，位图不支持转矢量 SVG。默认另存，不覆盖源图。
 - `piclite_inspect`：path 为图片路径，返回尺寸、字节数、格式、帧数和动画状态。
 - `piclite_create_cover`：传入 `imagePath`（本机图片绝对路径）即可居中裁切并输出 **透明 3:2 PNG**。可用 `config` 设定图标尺寸、裁切缩放、透明/底板、留白、圆角、边框和阴影；也可传 `presetPath` 读取 img2banner 导出的预设 JSON，并用 config 覆盖其中参数。输出文件冲突时自动加序号，不覆盖源图。
 
@@ -37,7 +38,7 @@ ChatGPT 的云端不能直接访问本机回环地址。在支持的工作区中
 
 压缩参数省略时仍使用既有默认值；显式传入错误类型（例如 `quality: -1`、`quality: "50"`、`scale: "50"` 或非字符串输出目录）会返回工具错误，不再静默套用默认值。已有数值范围与压缩引擎、预设均不变。
 
-界面字体是 UI 偏好，不属于 MCP 参数，也不会替换图片水印字体。MCP 的三个工具不读取界面字体或写入应用偏好。
+界面字体是 UI 偏好，不属于 MCP 参数，也不会替换图片水印字体。MCP 工具不读取界面字体或写入应用偏好。
 
 HTTP 桥接的版本号读取仓库 `package.json`；stdio 版本仍来自所运行二进制的 Cargo 包版本。更新源码不等于更新已安装二进制。
 

@@ -2137,3 +2137,6 @@ html[data-density] .app-shell.web-app.studio-shell.studio-shell .workspace { --s
   html[data-density] .app-shell.web-app.classic-shell .workspace > .preview-panel { height: 500px; flex: 0 0 500px; }
   html[data-density] .app-shell.web-app.classic-shell .workspace > .settings-panel { height: auto; max-height: none; }
 }
+
+.svg-vector-hint { display: grid; gap: 10px; }
+.svg-vector-hint button { justify-self: start; }

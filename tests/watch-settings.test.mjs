@@ -77,3 +77,14 @@ test('Windows preview paths match canonical device paths and ordinary output pat
   );
   assert.notEqual(nativePathIdentity('/tmp/A.png', 'linux'), nativePathIdentity('/tmp/a.png', 'linux'));
 });
+
+test('automatic result copy defaults off and shares one preference across settings windows', () => {
+  values.clear();
+  assert.equal(loadSettings().autoCopyDropResults, false);
+  values.set('piclite.desktop.clop-settings.v1', JSON.stringify({ autoCopyDropResults: true }));
+  assert.equal(loadSettings().autoCopyDropResults, true);
+  saveSettings(loadSettings());
+  assert.equal(JSON.parse(values.get('piclite.desktopPreferences.v1')).autoCopyDropResults, true);
+  values.set('piclite.desktopPreferences.v1', JSON.stringify({ autoCopyDropResults: false }));
+  assert.equal(loadSettings().autoCopyDropResults, false);
+});

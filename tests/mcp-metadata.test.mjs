@@ -30,7 +30,7 @@ test('HTTP bridge advertises the repository version', { skip: !binary, timeout: 
     });
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
     assert.equal(client.getServerVersion().version, version);
-    assert.equal((await client.listTools()).tools.length, 3);
+    assert.equal((await client.listTools()).tools.length, 4);
   } finally {
     await client.close();
     bridge.kill();

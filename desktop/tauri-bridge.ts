@@ -39,7 +39,7 @@ function platformName() {
   return "linux";
 }
 
-const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga|heic|heif)$/i;
+import { SUPPORTED_IMAGE_PATH } from "../app/image-formats";
 
 function imagePathsOnly(paths: string[]) {
   return paths.filter((path) => SUPPORTED_IMAGE_PATH.test(path.split(/[\\/]/).pop() || path));

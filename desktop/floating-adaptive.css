@@ -137,3 +137,17 @@ html .floating-results[data-floating-style="immersive"].display-list .integrated
 html .floating-results.is-click-through,
 html .floating-results.is-click-through * { pointer-events: none !important; }
 html .floating-results.is-click-through .click-through-toggle { pointer-events: auto !important; }
+
+/* WebView2 composites all image, blur and hover layers before this single
+   antialiased alpha boundary. macOS keeps its native content-view mask. */
+html .floating-results.floating-results[data-floating-alpha-clip="true"]:not(.is-collapsed) {
+  border-radius: 0;
+  clip-path: none;
+  -webkit-mask-image: var(--floating-alpha-mask);
+  mask-image: var(--floating-alpha-mask);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  mask-mode: alpha;
+}

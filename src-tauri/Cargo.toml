@@ -1,6 +1,6 @@
 [package]
 name = "piclite"
-version = "2.1.5"
+version = "2.1.6"
 description = "PicLite local-first image compressor"
 authors = ["PicLite contributors"]
 edition = "2021"
@@ -22,7 +22,7 @@ fast_image_resize = { version = "6.0", features = ["rayon"] }
 gif = "0.14.2"
 heic-rs = "=0.1.4"
 hmac = "0.12"
-image = { version = "0.25", default-features = false, features = ["avif", "bmp", "gif", "ico", "jpeg", "png", "qoi", "tga", "tiff", "webp"] }
+image = { version = "0.25", default-features = false, features = ["avif", "bmp", "gif", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 notify = "8.2"
 percent-encoding = "2.3"
 png = "0.18.1"
@@ -43,6 +43,10 @@ tauri-plugin-single-instance = "2"
 ttf-parser = "0.25"
 url = "2.5"
 webp = "0.3.1"
+oxvg_optimiser = "=0.0.9"
+oxvg_ast = { version = "=0.0.9", features = ["roxmltree"] }
+resvg = "0.45.1"
+roxmltree = "0.20"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

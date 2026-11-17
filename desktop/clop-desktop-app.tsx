@@ -4,7 +4,7 @@ import type { ShortcutKeyEvent } from "./shortcuts";
 import { InterfaceTypographyControls, useInterfaceTypography } from "../app/interface-typography-controls";
 import "../app/interface-typography.css";
 import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
-import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
@@ -16,7 +16,8 @@ import { renderSavedCover } from "../app/cover-preset";
 import { useFloatingTone } from "./use-floating-tone";
 import { useFloatingPointer } from "./use-floating-pointer";
 import { promoteFloatingResult } from "./floating-result-order";
-import { floatingRadius } from "./floating-appearance";
+import { floatingRadius, floatingAlphaMask } from "./floating-appearance";
+import { createAutomaticResultCopier } from "./automatic-result-copy";
 import { FloatingIconDrag, rememberFloatingSize } from "./floating-window-state";
 import { fileName, formatBytes, loadSettings, nativePathIdentity, resolveOptimisationPreset, saveSettings, subscribeSettings, toNativeFormat, tr } from "./clop-store";
 import type { DesktopSettings, FloatingAction, FloatingWatermark, ImageFormat, Language, OptimisationPreset, PicLiteBridge, QuickCompressResult, QuickCompressSettings, StoredUploadProfile } from "./clop-types";
@@ -68,7 +69,7 @@ const CREATOR_LINKS = [
   { id: "x", icon: "x-social", label: "X", url: "https://x.com/amiaoapp" },
   { id: "telegram", icon: "telegram", label: "Telegram", url: "https://t.me/miaoaaaaa" },
 ] as const;
-const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|gif|avif|bmp|tiff?|ico|qoi|tga)$/i;
+import { SUPPORTED_IMAGE_PATH } from "../app/image-formats";
 
 function supportedImagePaths(paths: string[]) {
   return [...new Set(paths.filter((path) => SUPPORTED_IMAGE_PATH.test(fileName(path))))];
@@ -207,7 +208,16 @@ async function attachPreviews(items: ResultItem[], api: PicLiteBridge) {
   }
 }
 
-function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings, onFocus?: (id:string)=>void) {
+function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings, onFocus?: (id:string)=>void, onCopyError?: (error: unknown)=>void) {
+  const copyState = useRef({ enabled: settings.autoCopyDropResults, onCopyError });
+  useEffect(() => { copyState.current = { enabled: settings.autoCopyDropResults, onCopyError }; }, [settings.autoCopyDropResults, onCopyError]);
+  const copier = useRef<ReturnType<typeof createAutomaticResultCopier> | null>(null);
+  useEffect(() => {
+    if (!api) return;
+    copier.current = createAutomaticResultCopier(path => api.copyImagePath(path), () => copyState.current.enabled,
+      error => copyState.current.onCopyError?.(error));
+    return () => { copyState.current.enabled = false; copier.current = null; };
+  }, [api]);
   const [results, setResults] = useState<ResultItem[]>([]);
   const resultsRef = useRef<ResultItem[]>([]);
   const [working, setWorking] = useState(false);
@@ -252,6 +262,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
       // Native completion is independent of preview I/O and WebView decoding.
       // Keep the exact output and metrics usable even if its preview stalls.
       setResults(current=>current.map(item=>finished.find(candidate=>candidate.id===item.id)||item));
+      void copier.current?.(finished);
       const latest=finished.slice(0,resultLimit).filter(item=>item.status==="done").at(-1);
       if(latest){onFocus?.(latest.id);setResults(current=>promoteFloatingResult(current,latest.id));}
       void attachPreviews(finished, api).then((previewed) => {
@@ -306,6 +317,7 @@ function useOptimiser(api: PicLiteBridge | undefined, settings: DesktopSettings,
       // metrics immediately instead of keeping the old result visible while
       // the new preview image is read and decoded.
       setResults((current) => current.map((candidate) => candidate.id === item.id ? provisional : candidate));
+      void copier.current?.([provisional]);
       const [previewed] = await attachPreviews([{
         ...provisional,
         preview: undefined,
@@ -573,26 +585,26 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const windowRoot = useRef<HTMLElement>(null);
   const [settings, setSettings] = useDesktopSettings();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings, setSelectedId);
   const [dragging, setDragging] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseBusy, setCollapseBusy] = useState(false);
   const collapsedRef = useRef(false);
   const collapseTransition = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = windowRoot.current;
     if (!root || collapsed) return;
     const measure = () => {
       const { width, height } = root.getBoundingClientRect();
       if (width && height) {
         root.style.setProperty('--floating-window-aspect', `${width} / ${height}`);
+        if (api.platform === "win32") root.style.setProperty('--floating-alpha-mask', floatingAlphaMask(width, height, settings.floatingCornerRadius));
       }
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [collapsed]);
+  }, [collapsed, api.platform, settings.floatingCornerRadius]);
 
   const [updateNotice, setUpdateNotice] = useState<{ text: string; url?: string } | null>(null);
   const [operationNotice, setOperationNotice] = useState<{ text: string; tone: OperationFeedbackTone } | null>(null);
@@ -613,6 +625,12 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       operationNoticeTimer.current = null;
     }, 2400);
   }, []);
+
+  const copyFailed = useCallback((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    showOperationNotice(tr(settings.language, `压缩已完成，自动复制失败：${detail}`, `Compression finished; automatic copy failed: ${detail}`), "error");
+  }, [settings.language, showOperationNotice]);
+  const { results, setResults, optimise, reoptimise, remove, clear, working } = useOptimiser(api, settings, setSelectedId, copyFailed);
 
   useEffect(() => () => {
     if (operationNoticeTimer.current) window.clearTimeout(operationNoticeTimer.current);
@@ -895,7 +913,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main ref={windowRoot} data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
+  return <main ref={windowRoot} data-floating-alpha-clip={api.platform === "win32" || undefined} data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
     {settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
@@ -925,7 +943,9 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
 
 function BatchOptimiser({ api }: { api: PicLiteBridge }) {
   const [settings] = useDesktopSettings();
-  const { results, optimise, remove, clear, working } = useOptimiser(api, settings);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyFailed = useCallback((error: unknown) => setCopyError(tr(settings.language, `压缩已完成，自动复制失败：${String(error)}`, `Compression finished; automatic copy failed: ${String(error)}`)), [settings.language]);
+  const { results, optimise, remove, clear, working } = useOptimiser(api, settings, undefined, copyFailed);
   const [dragging, setDragging] = useState(false);
   useEffect(() => api.onFileDrop((event) => {
     setDragging(event.type === "over");
@@ -941,6 +961,7 @@ function BatchOptimiser({ api }: { api: PicLiteBridge }) {
   };
   return <main className="batch-window">
     <header className="batch-toolbar"><Brand /><div className="window-title"><T language={settings.language} zh="批量优化器" en="Batch optimiser" /></div><div className="toolbar-actions"><button title={tr(settings.language, "设置", "Settings")} onClick={() => void api.showPreferencesWindow()}><Icon name="gear" /></button></div></header>
+    {copyError && <p role="alert">{copyError}</p>}
     <section className={`batch-drop ${dragging ? "active" : ""}`} onDoubleClick={() => void choose()}>
       <DropSurface language={settings.language} active={dragging} />
       <button className="primary" onClick={() => void choose()}><Icon name="plus" /><T language={settings.language} zh="选择图片" en="Choose images" /></button>
@@ -1270,6 +1291,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         {workbenchFiles.exportMode === "overwrite" && <SettingsRow title={<T language={language} zh="覆盖前再次确认" en="Confirm before replacing" />} note={<T language={language} zh="覆盖操作无法撤销" en="Replacing a file cannot be undone" />}><Switch label="confirm overwrite" checked={workbenchFiles.confirmOverwrite} onChange={(value) => patchWorkbenchFiles({ confirmOverwrite: value })} /></SettingsRow>}
       </SettingsCard>}
       {section === "clipboard" && <SettingsCard title={<T language={language} zh="剪贴板" en="Clipboard" />} note={<T language={language} zh="自动监测复制的图片并优化" en="Watch copied images and optimise them automatically" />}>
+        <SettingsRow title={<T language={language} zh="自动复制压缩结果到剪贴板" en="Automatically copy compressed results" />} note={<T language={language} zh="悬浮窗或批量窗口压缩完成后复制最终图片；批量复制最后一张成功结果，不会再次触发压缩" en="Copy the final image after floating or batch compression; batches copy the last successful result without triggering compression again" />}><Switch label={tr(language, "自动复制压缩结果到剪贴板", "Automatically copy compressed results")} checked={settings.autoCopyDropResults} onChange={(value) => patch("autoCopyDropResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="启用剪贴板优化器" en="Enable clipboard optimiser" />}><Switch label="clipboard" checked={settings.clipboardOptimiser} onChange={(value) => patch("clipboardOptimiser", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="图片数据" en="Image data" />} note={<T language={language} zh="截图和从应用中复制的像素数据" en="Screenshots and pixels copied from applications" />}><Switch label="image data" checked={settings.clipboardImageData} onChange={(value) => patch("clipboardImageData", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="图片文件" en="Image files" />} note={<T language={language} zh="从文件管理器复制的图片路径" en="Image paths copied from the file manager" />}><Switch label="files" checked={settings.clipboardImageFiles} onChange={(value) => patch("clipboardImageFiles", value)} /></SettingsRow>
@@ -1294,7 +1316,6 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         </SettingsCard>
       </>}
       {section === "dropzone" && <SettingsCard title={<T language={language} zh="拖放区" en="Drop zone" />} note={<T language={language} zh="把图片拖入悬浮结果窗口即可优化" en="Drop images into the floating results window to optimise them" />}>
-        <SettingsRow title={<T language={language} zh="自动复制优化结果" en="Auto copy optimised files" />} note={<T language={language} zh="处理完成后可立即粘贴到其他应用" en="Paste results immediately after optimisation" />}><Switch label="copy" checked={settings.autoCopyDropResults} onChange={(value) => patch("autoCopyDropResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="批量模式阈值" en="Batch mode threshold" />} note={<T language={language} zh="超过此数量时改用批量窗口" en="Use the batch window above this file count" />}><span className="number-field"><input type="number" min="2" max="500" value={settings.batchThreshold} onChange={(event) => patch("batchThreshold", Math.max(2, Number(event.target.value)))} /> {tr(language, "个文件", "files")}</span></SettingsRow>
         <div className="dropzone-demo"><DropSurface language={language} active /></div>
       </SettingsCard>}

@@ -136,7 +136,7 @@ function repairWindowsClipboardPreference(
 export function loadSettings(): DesktopSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Partial<DesktopSettings>;
-    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
+    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; autoCopyDropResults: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
     if (!validFormat(preset.format)) preset.format = "keep";
@@ -148,6 +148,7 @@ export function loadSettings(): DesktopSettings {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      autoCopyDropResults: mainPreferences.autoCopyDropResults ?? parsed.autoCopyDropResults ?? false,
       ...normalizeInterfaceTypography({ ...parsed, ...mainPreferences }),
       appearance: validAppearance(mainPreferences.theme) ? mainPreferences.theme : validAppearance(parsed.appearance) ? parsed.appearance : DEFAULT_SETTINGS.appearance,
       colorTheme: validColorTheme(mainPreferences.colorTheme) ? mainPreferences.colorTheme : validColorTheme(parsed.colorTheme) ? parsed.colorTheme : DEFAULT_SETTINGS.colorTheme,
@@ -209,6 +210,7 @@ export function saveSettings(settings: DesktopSettings) {
       showInTaskbarDock: settings.showInTaskbarDock,
       allowFloatingCapture: settings.allowFloatingCapture,
       clipboardWatcherEnabled: settings.clipboardOptimiser,
+      autoCopyDropResults: settings.autoCopyDropResults,
       shortcutsEnabled: settings.shortcutsEnabled,
       shortcutDock: settings.shortcutToggleDropzone,
       shortcutPaste: settings.shortcutOptimiseClipboard,

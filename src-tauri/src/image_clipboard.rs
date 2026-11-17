@@ -14,7 +14,7 @@ pub(super) fn read_image_file(path: &Path) -> Result<ClipboardImage, String> {
 fn encoded_payload(data: Vec<u8>, name: Option<String>) -> Result<ClipboardImage, String> {
     if data.is_empty() || data.len() > 128 * 1024 * 1024 { return Err("剪贴板图片无效或超过 128 MB".into()); }
     let (_, mime) = image_types(&data)?;
-    let extension = match mime { "image/jpeg"=>"jpg", "image/vnd.microsoft.icon"=>"ico", "image/x-tga"=>"tga", other=>other.trim_start_matches("image/") };
+    let extension = match mime { "image/jpeg"=>"jpg", "image/vnd.microsoft.icon"=>"ico", "image/x-tga"=>"tga", "image/svg+xml"=>"svg", "image/x-portable-pixmap"=>"ppm", "image/x-portable-arbitrarymap"=>"pam", other=>other.trim_start_matches("image/") };
     let name = name.filter(|name| !name.is_empty()).map(|name| safe_file_name(&name))
         .unwrap_or_else(|| format!("clipboard-{}.{}",now_ms(),extension));
     Ok(ClipboardImage { data: BASE64.encode(data), name, mime: mime.into() })
@@ -31,7 +31,7 @@ fn read_macos(board: &objc2_app_kit::NSPasteboard) -> Result<Option<ClipboardIma
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw.to_string()).ok())
             .and_then(|meta| meta["name"].as_str().map(str::to_owned));
         // Check owner-provided representations before requesting AppKit's TIFF.
-        for uti in ["org.webmproject.webp","public.jpeg","public.png","com.compuserve.gif","public.avif","public.heic","com.microsoft.bmp","public.tiff"] {
+        for uti in ["org.webmproject.webp","public.jpeg","public.svg-image","com.piclite.pnm","public.png","com.compuserve.gif","public.avif","public.heic","com.microsoft.bmp","public.tiff"] {
             if !types.iter().any(|t| t.to_string() == uti) { continue; }
             if let Some(data) = item.dataForType(&NSString::from_str(uti)) {
                 return encoded_payload(data.to_vec(),name).map(Some);
@@ -55,7 +55,7 @@ pub(super) fn read_encoded() -> Result<Option<ClipboardImage>, String> {
         ] {
             let Ok(types) = Command::new(program).args(list_args).output() else { continue; };
             if !types.status.success() { continue; }
-            for mime in ["image/webp","image/jpeg","image/png","image/gif","image/avif","image/tiff"] {
+            for mime in ["image/webp","image/jpeg","image/png","image/gif","image/avif","image/svg+xml","image/x-portable-pixmap","image/x-portable-arbitrarymap","image/tiff"] {
                 if !String::from_utf8_lossy(&types.stdout).lines().any(|t|t.trim()==mime) {continue;}
                 let output = Command::new(program).args(&type_args).arg(mime).output().map_err(|e|e.to_string())?;
                 if output.status.success() { return encoded_payload(output.stdout,None).map(Some); }
@@ -66,6 +66,7 @@ pub(super) fn read_encoded() -> Result<Option<ClipboardImage>, String> {
 }
 
 fn image_types(data: &[u8]) -> Result<(&'static str, &'static str), String> {
+    if svg_input::is_svg(data) { return Ok(("public.svg-image", "image/svg+xml")); }
     if heic_input::is_heic(data) {
         return Ok(("public.heic", "image/heic"));
     }
@@ -80,6 +81,7 @@ fn image_types(data: &[u8]) -> Result<(&'static str, &'static str), String> {
         ImageFormat::Ico => Ok(("com.microsoft.ico", "image/vnd.microsoft.icon")),
         ImageFormat::Tga => Ok(("com.truevision.tga-image", "image/x-tga")),
         ImageFormat::Qoi => Ok(("org.phoboslab.qoi", "image/qoi")),
+        ImageFormat::Pnm => Ok(("com.piclite.pnm", if data.starts_with(b"P7") { "image/x-portable-arbitrarymap" } else { "image/x-portable-pixmap" })),
         _ => Err("此图片格式暂不支持复制，请先转换为 PNG、JPEG 或 WebP".into()),
     }
 }
@@ -155,8 +157,8 @@ fn write_macos(
        !item.setString_forType(&NSString::from_str(&serde_json::json!({"name":name}).to_string()), &NSString::from_str("com.piclite.image-result")) {
         return Err("无法准备浏览器原格式图片".into());
     }
-    // QOI alone needs a compatibility image on macOS.
-    if uti == "org.phoboslab.qoi" {
+    // Preserve SVG/PNM result bytes and provide a separate compatibility image.
+    if matches!(uti, "org.phoboslab.qoi" | "public.svg-image" | "com.piclite.pnm") {
         let decoded = decode_static_oriented(data)?;
         let mut png = Cursor::new(Vec::new());
         decoded
@@ -243,6 +245,20 @@ mod tests {
         assert!(image_types(b"not an image").is_err());
     }
 
+    #[test]
+    fn vector_and_portable_map_clipboard_payloads_keep_exact_bytes() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1"><path d="M0 0h1v1H0z"/></svg>"#.to_vec();
+        let ppm = [b"P6\n2 1\n255\n".as_slice(), &[255, 0, 0, 0, 255, 0]].concat();
+        let pam = [b"P7\nWIDTH 2\nHEIGHT 1\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n".as_slice(), &[255, 0, 0, 255, 0, 255, 0, 0]].concat();
+        for (data, mime, extension) in [(svg, "image/svg+xml", "svg"), (ppm, "image/x-portable-pixmap", "ppm"), (pam, "image/x-portable-arbitrarymap", "pam")] {
+            let copied = encoded_payload(data.clone(), None).unwrap();
+            assert_eq!(BASE64.decode(copied.data).unwrap(), data);
+            assert_eq!(copied.mime, mime);
+            assert!(copied.name.ends_with(&format!(".{extension}")));
+            assert_eq!(decode_static_oriented(&data).unwrap().dimensions(), (2, 1));
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_copy_keeps_exact_encoded_bytes_and_an_image_representation() {
@@ -284,6 +300,20 @@ mod tests {
                 assert!(board
                     .stringForType(&NSString::from_str("public.utf8-plain-text"))
                     .is_none());
+            }
+            for (data, uti, extension) in [
+                (br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1"><rect width="1" height="1"/></svg>"#.to_vec(), "public.svg-image", "svg"),
+                ([b"P6\n2 1\n255\n".as_slice(), &[255, 0, 0, 0, 255, 0]].concat(), "com.piclite.pnm", "ppm"),
+            ] {
+                let path = std::env::temp_dir().join(format!("vector-result.{extension}"));
+                write_macos(&board, &path, &data, uti).unwrap();
+                assert!(board.dataForType(&NSString::from_str("public.png")).is_some());
+                let imported = read_macos(&board).unwrap().unwrap();
+                assert_eq!(BASE64.decode(imported.data).unwrap(), data);
+                let url = board.stringForType(&NSString::from_str("public.file-url")).unwrap();
+                let snapshot = url::Url::parse(&url.to_string()).unwrap().to_file_path().unwrap();
+                assert_eq!(fs::read(&snapshot).unwrap(), data);
+                fs::remove_dir_all(snapshot.parent().unwrap()).unwrap();
             }
             board.clearContents();
         });

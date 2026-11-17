@@ -5,26 +5,15 @@ import { ImagesIcon, FolderOpenIcon, ArrowsClockwiseIcon, SlidersHorizontalIcon,
 import "./image-tools-redesign.css";
 import { ConversionFormatPicker } from "./conversion-format-picker";
 
-export type NativeOutputFormat = "keep" | "image/jpeg" | "image/jfif" | "image/png" | "image/webp" | "image/avif" | "image/gif" | "image/bmp" | "image/tiff" | "image/x-icon" | "image/qoi" | "image/x-tga";
+import { CONVERSION_FORMATS, type ImageOutputFormat } from "./image-formats";
+export type NativeOutputFormat = ImageOutputFormat;
 type ConversionOutputFormat = Exclude<NativeOutputFormat, "keep">;
 type ResizeOutputFormat = "auto" | "source" | Exclude<NativeOutputFormat, "keep">;
 type OptimisationMode = "lossless" | "balanced" | "small" | "manual";
 type ResizeMode = "scale" | "width" | "height" | "fit" | "exact";
 type OutputPlacement = "same-folder" | "fixed-folder";
 
-const OUTPUT_FORMAT_OPTIONS: Array<{ value: ConversionOutputFormat; label: string }> = [
-  { value: "image/webp", label: "WebP" },
-  { value: "image/jpeg", label: "JPEG" },
-  { value: "image/jfif", label: "JFIF" },
-  { value: "image/png", label: "PNG" },
-  { value: "image/avif", label: "AVIF" },
-  { value: "image/gif", label: "GIF" },
-  { value: "image/bmp", label: "BMP" },
-  { value: "image/tiff", label: "TIFF" },
-  { value: "image/x-icon", label: "ICO (≤ 256px)" },
-  { value: "image/qoi", label: "QOI" },
-  { value: "image/x-tga", label: "TGA" },
-];
+const OUTPUT_FORMAT_OPTIONS = [...CONVERSION_FORMATS];
 
 type NativeImageEntry = {
   name: string;
@@ -224,8 +213,9 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
       <div className="tool-console"><header className="converter-section-heading"><SlidersHorizontalIcon size={22} /><div><h2>{queue.t("转换设置", "Conversion settings")}</h2><p>{queue.t("设置格式、质量与保存位置", "Format, quality and destination")}</p></div></header>
         <fieldset className="tool-fields" disabled={queue.busy}>
           <ConversionFormatPicker language={language} value={format} onChange={value => setFormat(value as ConversionOutputFormat)} options={OUTPUT_FORMAT_OPTIONS} disabled={queue.busy} />
-          <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
-          {mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
+          {format === "image/svg+xml" && <p className="setting-hint">{queue.t("SVG 使用无损清理，保留路径精度；位图画质方案不适用。调整 SVG 尺寸不会减少图形元素。", "SVG uses lossless cleanup and preserves path precision. Bitmap quality modes do not apply, and resizing keeps the drawing elements.")}</p>}
+          <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select disabled={format === "image/svg+xml"} value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
+          {format !== "image/svg+xml" && mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
           <label><span>{queue.t("文件名后缀", "Filename suffix")}</span><input value={suffix} onChange={(event) => setSuffix(event.target.value)} /></label>
           <OutputLocationFields bridge={bridge} language={language} placement={placement} setPlacement={setPlacement} folder={folder} setFolder={setFolder} />
         </fieldset>
@@ -349,8 +339,9 @@ export function ResizePlugin({ bridge, language, onCreateMonitor }: SharedProps)
           <p className="resize-upscale-note">{queue.t("最高 8 倍等比放大。Lanczos3 缩放不会生成新细节。", "Up to 8× proportional enlargement. Lanczos3 does not generate new detail.")}</p>
           <h3>{queue.t("格式与质量", "Format & quality")}</h3>
           <label><span>{queue.t("输出格式", "Output format")}</span><select value={format} onChange={(event) => setFormat(event.target.value as ResizeOutputFormat)}><option value="source">{queue.t("保持原格式", "Keep source format")}</option><option value="auto">{queue.t("智能择优格式", "Choose smallest format")}</option>{OUTPUT_FORMAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
-          {mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
+          {format === "image/svg+xml" && <p className="setting-hint">{queue.t("SVG 使用无损清理，保留路径精度；位图画质方案不适用。调整 SVG 尺寸不会减少图形元素。", "SVG uses lossless cleanup and preserves path precision. Bitmap quality modes do not apply, and resizing keeps the drawing elements.")}</p>}
+          <label><span>{queue.t("压缩方案", "Optimisation mode")}</span><select disabled={format === "image/svg+xml"} value={mode} onChange={(event) => setMode(event.target.value as OptimisationMode)}><option value="lossless">{queue.t("无损优先", "High quality")}</option><option value="balanced">{queue.t("智能平衡", "Balanced")}</option><option value="small">{queue.t("更小体积", "Smaller")}</option><option value="manual">{queue.t("手动质量", "Manual quality")}</option></select></label>
+          {format !== "image/svg+xml" && mode === "manual" && <label><span>{queue.t("编码质量", "Encoding quality")} <b>{quality}%</b></span><input type="range" min="1" max="100" value={quality} onChange={(event) => setQuality(Number(event.target.value))} /></label>}
           <h3>{queue.t("保存位置", "Save destination")}</h3>
           <label><span>{queue.t("文件名后缀", "Filename suffix")}</span><input value={suffix} onChange={(event) => setSuffix(event.target.value)} /></label>
           <OutputLocationFields bridge={bridge} language={language} placement={placement} setPlacement={setPlacement} folder={folder} setFolder={setFolder} />

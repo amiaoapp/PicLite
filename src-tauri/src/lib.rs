@@ -9,6 +9,7 @@ mod floating_editor;
 mod floating_pointer;
 mod crop_editor;
 mod heic_input;
+mod svg_input;
 mod image_clipboard;
 mod png_candidate;
 mod native_material;
@@ -74,7 +75,7 @@ use webp::{Encoder as LossyWebPEncoder, WebPConfig};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "jfif", "png", "webp", "gif", "avif", "bmp", "tif", "tiff", "ico", "qoi", "tga",
-    "heic", "heif",
+    "heic", "heif", "svg", "ppm", "pam",
 ];
 
 #[derive(Default)]
@@ -813,6 +814,7 @@ fn watched_file_needs_processing(path: &Path, settings: &WatcherSettings) -> Res
         return Ok(true);
     }
     let data = fs::read(path).map_err(|e| e.to_string())?;
+    if svg_input::is_svg(&data) { return Ok(true); }
     let decoded = decode_static_oriented(&data)?;
     let (width, height) = decoded.dimensions();
     let format_matches = settings.format == "keep"
@@ -1230,6 +1232,10 @@ fn mime_for(path: &Path) -> &'static str {
         "ico" => "image/x-icon",
         "qoi" => "image/qoi",
         "tga" => "image/x-tga",
+        "svg" => "image/svg+xml",
+        "ppm" => "image/x-portable-pixmap",
+        "pam" => "image/x-portable-arbitrarymap",
+        "pgm" | "pbm" | "pnm" => "image/x-portable-anymap",
         _ => "application/octet-stream",
     }
 }
@@ -1247,6 +1253,9 @@ fn extension_for(path: &Path, format: &str) -> String {
         "image/x-icon" => "ico".to_string(),
         "image/qoi" => "qoi".to_string(),
         "image/x-tga" => "tga".to_string(),
+        "image/svg+xml" => "svg".to_string(),
+        "image/x-portable-pixmap" => "ppm".to_string(),
+        "image/x-portable-arbitrarymap" => "pam".to_string(),
         _ => path
             .extension()
             .and_then(|value| value.to_str())
@@ -2223,6 +2232,18 @@ fn encode_static_ref(
             }
             encoded = cursor.into_inner();
         }
+        "ppm" | "pam" => {
+            use image::codecs::pnm::{PnmEncoder, PnmSubtype, SampleEncoding};
+            if output_extension == "ppm" {
+                PnmEncoder::new(&mut encoded).with_subtype(PnmSubtype::Pixmap(SampleEncoding::Binary))
+                    .encode(image.to_rgb8().as_raw().as_slice(), image.width(), image.height(), image::ExtendedColorType::Rgb8)
+                    .map_err(|e| e.to_string())?;
+            } else {
+                PnmEncoder::new(&mut encoded).with_subtype(PnmSubtype::ArbitraryMap)
+                    .encode(image.to_rgba8().as_raw().as_slice(), image.width(), image.height(), image::ExtendedColorType::Rgba8)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         _ => return Err(format!("自动监测暂不支持编码 .{output_extension}")),
     }
     Ok(encoded)
@@ -2244,6 +2265,7 @@ struct OptimizedImage {
 
 /// Read encoded dimensions without a second full pixel decode after encoding.
 fn encoded_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
+    if svg_input::is_svg(data) { return svg_input::dimensions(data); }
     if heic_input::is_heic(data) {
         return heic_input::dimensions(data);
     }
@@ -2256,6 +2278,7 @@ fn encoded_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
 
 /// Apply embedded orientation exactly once, matching the browser preview.
 fn decode_static_oriented(data: &[u8]) -> Result<DynamicImage, String> {
+    if svg_input::is_svg(data) { return svg_input::decode(data); }
     if heic_input::is_heic(data) {
         return heic_input::decode(data);
     }
@@ -2573,6 +2596,12 @@ fn optimize_image_data(
     source_extension: String,
     settings: &WatcherSettings,
 ) -> Result<OptimizedImage, String> {
+    if source_extension == "svg" && matches!(settings.format.as_str(), "keep" | "image/svg+xml") {
+        return svg_input::optimize(original, settings);
+    }
+    if settings.format == "image/svg+xml" {
+        return Err("SVG 输出仅支持已有 SVG 矢量图；位图请选 PNG、WebP 等格式".into());
+    }
     let is_animation =
         source_extension == "gif" || (source_extension == "webp" && is_animated_webp(&original));
     let animation_target = animation_size::target_bytes(settings);
@@ -2689,7 +2718,11 @@ fn native_images_from_paths(
         let canonical = fs::canonicalize(&path).unwrap_or(path);
         let data = fs::read(&canonical).map_err(|error| error.to_string())?;
         authorized.insert(canonical.clone());
-        let preview = heic_input::preview(&data)?;
+        let preview = if matches!(canonical.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str(), "ppm" | "pam") {
+            let decoded = decode_static_oriented(&data)?;
+            let (width, height) = decoded.dimensions();
+            Some((encode_static(decoded, "png", 100)?, width, height))
+        } else { heic_input::preview(&data)? };
         images.push(NativeImage {
             name: canonical
                 .file_name()
@@ -2735,9 +2768,9 @@ fn native_image_entries_from_paths_with_progress(
                 .unwrap_or("")
                 .to_ascii_lowercase()
                 .as_str(),
-            "heic" | "heif"
+            "heic" | "heif" | "svg"
         ) {
-            heic_input::dimensions(&fs::read(&canonical).map_err(|e| e.to_string())?)?
+            encoded_dimensions(&fs::read(&canonical).map_err(|e| e.to_string())?)?
         } else {
             let reader = image::ImageReader::open(&canonical)
                 .map_err(|error| error.to_string())?
@@ -3344,7 +3377,7 @@ async fn compress_image_data(
         .to_ascii_lowercase();
     let source_extension = match named_extension.as_str() {
         "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
-        "png" | "webp" | "gif" | "heic" | "heif" => named_extension,
+        "png" | "webp" | "gif" | "heic" | "heif" | "svg" | "avif" | "bmp" | "tif" | "tiff" | "ico" | "qoi" | "tga" | "ppm" | "pam" => named_extension,
         _ => match image::guess_format(&data).map_err(|error| error.to_string())? {
             image::ImageFormat::Jpeg => "jpg".to_string(),
             image::ImageFormat::Png => "png".to_string(),
@@ -3360,15 +3393,7 @@ async fn compress_image_data(
             .map(|(w, h)| target_dimensions(w, h, &compression))
             .unwrap_or((0, 0))
     });
-    let mime_type = match optimized.extension.as_str() {
-        "jpg" | "jpeg" | "jfif" => "image/jpeg",
-        "png" => "image/png",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "heic" => "image/heic",
-        "heif" => "image/heif",
-        _ => "application/octet-stream",
-    };
+    let mime_type = mime_for(Path::new(&format!("output.{}", optimized.extension)));
     let kept_original = optimized.extension == source_extension && optimized.bytes == data;
     Ok(CompressedAnimationData {
         data: BASE64.encode(optimized.bytes),

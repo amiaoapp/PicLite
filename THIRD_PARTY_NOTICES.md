@@ -1,5 +1,16 @@
 # PicLite third-party notices
 
+## Image format integrations
+
+- [SVGO](https://github.com/svg/svgo), MIT: browser SVG optimization. Its copyright and license notices are retained in the distributed dependency.
+- [OXVG](https://github.com/noahbald/oxvg), MIT: native SVG optimization.
+- [resvg / usvg](https://github.com/linebender/resvg), Apache-2.0 or MIT: native SVG parsing and rendering.
+- [magick-wasm](https://github.com/dlemstra/magick-wasm), Apache-2.0: browser format conversion. Its ImageMagick, codec licenses and notices are supplied with the dependency; see `public/licenses/@imagemagick-magick-wasm/NOTICE` and its LICENSE file.
+
+Bundled license texts are in `public/licenses/` (copied into desktop, web and Docker assets). OXVG uses the MIT license declared in its published Cargo package metadata; its upstream license is included in `public/licenses/oxvg-0.0.9/`.
+
+These integrations add format handling; the existing raster compression strategy is retained.
+
 ## Clop
 
 PicLite's desktop automation model, settings taxonomy, drop-zone workflow, floating-result workflow and any source code explicitly marked as adapted from it are derived from or adapted from [Clop](https://github.com/FuzzyIdeas/Clop), Copyright (c) FuzzyIdeas and Clop contributors.

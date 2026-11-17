@@ -9,11 +9,18 @@ fn tools() -> Value {
     json!([
         tool("piclite_compress", "Compress or resize local images and animations. Writes a new file and never overwrites the source.", json!({
             "paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100},
-            "quality":{"type":"integer","minimum":1,"maximum":100},
-            "scale":{"type":"number","minimum":0.1,"maximum":100},
-            "format":{"type":"string","enum":["keep","image/webp","image/png","image/jpeg","image/avif"]},
-            "outputDirectory":{"type":"string"},"targetSizeKb":{"type":"integer","minimum":0,"maximum":102400}
+            "quality":{"type":"integer","minimum":1,"maximum":100,"description":"Bitmap encoding quality; ignored when preserving SVG vectors"},
+            "scale":{"type":"number","minimum":0.1,"maximum":100,"description":"Output dimension percentage; SVG resizing changes canvas dimensions and may barely change file bytes"},
+            "format":{"type":"string","enum":["keep","image/webp","image/png","image/jpeg","image/avif","image/jfif","image/gif","image/bmp","image/tiff","image/x-icon","image/qoi","image/x-tga","image/x-portable-pixmap","image/x-portable-arbitrarymap","image/svg+xml"]},
+            "outputDirectory":{"type":"string"},"targetSizeKb":{"type":"integer","minimum":0,"maximum":102400,"description":"Bitmap size target; SVG remains vector and does not use this target"}
         }), json!(["paths"])),
+        tool("piclite_convert", "Convert local images to an explicit output format, even if larger. SVG input remains vector only for SVG output; raster-to-vector tracing is not supported. Animation conversion supports GIF/WebP without discarding frames.", json!({
+            "paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100},
+            "format":{"type":"string","enum":["image/webp","image/png","image/jpeg","image/avif","image/jfif","image/gif","image/bmp","image/tiff","image/x-icon","image/qoi","image/x-tga","image/x-portable-pixmap","image/x-portable-arbitrarymap","image/svg+xml"]},
+            "quality":{"type":"integer","minimum":1,"maximum":100,"description":"Bitmap encoding quality; ignored when preserving SVG vectors"},
+            "scale":{"type":"number","minimum":0.1,"maximum":100,"description":"Output dimension percentage; SVG resizing changes canvas dimensions and may barely change file bytes"},
+            "outputDirectory":{"type":"string"}
+        }), json!(["paths","format"])),
         tool("piclite_create_cover", "Build a transparent 3:2 PNG cover by centering and cropping a supplied local image, with optional rounded corners, border, and shadow. Reuses the supplied configuration values; no UI or network is needed.", json!({
             "imagePath":{"type":"string","description":"Absolute path to the source image"},
             "presetPath":{"type":"string","description":"Optional img2banner exported project JSON; its ui settings are applied, with config overrides taking priority"},
@@ -84,9 +91,9 @@ fn create_cover(args: &Value) -> Result<Value, String> {
     if bytes.len() > 256 * 1024 * 1024 {
         return Err("source image exceeds 256 MB".into());
     }
-    let source = image::load_from_memory(&bytes)
-        .map_err(|e| format!("decode source image: {e}"))?
-        .to_rgba8();
+    let source = if svg_input::is_svg(&bytes) { svg_input::decode(&bytes) } else {
+        image::load_from_memory(&bytes).map_err(|e| format!("decode source image: {e}"))
+    }?.to_rgba8();
     let mut config = serde_json::Map::new();
     if let Some(preset) = args["presetPath"].as_str() {
         let path = Path::new(preset);
@@ -339,13 +346,10 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
             if bytes.len() > 256 * 1024 * 1024 {
                 return Err("Image exceeds 256 MB".into());
             }
-            let format = image::guess_format(&bytes).map_err(|e| e.to_string())?;
-            let (width, height) = image::ImageReader::new(Cursor::new(&bytes))
-                .with_guessed_format()
-                .map_err(|e| e.to_string())?
-                .into_dimensions()
-                .map_err(|e| e.to_string())?;
-            let frames = if format == image::ImageFormat::Gif {
+            let svg = svg_input::is_svg(&bytes);
+            let format = if svg { None } else { Some(image::guess_format(&bytes).map_err(|e| e.to_string())?) };
+            let (width, height) = encoded_dimensions(&bytes)?;
+            let frames = if format == Some(image::ImageFormat::Gif) {
                 GifDecoder::new(Cursor::new(&bytes))
                     .map_err(|e| e.to_string())?
                     .into_frames()
@@ -358,10 +362,13 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
                 1
             };
             Ok(
-                json!({"path":path,"bytes":bytes.len(),"width":width,"height":height,"format":format!("{:?}",format),"frames":frames,"animated":frames>1}),
+                json!({"path":path,"bytes":bytes.len(),"width":width,"height":height,"format":format.map(|f| format!("{:?}",f)).unwrap_or_else(|| "Svg".into()),"frames":frames,"animated":frames>1}),
             )
         }
-        "piclite_compress" => {
+        "piclite_compress" | "piclite_convert" => {
+            if name == "piclite_convert" && (!args["format"].is_string() || args["format"] == "keep") {
+                return Err("piclite_convert requires an explicit output format".into());
+            }
             validate_compression_arguments(&args)?;
             let paths: Vec<String> =
                 serde_json::from_value(args["paths"].clone()).map_err(|e| e.to_string())?;
@@ -377,13 +384,7 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
             if !(1..=100).contains(&quality)
                 || !scale.is_finite()
                 || !(0.1..=100.0).contains(&scale)
-                || ![
-                    "keep",
-                    "image/webp",
-                    "image/png",
-                    "image/jpeg",
-                    "image/avif",
-                ]
+                || !["keep","image/webp","image/png","image/jpeg","image/avif","image/jfif","image/gif","image/bmp","image/tiff","image/x-icon","image/qoi","image/x-tga","image/x-portable-pixmap","image/x-portable-arbitrarymap","image/svg+xml"]
                 .contains(&format)
             {
                 return Err("Invalid quality, scale or format".into());
@@ -392,7 +393,7 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
             if target > 102400 {
                 return Err("targetSizeKb exceeds 102400".into());
             }
-            let settings: QuickCompressSettings = serde_json::from_value(json!({"mode":"manual","quality":quality,"scale":scale,"format":format,"stripMetadata":true,"preventLarger":true,"exportMode":if args["outputDirectory"].is_string(){"fixed-folder"}else{"same-folder"},"fixedFolder":args["outputDirectory"],"exportSuffix":"-piclite","targetSizeKb":target})).map_err(|e|e.to_string())?;
+            let settings: QuickCompressSettings = serde_json::from_value(json!({"mode":"manual","quality":quality,"scale":scale,"format":format,"stripMetadata":true,"preventLarger":name != "piclite_convert","exportMode":if args["outputDirectory"].is_string(){"fixed-folder"}else{"same-folder"},"fixedFolder":args["outputDirectory"],"exportSuffix":"-piclite","targetSizeKb":target})).map_err(|e|e.to_string())?;
             let result = tauri::async_runtime::block_on(quick_compress_paths(paths, settings))?;
             serde_json::to_value(result).map_err(|e| e.to_string())
         }
@@ -612,7 +613,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            3
+            4
         );
         assert!(call("piclite_compress", json!({"paths":["relative.png"]})).is_err());
     }

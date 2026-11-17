@@ -10,6 +10,8 @@ A local image and animation workbench for compression, comparison, conversion, r
 
 This README describes the current source. Published binaries and the hosted demo may use an earlier revision.
 
+SVG optimization preserves vectors. The converter supports JPEG/JFIF, PNG, WebP, AVIF, GIF, BMP, TIFF, ICO, QOI, TGA, PPM and PAM across desktop, browser, Docker and MCP. SVG output optimizes existing SVGs; raster tracing is not included. [Format support and open-source choices](docs/IMAGE-FORMATS.md).
+
 ## What you can do
 
 - Compare real JPEG, WebP and PNG encodes and export the smallest valid candidate. Transparent images skip JPEG.
