@@ -1,0 +1,18 @@
+.clipboard-source-controls { border-top: 1px solid var(--border, #8883); padding: 16px 20px; }
+.clipboard-source-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.clipboard-source-controls strong { display: block; font-size: 13px; font-weight: 600; }
+.clipboard-source-controls small { display: block; margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--muted, #888); }
+.clipboard-source-row > .switch { position: relative; flex: 0 0 38px; width: 38px; height: 22px; border: 0; border-radius: 99px; padding: 0; background: #b7b8bc; cursor: pointer; }
+.clipboard-source-row > .switch i { display: block; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px #0003; transition: transform .2s; }
+.clipboard-source-row > .switch.on { background: var(--accent, #458b66); }
+.clipboard-source-row > .switch.on i { transform: translateX(16px); }
+.clipboard-source-custom { margin-top: 20px; }
+.clipboard-source-add { display: flex; gap: 8px; margin-top: 10px; }
+.clipboard-source-add input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--border, #8884); border-radius: 8px; background: var(--surface, #8881); color: inherit; font: inherit; font-size: 12px; }
+.clipboard-source-add > button { padding: 8px 14px; border: 1px solid var(--border, #8884); border-radius: 8px; background: var(--surface, #8881); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.clipboard-source-add > button:disabled { opacity: .4; cursor: default; }
+.clipboard-source-apps { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.clipboard-source-apps li { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 4px 6px 4px 10px; border: 1px solid var(--border, #8884); border-radius: 7px; font-size: 12px; }
+.clipboard-source-apps li span { overflow-wrap: anywhere; }
+.clipboard-source-apps li button { display: grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 0; padding: 3px; background: transparent; color: inherit; cursor: pointer; }
+.clipboard-source-apps svg { width: 14px; height: 14px; }

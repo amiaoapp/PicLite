@@ -1,4 +1,7 @@
 "use client";
+
+import { ClipboardSourceControls } from "../desktop/clipboard-source-controls";
+import { DEFAULT_CLIPBOARD_SOURCE_SETTINGS, normalizeClipboardExcludedApps } from "../desktop/clipboard-source-settings";
 import { clipboardImageFile, type ClipboardImageMetadata, type ClipboardImagePayload } from "./clipboard-image";
 import { shortcutFromEvent, shortcutLabel } from "../desktop/shortcuts";
 import type { ShortcutKeyEvent } from "../desktop/shortcuts";
@@ -233,7 +236,7 @@ type NativeBridge = {
   saveImportedFont: (family: string, data: Uint8Array) => Promise<void>;
   listSystemFonts: () => Promise<SystemFontInfo[]>;
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
-  updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
+  updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock: boolean; clipboardWatcherEnabled: boolean; clipboardExcludeOffice: boolean; clipboardExcludedApps: string[] }) => Promise<void>;
   setWindowTheme: (theme: ThemeMode) => Promise<void>;
   setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<import("../desktop/clop-types").WindowMaterialState>;
   startDragging: () => Promise<void>;
@@ -366,6 +369,8 @@ type DesktopPreferences = InterfaceTypography & {
   floatingStyle: "immersive";
   floatingResultSeconds: number;
   clipboardWatcherEnabled: boolean;
+  clipboardExcludeOffice: boolean;
+  clipboardExcludedApps: string[];
   autoCopyDropResults: boolean;
   autoCheckUpdates: boolean;
   updateCheckFrequency: UpdateCheckFrequency;
@@ -781,6 +786,7 @@ const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
   floatingStyle: "immersive",
   floatingResultSeconds: 10,
   clipboardWatcherEnabled: true,
+  ...DEFAULT_CLIPBOARD_SOURCE_SETTINGS,
   autoCopyDropResults: false,
   autoCheckUpdates: true,
   updateCheckFrequency: "startup",
@@ -808,6 +814,7 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
     const stored = saved ? JSON.parse(saved) as Partial<DesktopPreferences> : {};
     let clipboardWatcherEnabled = stored.clipboardWatcherEnabled ?? DEFAULT_DESKTOP_PREFERENCES.clipboardWatcherEnabled;
     let autoCopyDropResults = stored.autoCopyDropResults ?? false;
+    let sourceSettings = { clipboardExcludeOffice: stored.clipboardExcludeOffice ?? true, clipboardExcludedApps: normalizeClipboardExcludedApps(stored.clipboardExcludedApps) };
     try {
       const desktop = loadDesktopSettings();
       // Older builds saved a false main-window default beside the actual
@@ -815,8 +822,9 @@ function loadStoredDesktopPreferences(): DesktopPreferences {
       // migration so startup does not silently disable clipboard monitoring.
       clipboardWatcherEnabled = desktop.clipboardOptimiser;
       autoCopyDropResults = desktop.autoCopyDropResults;
+      sourceSettings = { clipboardExcludeOffice: desktop.clipboardExcludeOffice, clipboardExcludedApps: desktop.clipboardExcludedApps };
     } catch { /* keep the main-window value when the old desktop key is malformed */ }
-    const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled, autoCopyDropResults } as DesktopPreferences & { dockLayout?: string };
+    const preferences = { ...DEFAULT_DESKTOP_PREFERENCES, ...stored, clipboardWatcherEnabled, autoCopyDropResults, ...sourceSettings } as DesktopPreferences & { dockLayout?: string };
     // 0.11 之前的“桌宠”偏好自动迁移到紧凑压缩坞。
     const colorTheme: ColorTheme = ["graphite", "mist", "violet", "green", "white"].includes(preferences.colorTheme)
       ? preferences.colorTheme
@@ -2876,8 +2884,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       minimizeToTray: desktopPreferences.minimizeToTray,
       showInTaskbarDock: desktopPreferences.showInTaskbarDock,
       clipboardWatcherEnabled: desktopPreferences.clipboardWatcherEnabled,
+      clipboardExcludeOffice: desktopPreferences.clipboardExcludeOffice,
+      clipboardExcludedApps: desktopPreferences.clipboardExcludedApps,
     });
-  }, [desktopPreferences.clipboardWatcherEnabled, desktopPreferences.minimizeToTray, desktopPreferences.showInTaskbarDock, nativeBridge]);
+  }, [desktopPreferences.clipboardWatcherEnabled, desktopPreferences.clipboardExcludeOffice, desktopPreferences.clipboardExcludedApps, desktopPreferences.minimizeToTray, desktopPreferences.showInTaskbarDock, nativeBridge]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -4587,6 +4597,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <div><strong>{t("监听剪贴板图片", "Enable clipboard optimiser")}</strong><small>{t("复制新图片后按当前参数自动优化，并把结果放回剪贴板", "Optimise newly copied images with the current settings and copy the result back")}</small></div>
                 <button className={`switch ${desktopPreferences.clipboardWatcherEnabled ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.clipboardWatcherEnabled} onClick={() => setDesktopPreferences((current) => ({ ...current, clipboardWatcherEnabled: !current.clipboardWatcherEnabled }))}><i /></button>
               </label>}
+              {nativeBridge && preferenceSection === "clipboard" && <ClipboardSourceControls language={desktopPreferences.language} office={desktopPreferences.clipboardExcludeOffice} apps={desktopPreferences.clipboardExcludedApps} onOfficeChange={value => setDesktopPreferences(current => ({ ...current, clipboardExcludeOffice: value }))} onAppsChange={apps => setDesktopPreferences(current => ({ ...current, clipboardExcludedApps: apps }))} />}
               {nativeBridge && preferenceSection === "clipboard" && <label className="preference-row clickable"><div><strong>{t("自动复制压缩结果到剪贴板", "Automatically copy compressed results")}</strong><small>{t("悬浮窗压缩后自动复制最终图片；批量复制最后一张成功结果", "Copy the final floating result; batches copy the last successful image")}</small></div><button className={`switch ${desktopPreferences.autoCopyDropResults ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.autoCopyDropResults} onClick={() => setDesktopPreferences(current => ({ ...current, autoCopyDropResults: !current.autoCopyDropResults }))}><i /></button></label>}
             </section>}
 

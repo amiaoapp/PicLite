@@ -91,6 +91,7 @@ jobs:
           node tests/clipboard-roundtrip-ui.mjs
           node tests/floating-completion-ui.mjs
           node tests/floating-session-controls-ui.mjs
+          node tests/clipboard-source-settings-ui.mjs
       - name: MCP protocol integration tests
         shell: bash
         env:

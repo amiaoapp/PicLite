@@ -1,3 +1,4 @@
+import { DEFAULT_CLIPBOARD_SOURCE_SETTINGS, normalizeClipboardExcludedApps } from "./clipboard-source-settings.ts";
 import { DEFAULT_INTERFACE_TYPOGRAPHY, normalizeInterfaceTypography } from "../app/interface-typography.ts";
 import { floatingRadius } from "./floating-appearance.ts";
 import type { Appearance, ColorTheme, DesktopSettings, ImageFormat, Language, OptimisationPreset, UpdateCheckFrequency } from "./clop-types";
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   showMenubarIcon: true,
   showInTaskbarDock: true,
   clipboardOptimiser: true,
+  ...DEFAULT_CLIPBOARD_SOURCE_SETTINGS,
   clipboardImageData: true,
   clipboardImageFiles: true,
   keepClipboardResults: false,
@@ -143,7 +145,7 @@ export function loadSettings(): DesktopSettings {
       parsed.pauseAutomaticOptimisations = false;
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed));
     }
-    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; autoCopyDropResults: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
+    const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; clipboardExcludeOffice: boolean; clipboardExcludedApps: string[]; autoCopyDropResults: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
     if (!validFormat(preset.format)) preset.format = "keep";
@@ -165,6 +167,8 @@ export function loadSettings(): DesktopSettings {
       // Prefer it while migrating older installs whose main-window key still
       // contains the former false default, then save both keys in sync below.
       clipboardOptimiser,
+      clipboardExcludeOffice: mainPreferences.clipboardExcludeOffice ?? parsed.clipboardExcludeOffice ?? true,
+      clipboardExcludedApps: normalizeClipboardExcludedApps(mainPreferences.clipboardExcludedApps ?? parsed.clipboardExcludedApps),
       updateCheckFrequency: validUpdateCheckFrequency(mainPreferences.updateCheckFrequency)
         ? mainPreferences.updateCheckFrequency
         : validUpdateCheckFrequency(parsed.updateCheckFrequency)
@@ -219,6 +223,8 @@ export function saveSettings(settings: DesktopSettings) {
       showInTaskbarDock: settings.showInTaskbarDock,
       allowFloatingCapture: settings.allowFloatingCapture,
       clipboardWatcherEnabled: settings.clipboardOptimiser,
+      clipboardExcludeOffice: settings.clipboardExcludeOffice,
+      clipboardExcludedApps: settings.clipboardExcludedApps,
       autoCopyDropResults: settings.autoCopyDropResults,
       shortcutsEnabled: settings.shortcutsEnabled,
       shortcutDock: settings.shortcutToggleDropzone,

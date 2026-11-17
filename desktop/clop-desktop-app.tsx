@@ -1,3 +1,4 @@
+import { ClipboardSourceControls } from "./clipboard-source-controls";
 import { clipboardImageFile, type ClipboardImageMetadata } from "../app/clipboard-image";
 import { shortcutFromEvent, shortcutLabel } from "./shortcuts";
 import type { ShortcutKeyEvent } from "./shortcuts";
@@ -934,7 +935,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
           {clickThroughToggle}
           <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />
           <button title={tr(settings.language, "选择本地图片", "Choose local images")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void chooseLocalImages()}><Icon name="plus" /></button>
-          <button title={tr(settings.language, "打开工作台", "Open workbench")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.showMainWindow()}><Icon name="external" /></button>
+          <button title={tr(settings.language, "打开工作台", "Open workbench")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>
           <button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button>
         </div>
       </div>
@@ -945,7 +946,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="trash" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -1089,8 +1090,10 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       minimizeToTray: true,
       showInTaskbarDock: settings.showInTaskbarDock,
       clipboardWatcherEnabled: settings.clipboardOptimiser,
+      clipboardExcludeOffice: settings.clipboardExcludeOffice,
+      clipboardExcludedApps: settings.clipboardExcludedApps,
     });
-  }, [api, settings.appearance, settings.clipboardOptimiser, settings.showInTaskbarDock]);
+  }, [api, settings.appearance, settings.clipboardOptimiser, settings.clipboardExcludeOffice, settings.clipboardExcludedApps, settings.showInTaskbarDock]);
   useEffect(() => { void api.configureFloatingBehavior(settings.floatingCorner, settings.floatingClickThrough).catch(() => undefined); }, [api, settings.floatingCorner, settings.floatingClickThrough]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1310,6 +1313,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       {section === "clipboard" && <SettingsCard title={<T language={language} zh="剪贴板" en="Clipboard" />} note={<T language={language} zh="自动监测复制的图片并优化" en="Watch copied images and optimise them automatically" />}>
         <SettingsRow title={<T language={language} zh="自动复制压缩结果到剪贴板" en="Automatically copy compressed results" />} note={<T language={language} zh="悬浮窗或批量窗口压缩完成后复制最终图片；批量复制最后一张成功结果，不会再次触发压缩" en="Copy the final image after floating or batch compression; batches copy the last successful result without triggering compression again" />}><Switch label={tr(language, "自动复制压缩结果到剪贴板", "Automatically copy compressed results")} checked={settings.autoCopyDropResults} onChange={(value) => patch("autoCopyDropResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="启用剪贴板优化器" en="Enable clipboard optimiser" />}><Switch label="clipboard" checked={settings.clipboardOptimiser} onChange={(value) => patch("clipboardOptimiser", value)} /></SettingsRow>
+        <ClipboardSourceControls language={language} office={settings.clipboardExcludeOffice} apps={settings.clipboardExcludedApps} onOfficeChange={value => patch("clipboardExcludeOffice", value)} onAppsChange={apps => patch("clipboardExcludedApps", apps)} />
         <SettingsRow title={<T language={language} zh="图片数据" en="Image data" />} note={<T language={language} zh="截图和从应用中复制的像素数据" en="Screenshots and pixels copied from applications" />}><Switch label="image data" checked={settings.clipboardImageData} onChange={(value) => patch("clipboardImageData", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="图片文件" en="Image files" />} note={<T language={language} zh="从文件管理器复制的图片路径" en="Image paths copied from the file manager" />}><Switch label="files" checked={settings.clipboardImageFiles} onChange={(value) => patch("clipboardImageFiles", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="保留所有剪贴板结果" en="Keep all clipboard results" />} note={<T language={language} zh="每次复制生成独立结果，不替换上一次" en="Append each result instead of replacing the previous one" />}><Switch label="keep" checked={settings.keepClipboardResults} onChange={(value) => patch("keepClipboardResults", value)} /></SettingsRow>
@@ -1379,7 +1383,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <div className="floating-preview" aria-hidden="true" inert style={{ "--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px` } as React.CSSProperties}>
           <div className="floating-results has-image display-list" data-floating-style="immersive">
             <div className="floating-list list"><div className="floating-result-slot"><ResultCard item={{ id: "preview", source: "example-photo.jpg", output: "example-photo-piclite.webp", preview: `${import.meta.env.BASE_URL}studio-coast.webp`, originalBytes: 750000, outputBytes: 211000, keptOriginal: false, status: "done", width: 1536, height: 1024 }} api={api} settings={settings} active pageControl={<span className="floating-result-next">1/3</span>} select={() => undefined} remove={() => undefined} downscale={() => undefined} watermark={() => undefined} upload={() => undefined} undo={() => undefined} updateFormat={() => undefined} /></div></div>
-            <footer className="floating-footer"><span className="automatic-badge"><Icon name="spark" /></span><div>{["pointer-through", "minus", "results", "clear", "close"].map(name => <button tabIndex={-1} key={name}><Icon name={name} /></button>)}</div></footer>
+            <footer className="floating-footer"><span className="automatic-badge"><Icon name="spark" /></span><div>{["pointer-through", "minus", "workbench", "trash", "close"].map(name => <button tabIndex={-1} key={name}><Icon name={name} /></button>)}</div></footer>
           </div>
         </div>
       </SettingsCard>}

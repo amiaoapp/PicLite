@@ -88,3 +88,16 @@ test('automatic result copy defaults off and shares one preference across settin
   values.set('piclite.desktopPreferences.v1', JSON.stringify({ autoCopyDropResults: false }));
   assert.equal(loadSettings().autoCopyDropResults, false);
 });
+
+test('Office exclusion defaults on and custom sources synchronize across desktop settings keys', () => {
+  values.clear();
+  assert.equal(loadSettings().clipboardExcludeOffice, true);
+  assert.deepEqual(loadSettings().clipboardExcludedApps, []);
+  saveSettings({ ...loadSettings(), clipboardExcludeOffice: false, clipboardExcludedApps: ['Notes', 'custom.exe'] });
+  const main = JSON.parse(values.get('piclite.desktopPreferences.v1'));
+  assert.equal(main.clipboardExcludeOffice, false);
+  assert.deepEqual(main.clipboardExcludedApps, ['Notes', 'custom.exe']);
+  values.set('piclite.desktopPreferences.v1', JSON.stringify({ ...main, clipboardExcludeOffice: true, clipboardExcludedApps: [' Notes ', 'notes', '', 123, 'com.example.editor'] }));
+  assert.equal(loadSettings().clipboardExcludeOffice, true);
+  assert.deepEqual(loadSettings().clipboardExcludedApps, ['Notes', 'com.example.editor']);
+});

@@ -60,6 +60,8 @@ export type DesktopSettings = {
   showMenubarIcon: boolean;
   showInTaskbarDock: boolean;
   clipboardOptimiser: boolean;
+  clipboardExcludeOffice: boolean;
+  clipboardExcludedApps: string[];
   clipboardImageData: boolean;
   clipboardImageFiles: boolean;
   keepClipboardResults: boolean;
@@ -275,7 +277,7 @@ export type PicLiteBridge = {
   saveImportedFont: (family: string, data: Uint8Array) => Promise<void>;
   listSystemFonts: () => Promise<Array<{ family: string; path: string; faceIndex: number }>>;
   readSystemFont: (path: string, faceIndex: number) => Promise<{ data: Uint8Array }>;
-  updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock?: boolean; clipboardWatcherEnabled: boolean }) => Promise<void>;
+  updateDesktopPreferences: (preferences: { minimizeToTray: boolean; showInTaskbarDock?: boolean; clipboardWatcherEnabled: boolean; clipboardExcludeOffice: boolean; clipboardExcludedApps: string[] }) => Promise<void>;
   setWindowTheme: (theme: Appearance) => Promise<void>;
   setWindowMaterial?: (options: { enabled: boolean; radius?: number }) => Promise<WindowMaterialState>;
   startDragging: () => Promise<void>;

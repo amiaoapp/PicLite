@@ -1,5 +1,6 @@
 mod autostart;
 mod clipboard_monitor;
+mod clipboard_source;
 mod mcp;
 pub fn run_mcp() {
     mcp::run();
@@ -102,6 +103,7 @@ struct DesktopState {
     minimize_to_tray: AtomicBool,
     show_in_taskbar_dock: AtomicBool,
     clipboard_monitor_enabled: AtomicBool,
+    clipboard_source_policy: Mutex<clipboard_source::SourcePolicy>,
     clipboard_monitor_control: clipboard_monitor::ClipboardMonitorControl,
     clipboard_pause_menu: Mutex<Option<MenuItem<tauri::Wry>>>,
     /// Timestamp until which clipboard content was written by PicLite itself.
@@ -135,6 +137,7 @@ impl Default for DesktopState {
             minimize_to_tray: AtomicBool::new(true),
             show_in_taskbar_dock: AtomicBool::new(true),
             clipboard_monitor_enabled: AtomicBool::new(false),
+            clipboard_source_policy: Mutex::new(Default::default()),
             clipboard_monitor_control: Default::default(),
             clipboard_pause_menu: Mutex::new(None),
             clipboard_ignore_until_ms: AtomicU64::new(0),
@@ -157,6 +160,8 @@ struct NativeDesktopPreferences {
     #[serde(default = "default_true")]
     show_in_taskbar_dock: bool,
     clipboard_watcher_enabled: bool,
+    #[serde(flatten)]
+    clipboard_source_policy: clipboard_source::SourcePolicy,
 }
 
 fn user_facing_path(path: &Path) -> String {
@@ -3556,6 +3561,7 @@ async fn update_desktop_preferences(
     state
         .clipboard_monitor_enabled
         .store(preferences.clipboard_watcher_enabled, Ordering::Relaxed);
+    *state.clipboard_source_policy.lock().map_err(|_| "剪贴板来源设置不可用")? = preferences.clipboard_source_policy;
     if let Some(window) = app.get_webview_window("main") {
         window
             .set_skip_taskbar(!preferences.show_in_taskbar_dock)
@@ -6592,9 +6598,9 @@ async fn open_external_url(url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())?
 }
 
-fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>, revision: u64) {
+fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>, revision: u64, change_token: Option<u64>) {
     let state = app.state::<DesktopState>();
-    if state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
+    if clipboard_change_token() != change_token || state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
     if app.get_webview_window("dropzone").is_none() {
         if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
             *pending = Some(PendingClipboard::Paths { paths });
@@ -6605,9 +6611,9 @@ fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>, revision: u64) {
     }
 }
 
-fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage, revision: u64) {
+fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage, revision: u64, change_token: Option<u64>) {
     let state = app.state::<DesktopState>();
-    if state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
+    if clipboard_change_token() != change_token || state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
     if app.get_webview_window("dropzone").is_none() {
         if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
             *pending = Some(PendingClipboard::Image { data: image.data, name: image.name, mime: image.mime });
@@ -6666,6 +6672,22 @@ fn start_clipboard_monitor(app: AppHandle) {
                 }
             }
 
+            // Classify a generation before reading pixels. Remember excluded
+            // generations so switching away from Office cannot replay them.
+            let policy = app.state::<DesktopState>().clipboard_source_policy.lock()
+                .map(|policy| policy.clone()).unwrap_or_default();
+            let source = clipboard_source::current_source();
+            if policy.excludes(&source) {
+                if clipboard_change_token() != change_token { continue; }
+                last_change_token = change_token;
+                last_fingerprint = Some("excluded-clipboard-source".into());
+                was_enabled = true;
+                baseline_after_resume = false;
+                thread::sleep(Duration::from_millis(650));
+                continue;
+            }
+            // Do not attribute newer content to the previous generation's app.
+            if clipboard_change_token() != change_token { continue; }
             let observed = match clipboard_file_image_paths() {
                 Ok(Some(paths)) => {
                     // A copied document may expose both a file path and its
@@ -6689,7 +6711,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                         last_fingerprint = Some(fingerprint);
                         was_enabled = true;
                         if should_deliver && !ignored {
-                            deliver_clipboard_paths(&app, paths, revision);
+                            deliver_clipboard_paths(&app, paths, revision, change_token);
                         }
                     }
                     true
@@ -6712,7 +6734,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                             last_fingerprint = Some(fingerprint);
                             was_enabled = true;
                             if should_deliver && !ignored {
-                                if let Ok(encoded)=image.into_encoded() {deliver_clipboard_image(&app, encoded, revision);}
+                                if let Ok(encoded)=image.into_encoded() {deliver_clipboard_image(&app, encoded, revision, change_token);}
                             }
                             true
                         }
