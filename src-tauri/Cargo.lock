@@ -3858,6 +3858,7 @@ dependencies = [
  "oxvg_ast",
  "oxvg_optimiser",
  "percent-encoding",
+ "plist",
  "png 0.18.1",
  "rayon",
  "regex",

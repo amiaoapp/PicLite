@@ -8,7 +8,7 @@ export type ResultDisplayMode = "stack" | "list";
 export type FilePlacement = "same-folder" | "fixed-folder";
 export type ImageFormat = "keep" | "jpeg" | "png" | "webp";
 export type CleanupUnit = "hours" | "days" | "months";
-export type FloatingAction = "cover" | "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload";
+export type FloatingAction = "cover" | "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload" | "clipboard-monitor";
 
 export type FloatingWatermark = {
   text: string;
@@ -236,6 +236,9 @@ export type PicLiteBridge = {
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;
   readClipboardPaths: () => Promise<string[]>;
+  getClipboardMonitorPaused: () => Promise<boolean>;
+  setClipboardMonitorPaused: (paused: boolean) => Promise<boolean>;
+  onClipboardMonitorPaused: (callback: (paused: boolean) => void) => () => void;
   takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | ({ kind: "image" } & ClipboardImagePayload) | null>;
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;

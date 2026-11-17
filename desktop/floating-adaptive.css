@@ -130,7 +130,7 @@ html .floating-results.is-empty .floating-empty-footer { min-width: 0; }
 .floating-card-image { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 html .floating-results.display-stack .floating-card-image { visibility: hidden; }
 html .floating-results[data-floating-style="immersive"] .result-preview { height: 100%; }
-html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { scroll-snap-type: y mandatory; scroll-padding-block: 0; }
+html .floating-results[data-floating-style="immersive"].display-list .floating-list.list { scroll-snap-type: y mandatory; scroll-padding-block: 0; overflow-anchor: none; }
 html .floating-results[data-floating-style="immersive"].display-list .floating-result-slot { scroll-snap-align: start; }
 html .floating-results[data-floating-style="immersive"].display-list .integrated-result-card { width: 100%; height: auto; aspect-ratio: var(--floating-window-aspect,320 / 230); }
 /* Match native hit testing even while the WebView retains a stale hover. */
@@ -151,3 +151,6 @@ html .floating-results.floating-results[data-floating-alpha-clip="true"]:not(.is
   mask-repeat: no-repeat;
   mask-mode: alpha;
 }
+
+/* Session pause is visible across every result card. */
+.result-actions button[data-action="clipboard-monitor"][aria-pressed="true"] { color: #ffd48a; background: #5a421dcc; }

@@ -4,14 +4,14 @@ import type { ShortcutKeyEvent } from "./shortcuts";
 import { InterfaceTypographyControls, useInterfaceTypography } from "../app/interface-typography-controls";
 import "../app/interface-typography.css";
 import { useLiquidGlassTheme } from "../app/liquid-glass-theme";
-import { PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+import { PointerEvent as ReactPointerEvent, createContext, useContext, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { getLaunchAtLogin, setLaunchAtLogin } from "./launch-at-login";
+import { useClipboardMonitor } from "./use-clipboard-monitor";
 import { Icon } from "./clop-icons";
 import { copyImageWithFeedback } from "./operation-feedback";
 import type { OperationFeedbackTone } from "./operation-feedback";
 import { nextReencodeSource } from "./result-source";
 import { FloatingResultEditor } from "./floating-result-editor";
-import { FloatingPreviewImage } from "./floating-preview-image";
 import { renderSavedCover } from "../app/cover-preset";
 import { useFloatingTone } from "./use-floating-tone";
 import { useFloatingPointer } from "./use-floating-pointer";
@@ -447,8 +447,11 @@ function DropSurface({ language, active, compact = false }: { language: Language
   </div>;
 }
 
+const ClipboardMonitorContext = createContext({ paused: false, toggle: () => {} });
+
 function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, onUndo, onUpload, onQuality, onSave, onCover, menu = false }: { item: ResultItem; api: PicLiteBridge; settings: DesktopSettings; notify: (text: string, tone?: OperationFeedbackTone) => void; onDownscale: () => void; onWatermark: () => void; onUndo: () => void; onUpload: () => void; onQuality?: () => void; onSave?: () => void; onCover?: () => void; menu?: boolean }) {
   const language = settings.language;
+  const clipboardMonitor = useContext(ClipboardMonitorContext);
   const copy = () => copyImageWithFeedback(api.copyImagePath, item.output, language, notify);
   const runWithNotice = async (operation: () => Promise<unknown>, success: string) => {
     try {
@@ -469,7 +472,8 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     if (!output) return;
     await runWithNotice(() => api.revealPath(output), tr(language, "已在文件夹中定位", "Shown in folder"));
   };
-  const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; run: () => void }> = {
+  const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; independent?: boolean; run: () => void }> = {
+    "clipboard-monitor": { title: clipboardMonitor.paused ? tr(language, "恢复剪贴板检测", "Resume clipboard monitoring") : tr(language, "临时关闭剪贴板检测", "Temporarily disable clipboard monitoring"), icon: "clipboard", independent: true, run: clipboardMonitor.toggle },
     cover: { title: tr(language,"按封面预设生成并压缩","Make and compress cover with saved preset"), icon: "image", disabled: !onCover, run: () => onCover?.() },
     quality: { title: tr(language,"调整压缩质量","Compression quality"), icon: "sliders", disabled:!onQuality, run:()=>onQuality?.() },
     save: { title: tr(language,"保存副本","Save copy"), icon: "save", disabled:!onSave, run:()=>onSave?.() },
@@ -484,7 +488,7 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
   };
   const configured = [...new Set(settings.floatingActions)].slice(0, 6);
   const ids = menu ? (Object.keys(actions) as FloatingAction[]).filter(id => !configured.includes(id)) : configured;
-  return <div className={menu ? "floating-menu-actions" : "result-actions"}>{ids.map((id) => { const action = actions[id]; return <button key={id} data-action={id} role={menu ? "menuitem" : undefined} disabled={!item.output || item.status !== "done" || action.disabled} title={action.title} aria-label={action.title} onClick={(event) => { if (!menu) event.stopPropagation(); action.run(); }}><Icon name={action.icon} />{menu && <span>{floatingActionLabel(language, id)}</span>}</button>; })}</div>;
+  return <div className={menu ? "floating-menu-actions" : "result-actions"}>{ids.map((id) => { const action = actions[id]; return <button key={id} data-action={id} role={menu ? "menuitem" : undefined} aria-pressed={id === "clipboard-monitor" ? clipboardMonitor.paused : undefined} disabled={(!action.independent && (!item.output || item.status !== "done")) || action.disabled} title={action.title} aria-label={action.title} onClick={(event) => { if (!menu) event.stopPropagation(); action.run(); }}><Icon name={action.icon} />{menu && <span>{floatingActionLabel(language, id)}</span>}</button>; })}</div>;
 }
 
 async function makeWatermarkedImage(api: PicLiteBridge, item: ResultItem, watermark: FloatingWatermark) {
@@ -611,8 +615,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   const timer = useRef<number | null>(null);
   const operationNoticeTimer = useRef<number | null>(null);
   const resizeTimer = useRef<number | null>(null);
-  const swipeStartY = useRef<number | null>(null);
-  const wheelLocked = useRef(false);
+
   const autoUpdateCheckStartedRef = useRef(false);
   const cleanupRetentionSeconds = cleanupSeconds(settings);
   const watcherArrival = useRef(0);
@@ -865,15 +868,24 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     } catch (error) { showOperationNotice(error instanceof Error ? error.message : String(error), "error"); }
     finally { coverRunning.current.delete(item.id); }
   }, [api, reoptimise, settings.language, settings.filePlacement, settings.outputFolder, showOperationNotice]);
-  const rotateResults = (direction: 1 | -1) => {
+  const rotateResults = (fromId: string) => {
     if (results.length < 2) return;
-    setSelectedId((current) => {
-      const index = Math.max(0, results.findIndex((item) => item.id === current));
-      return results[(index + direction + results.length) % results.length].id;
-    });
+    const index = Math.max(0, results.findIndex(item => item.id === fromId));
+    const next = results[(index + 1) % results.length];
+    setSelectedId(next.id);
+    const slot = Array.from(windowRoot.current?.querySelectorAll<HTMLElement>(".floating-result-slot") || []).find(element => element.dataset.resultId === next.id);
+    slot?.scrollIntoView({ block: "start", behavior: "instant" });
   };
+  useLayoutEffect(() => {
+    if (!selectedId || collapsed) return;
+    const slot = Array.from(windowRoot.current?.querySelectorAll<HTMLElement>(".floating-result-slot") || []).find(element => element.dataset.resultId === selectedId);
+    slot?.scrollIntoView({ block: "start", behavior: "instant" });
+  }, [selectedId, collapsed]);
   const currentResult = results.find(item => item.id === selectedId) || results[0];
-  const visibleResults = settings.floatingDisplayMode === "stack" ? (currentResult ? [currentResult] : []) : results;
+  const clipboardMonitor = useClipboardMonitor(api);
+  const toggleClipboardMonitor = () => {
+    void clipboardMonitor.update(!clipboardMonitor.paused).then(() => showOperationNotice(clipboardMonitor.paused ? tr(settings.language, "已恢复剪贴板检测", "Clipboard monitoring resumed") : tr(settings.language, "已临时关闭剪贴板检测", "Clipboard monitoring temporarily disabled"))).catch(error => showOperationNotice(String(error), "error"));
+  };
   const imageTone = useFloatingTone(currentResult?.preview);
   const compressionNotice = operationNotice?.text || updateNotice?.text;
   const smartCompressionEnabled = settings.preset.mode === "auto";
@@ -913,8 +925,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   if (collapsed) {
     return <main className="floating-results is-collapsed"><FloatingCollapsedLogo api={api} language={settings.language} busy={collapseBusy} expand={() => void changeCollapsed(false)} /></main>;
   }
-  return <main ref={windowRoot} data-floating-alpha-clip={api.platform === "win32" || undefined} data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-${settings.floatingDisplayMode} ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
-    {settings.floatingDisplayMode === "stack" && currentResult?.preview && <div className="floating-window-image" aria-hidden="true"><FloatingPreviewImage src={currentResult.preview} alt="" width={currentResult.width} height={currentResult.height}/></div>}
+  return <ClipboardMonitorContext.Provider value={{ paused: clipboardMonitor.paused, toggle: toggleClipboardMonitor }}><main ref={windowRoot} data-floating-alpha-clip={api.platform === "win32" || undefined} data-controls-visible={focusInside || editorInteracting} data-image-tone={imageTone} data-floating-style="immersive" style={{"--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px`} as React.CSSProperties} className={`floating-results ${settings.floatingLayout} display-list ${!results.length ? "is-empty" : "has-image"} ${settings.floatingClickThrough ? "is-click-through" : ""}`} onMouseEnter={() => setPointerInside(true)} onMouseLeave={() => setPointerInside(false)} onFocusCapture={() => setFocusInside(!!document.querySelector(".floating-results :focus-visible"))} onBlurCapture={(event) => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusInside(false);}}>
     {!results.length ? <section className="floating-empty" onPointerDown={startEmptyWindowDrag}>
       <DropSurface language={settings.language} active={dragging} />
       <div className="floating-empty-footer">
@@ -928,17 +939,17 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
         </div>
       </div>
     </section> : <>
-      <div className={`floating-list ${settings.floatingDisplayMode}`} onClick={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) rotateResults(1); }} onWheel={(event) => { if (settings.floatingDisplayMode !== "stack" || Math.abs(event.deltaY) < 4 || wheelLocked.current) return; event.preventDefault(); wheelLocked.current = true; rotateResults(event.deltaY > 0 ? 1 : -1); window.setTimeout(() => { wheelLocked.current = false; }, 180); }} onPointerDown={(event) => { if (settings.floatingDisplayMode === "stack" && !(event.target as HTMLElement).closest("button, input, select, a")) swipeStartY.current = event.clientY; }} onPointerUp={(event) => { if (swipeStartY.current == null) return; const delta = event.clientY - swipeStartY.current; swipeStartY.current = null; if (Math.abs(delta) > 28) rotateResults(delta < 0 ? 1 : -1); }}>{visibleResults.map((item, index) => {
+      <div className="floating-list list">{results.map((item) => {
         const active = currentResult?.id === item.id;
-        return <div className="floating-result-slot" key={item.id} style={{ "--stack-index": index } as React.CSSProperties}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(1); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
+        return <div className="floating-result-slot" key={item.id} data-result-id={item.id}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(item.id); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button><button title={tr(settings.language, settings.floatingDisplayMode === "stack" ? "展开结果" : "堆叠结果", settings.floatingDisplayMode === "stack" ? "Expand results" : "Stack results")} onClick={() => setSettings((current) => ({ ...current, floatingDisplayMode: current.floatingDisplayMode === "stack" ? "list" : "stack" }))}><Icon name="menu" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="results" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="clear" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
-  </main>;
+  </main></ClipboardMonitorContext.Provider>;
 }
 
 function BatchOptimiser({ api }: { api: PicLiteBridge }) {
@@ -1012,7 +1023,7 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
-const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "cover", "watermark", "preview", "reveal", "gallery"];
+const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "cover", "watermark", "preview", "reveal", "gallery", "clipboard-monitor"];
 
 function floatingActionLabel(language: Language, action: FloatingAction) {
   return ({
@@ -1025,13 +1036,14 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
     copy: tr(language, "复制", "Copy"),
     preview: tr(language, "预览", "Preview"),
     reveal: tr(language, "定位", "Reveal"),
+    "clipboard-monitor": tr(language, "剪贴板检测开关", "Clipboard monitoring"),
     gallery: tr(language, "图库", "Library"),
     upload: tr(language, "图床", "Upload"),
   } as Record<FloatingAction, string>)[action];
 }
 
 function floatingActionIcon(action: FloatingAction) {
-  return ({ cover:"image", quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
+  return ({ "clipboard-monitor":"clipboard", cover:"image", quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
 }
 
 function SettingsRow({ title, note, children }: { title: React.ReactNode; note?: React.ReactNode; children: React.ReactNode }) {
@@ -1047,6 +1059,8 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const [workbenchFiles, setWorkbenchFiles] = useState<WorkbenchFileSettings>(loadWorkbenchFileSettings);
   const [section, setSection] = useState<SettingsSection>(requestedSettingsSection);
   const [updateText, setUpdateText] = useState("");
+  const [autostartStatus, setAutostartStatus] = useState("");
+  const clipboardMonitor = useClipboardMonitor(api);
   const [recordingShortcut, setRecordingShortcut] = useState<"shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent" | null>(null);
   const [shortcutStatus, setShortcutStatus] = useState("");
   const [cleanupText, setCleanupText] = useState("");
@@ -1068,7 +1082,7 @@ function Preferences({ api }: { api: PicLiteBridge }) {
     localStorage.setItem(MAIN_DESKTOP_PREFERENCES_KEY, JSON.stringify({ ...existing, ...next }));
     return next;
   });
-  useEffect(() => { void isAutostartEnabled().then((value) => patch("launchAtLogin", value)).catch(() => undefined); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void getLaunchAtLogin().then((value) => patch("launchAtLogin", value)).catch(error => setAutostartStatus(String(error))); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     void api.setWindowTheme(settings.appearance);
     void api.updateDesktopPreferences({
@@ -1128,8 +1142,11 @@ function Preferences({ api }: { api: PicLiteBridge }) {
 
 
   const toggleAutostart = async (value: boolean) => {
-    if (value) await enableAutostart(); else await disableAutostart();
-    patch("launchAtLogin", value);
+    try {
+      const actual = await setLaunchAtLogin(value);
+      patch("launchAtLogin", actual);
+      setAutostartStatus(tr(language, actual ? "已启用，登录后静默进入菜单栏" : "已关闭登录时启动", actual ? "Enabled; starts quietly in the menu bar" : "Launch at login disabled"));
+    } catch (error) { setAutostartStatus(String(error)); }
   };
   const chooseOutput = async () => {
     const path = await api.selectFolder("export");
@@ -1273,8 +1290,8 @@ function Preferences({ api }: { api: PicLiteBridge }) {
             ] as const).map(([value, label]) => <button type="button" className={`settings-palette ${value} ${settings.colorTheme === value ? "active" : ""}`} aria-pressed={settings.colorTheme === value} key={value} onClick={() => patch("colorTheme", value)}><span aria-hidden="true"><i /><i /><i /></span><b>{label}</b></button>)}
           </div></SettingsRow>
           <InterfaceTypographyControls language={language} bridge={api}/>
-          <SettingsRow title={<T language={language} zh="登录时启动" en="Launch at login" />}><Switch label="launch" checked={settings.launchAtLogin} onChange={(value) => void toggleAutostart(value)} /></SettingsRow>
-          <SettingsRow title={<T language={language} zh="暂停自动优化" en="Pause automatic optimisations" />} note={<T language={language} zh="保留菜单栏功能，但暂停监测和自动处理" en="Keep PicLite running without automatic processing" />}><Switch label="pause" checked={settings.pauseAutomaticOptimisations} onChange={(value) => patch("pauseAutomaticOptimisations", value)} /></SettingsRow>
+          <SettingsRow title={<T language={language} zh="登录时启动" en="Launch at login" />} note={autostartStatus}><Switch label="launch" checked={settings.launchAtLogin} onChange={(value) => void toggleAutostart(value)} /></SettingsRow>
+          <SettingsRow title={<T language={language} zh="临时关闭剪贴板检测" en="Temporarily disable clipboard monitoring" />} note={<T language={language} zh="仅暂停剪贴板自动检测，文件夹监测和手动处理照常；重启后恢复" en="Pauses clipboard detection only; folder monitoring and manual actions continue. Resets after restarting." />}><Switch label="pause clipboard" checked={clipboardMonitor.paused} onChange={value => { void clipboardMonitor.update(value).catch(error => setAutostartStatus(String(error))); }} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="在任务栏 / Dock 显示" en="Show in taskbar / Dock" />} note={settings.showInTaskbarDock ? <T language={language} zh="主窗口失焦后保持显示，可从任务栏或 Dock 随时切换回来" en="Keep the main window available from the taskbar or Dock when it loses focus" /> : <T language={language} zh="不占用任务栏或 Dock，主窗口失焦后隐藏到托盘或菜单栏" en="Hide the main window to the tray or menu bar when it loses focus" />}><Switch label="taskbar dock" checked={settings.showInTaskbarDock} onChange={(value) => patch("showInTaskbarDock", value)} /></SettingsRow>
         </SettingsCard>
         <SettingsCard title={<T language={language} zh="优化" en="Optimisation" />}>
@@ -1352,7 +1369,6 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="显示悬浮结果" en="Show floating results" />}><Switch label="floating" checked={settings.enableFloatingResults} onChange={(value) => patch("enableFloatingResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="允许截图 / 录屏捕获" en="Allow screenshot / recording capture" />} note={settings.allowFloatingCapture ? <T language={language} zh="悬浮窗会出现在系统截图和录屏中" en="The floating window can appear in screenshots and recordings" /> : <T language={language} zh="使用系统内容保护隐藏悬浮窗；部分第三方采集工具可能不遵守此设置" en="Hide the floating window using OS content protection; some third-party capture tools may ignore it" />}><Switch label="screen capture" checked={settings.allowFloatingCapture} onChange={(value) => patch("allowFloatingCapture", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="屏幕位置" en="Position on screen" />}><Select label="corner" value={settings.floatingCorner} onChange={(value) => patch("floatingCorner", value)}><option value="bottom-right">{tr(language, "右下角", "Bottom right")}</option><option value="bottom-left">{tr(language, "左下角", "Bottom left")}</option><option value="top-right">{tr(language, "右上角", "Top right")}</option><option value="top-left">{tr(language, "左上角", "Top left")}</option></Select></SettingsRow>
-        <SettingsRow title={<T language={language} zh="结果展示方式" en="Result presentation" />} note={<T language={language} zh="堆叠占用更少空间，展开可连续浏览" en="Stacked uses less space; list shows every result" />}><div className="segmented"><button className={settings.floatingDisplayMode === "stack" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "stack")}>{tr(language, "堆叠", "Stacked")}</button><button className={settings.floatingDisplayMode === "list" ? "active" : ""} onClick={() => patch("floatingDisplayMode", "list")}>{tr(language, "展开", "List")}</button></div></SettingsRow>
         <SettingsRow title={<T language={language} zh="最多保留结果" en="Maximum results" />} note={<T language={language} zh="超过数量时自动移除最早的结果" en="The oldest result is dismissed when the limit is reached" />}><span className="number-field"><input type="number" min="1" max="20" value={settings.floatingMaxResults} onChange={(event) => patch("floatingMaxResults", Math.max(1, Math.min(20, Number(event.target.value) || 1)))} /> {tr(language, "张", "images")}</span></SettingsRow>
         <SettingsRow title={<T language={language} zh="悬浮按钮" en="Floating actions" />} note={<T language={language} zh="已移到“悬浮按钮”页面，可配置顺序和最多 6 个功能。" en="Configure the order and up to six actions on the Action Buttons page." />}><button className="settings-button" onClick={() => setSection("zones")}><T language={language} zh="配置按钮" en="Configure actions" /></button></SettingsRow>
         <SettingsRow title={<T language={language} zh="水印文字与字体" en="Watermark text and font" />} note={fontStatus}><span className="inline-fields"><input value={settings.floatingWatermark.text} onChange={(event) => patch("floatingWatermark", { ...settings.floatingWatermark, text: event.target.value })} /><select value={settings.floatingWatermark.fontFamily} onChange={(event) => void selectWatermarkFont(event.target.value)}><option value={settings.floatingWatermark.fontFamily}>{settings.floatingWatermark.fontFamily}</option>{[...new Set(systemFonts.map((font) => font.family))].filter((font) => font !== settings.floatingWatermark.fontFamily).sort().map((font) => <option key={font} value={font}>{font}</option>)}</select><button className="settings-button" onClick={() => void refreshFonts()}>{tr(language, "读取系统字体", "Scan fonts")}</button><button className="settings-button" onClick={() => fontInputRef.current?.click()}>{tr(language, "导入字体", "Import font")}</button></span></SettingsRow>
@@ -1361,10 +1377,9 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         <SettingsRow title={<T language={language} zh="自动隐藏" en="Auto hide" />}><Switch label="hide" checked={settings.autoHideResults} onChange={(value) => patch("autoHideResults", value)} /></SettingsRow>
         <SettingsRow title={<T language={language} zh="结果保留时间" en="Dismiss result after" />}><span className="number-field"><input type="number" min="1" max="300" value={settings.autoHideSeconds} onChange={(event) => patch("autoHideSeconds", Math.max(1, Number(event.target.value)))} /> {tr(language, "秒", "seconds")}</span></SettingsRow>
         <div className="floating-preview" aria-hidden="true" inert style={{ "--floating-radius": `${floatingRadius(settings.floatingCornerRadius)}px` } as React.CSSProperties}>
-          <div className="floating-results has-image display-stack" data-floating-style="immersive">
-            <div className="floating-window-image"><FloatingPreviewImage src={`${import.meta.env.BASE_URL}studio-coast.webp`} alt="" width={1536} height={1024} /></div>
-            <div className="floating-list stack"><ResultCard item={{ id: "preview", source: "example-photo.jpg", output: "example-photo-piclite.webp", preview: `${import.meta.env.BASE_URL}studio-coast.webp`, originalBytes: 750000, outputBytes: 211000, keptOriginal: false, status: "done", width: 1536, height: 1024 }} api={api} settings={settings} active pageControl={<span className="floating-result-next">1/3</span>} select={() => undefined} remove={() => undefined} downscale={() => undefined} watermark={() => undefined} upload={() => undefined} undo={() => undefined} updateFormat={() => undefined} /></div>
-            <footer className="floating-footer"><span className="automatic-badge"><Icon name="spark" /></span><div>{["pointer-through", "minus", "results", "menu", "clear", "close"].map(name => <button tabIndex={-1} key={name}><Icon name={name} /></button>)}</div></footer>
+          <div className="floating-results has-image display-list" data-floating-style="immersive">
+            <div className="floating-list list"><div className="floating-result-slot"><ResultCard item={{ id: "preview", source: "example-photo.jpg", output: "example-photo-piclite.webp", preview: `${import.meta.env.BASE_URL}studio-coast.webp`, originalBytes: 750000, outputBytes: 211000, keptOriginal: false, status: "done", width: 1536, height: 1024 }} api={api} settings={settings} active pageControl={<span className="floating-result-next">1/3</span>} select={() => undefined} remove={() => undefined} downscale={() => undefined} watermark={() => undefined} upload={() => undefined} undo={() => undefined} updateFormat={() => undefined} /></div></div>
+            <footer className="floating-footer"><span className="automatic-badge"><Icon name="spark" /></span><div>{["pointer-through", "minus", "results", "clear", "close"].map(name => <button tabIndex={-1} key={name}><Icon name={name} /></button>)}</div></footer>
           </div>
         </div>
       </SettingsCard>}

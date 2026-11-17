@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   allowFloatingCapture: false,
   floatingStyle: "immersive",
   floatingLayout: "compact",
-  floatingDisplayMode: "stack",
+  floatingDisplayMode: "list",
   floatingMaxResults: 5,
   floatingClickThrough: false,
   floatingCorner: "bottom-right",
@@ -136,6 +136,13 @@ function repairWindowsClipboardPreference(
 export function loadSettings(): DesktopSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Partial<DesktopSettings>;
+    // Migrate the retired stack/global-pause controls so an old saved pause
+    // cannot silently keep automatic work disabled with no control to resume it.
+    if (parsed.floatingDisplayMode !== "list" || parsed.pauseAutomaticOptimisations === true) {
+      parsed.floatingDisplayMode = "list";
+      parsed.pauseAutomaticOptimisations = false;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed));
+    }
     const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Partial<{ language: Language; theme: Appearance; colorTheme: ColorTheme; autoCheckUpdates: boolean; updateCheckFrequency: UpdateCheckFrequency; showInTaskbarDock: boolean; allowFloatingCapture: boolean; clipboardWatcherEnabled: boolean; autoCopyDropResults: boolean; shortcutsEnabled: boolean; shortcutDock: string; shortcutPaste: string; shortcutShow: string; shortcutGallery: string; shortcutUpload: string; renameTemplate: string }>;
     const preset = { ...DEFAULT_SETTINGS.preset, ...(parsed.preset || {}) } as OptimisationPreset;
     if (preset.mode !== "manual") preset.mode = "auto";
@@ -172,6 +179,8 @@ export function loadSettings(): DesktopSettings {
       floatingWidth: Math.max(280, Number(parsed.floatingWidth) || DEFAULT_SETTINGS.floatingWidth),
       floatingHeight: Math.max(220, Number(parsed.floatingHeight) || DEFAULT_SETTINGS.floatingHeight),
       floatingStyle: "immersive",
+      floatingDisplayMode: "list",
+      pauseAutomaticOptimisations: false,
       floatingCornerRadius: parsed.floatingSurfaceVersion !== 2 && parsed.floatingCornerRadius === 10 ? 24 : floatingRadius(parsed.floatingCornerRadius),
       floatingSurfaceVersion: 2,
       floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
@@ -195,7 +204,7 @@ export function loadSettings(): DesktopSettings {
 }
 
 export function saveSettings(settings: DesktopSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, floatingDisplayMode: "list" }));
   try {
     const mainPreferences = JSON.parse(localStorage.getItem(MAIN_DESKTOP_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
     localStorage.setItem(MAIN_DESKTOP_PREFERENCES_KEY, JSON.stringify({

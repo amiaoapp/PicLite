@@ -90,6 +90,7 @@ jobs:
           node tests/cover-entrypoints-ui.mjs
           node tests/clipboard-roundtrip-ui.mjs
           node tests/floating-completion-ui.mjs
+          node tests/floating-session-controls-ui.mjs
       - name: MCP protocol integration tests
         shell: bash
         env:

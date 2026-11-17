@@ -1,3 +1,5 @@
+mod autostart;
+mod clipboard_monitor;
 mod mcp;
 pub fn run_mcp() {
     mcp::run();
@@ -100,6 +102,8 @@ struct DesktopState {
     minimize_to_tray: AtomicBool,
     show_in_taskbar_dock: AtomicBool,
     clipboard_monitor_enabled: AtomicBool,
+    clipboard_monitor_control: clipboard_monitor::ClipboardMonitorControl,
+    clipboard_pause_menu: Mutex<Option<MenuItem<tauri::Wry>>>,
     /// Timestamp until which clipboard content was written by PicLite itself.
     /// The monitor must record it but must not feed the result back through the
     /// compressor, otherwise a copied result would be compressed repeatedly.
@@ -131,6 +135,8 @@ impl Default for DesktopState {
             minimize_to_tray: AtomicBool::new(true),
             show_in_taskbar_dock: AtomicBool::new(true),
             clipboard_monitor_enabled: AtomicBool::new(false),
+            clipboard_monitor_control: Default::default(),
+            clipboard_pause_menu: Mutex::new(None),
             clipboard_ignore_until_ms: AtomicU64::new(0),
             shortcut_config_lock: Mutex::new(()),
             floating_corner: Mutex::new("bottom-right".to_string()),
@@ -3510,6 +3516,31 @@ async fn compress_animation_with_watermark_base64(
     compress_animation_with_watermark_data(decoded, file_name, settings, watermark)
 }
 
+fn apply_clipboard_monitor_pause(app: &AppHandle, paused: bool) -> bool {
+    let state = app.state::<DesktopState>();
+    state.clipboard_monitor_control.set_paused(paused);
+    if paused {
+        if let Ok(mut pending) = state.pending_clipboard.lock() { *pending = None; }
+    }
+    if let Ok(menu) = state.clipboard_pause_menu.lock() {
+        if let Some(menu) = menu.as_ref() {
+            let _ = menu.set_text(if paused { "恢复剪贴板检测" } else { "临时关闭剪贴板检测" });
+        }
+    }
+    let _ = app.emit("clipboard:monitor-paused", paused);
+    paused
+}
+
+#[tauri::command]
+fn get_clipboard_monitor_paused(state: State<'_, DesktopState>) -> bool {
+    state.clipboard_monitor_control.paused()
+}
+
+#[tauri::command]
+fn set_clipboard_monitor_paused(app: AppHandle, paused: bool) -> bool {
+    apply_clipboard_monitor_pause(&app, paused)
+}
+
 #[tauri::command]
 async fn update_desktop_preferences(
     preferences: NativeDesktopPreferences,
@@ -3781,6 +3812,7 @@ async fn take_pending_corner_drop(state: State<'_, DesktopState>) -> Result<Vec<
 async fn take_pending_clipboard(
     state: State<'_, DesktopState>,
 ) -> Result<Option<PendingClipboard>, String> {
+    if state.clipboard_monitor_control.paused() { return Ok(None); }
     Ok(state
         .pending_clipboard
         .lock()
@@ -6251,7 +6283,8 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         &[&upload_current, &image_host_settings],
     )?;
 
-    let pause = MenuItem::with_id(app, "pause_automatic", "暂停自动优化", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "pause_clipboard", "临时关闭剪贴板检测", true, None::<&str>)?;
+    *app.state::<DesktopState>().clipboard_pause_menu.lock().unwrap() = Some(pause.clone());
     let check_updates = MenuItem::with_id(app, "check_updates", "检查更新", true, None::<&str>)?;
     let about = MenuItem::with_id(app, "about", "关于 PicLite", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "完全退出 PicLite", true, None::<&str>)?;
@@ -6285,6 +6318,10 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
+            "pause_clipboard" => {
+                let paused = app.state::<DesktopState>().clipboard_monitor_control.paused();
+                apply_clipboard_monitor_pause(app, !paused);
+            }
             "show" => show_window(app, "main"),
             "preferences" => open_preferences_from_menu(app, None),
             "image_host_settings" => {
@@ -6555,7 +6592,9 @@ async fn open_external_url(url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())?
 }
 
-fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>) {
+fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>, revision: u64) {
+    let state = app.state::<DesktopState>();
+    if state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
     if app.get_webview_window("dropzone").is_none() {
         if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
             *pending = Some(PendingClipboard::Paths { paths });
@@ -6566,7 +6605,9 @@ fn deliver_clipboard_paths(app: &AppHandle, paths: Vec<String>) {
     }
 }
 
-fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage) {
+fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage, revision: u64) {
+    let state = app.state::<DesktopState>();
+    if state.clipboard_monitor_control.revision() != revision || !state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)) { return; }
     if app.get_webview_window("dropzone").is_none() {
         if let Ok(mut pending) = app.state::<DesktopState>().pending_clipboard.lock() {
             *pending = Some(PendingClipboard::Image { data: image.data, name: image.name, mime: image.mime });
@@ -6579,20 +6620,28 @@ fn deliver_clipboard_image(app: &AppHandle, image: ClipboardImage) {
 
 fn start_clipboard_monitor(app: AppHandle) {
     thread::spawn(move || {
+        let mut pause_revision = 0;
+        let mut baseline_after_resume = false;
         let mut was_enabled = false;
         let mut last_fingerprint: Option<String> = None;
         let mut last_change_token: Option<u64> = None;
         loop {
-            let (enabled, quitting, ignore_until_ms) = {
+            let (enabled, quitting, ignore_until_ms, revision) = {
                 let state = app.state::<DesktopState>();
                 (
-                    state.clipboard_monitor_enabled.load(Ordering::Relaxed),
+                    state.clipboard_monitor_control.enabled(state.clipboard_monitor_enabled.load(Ordering::Relaxed)),
                     state.quitting.load(Ordering::Relaxed),
                     state.clipboard_ignore_until_ms.load(Ordering::Relaxed),
+                    state.clipboard_monitor_control.revision(),
                 )
             };
-            if quitting {
-                return;
+            if quitting { return; }
+            if revision != pause_revision {
+                pause_revision = revision;
+                baseline_after_resume = true;
+                was_enabled = false;
+                last_fingerprint = None;
+                last_change_token = None;
             }
             if !enabled {
                 was_enabled = false;
@@ -6632,7 +6681,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                             last_fingerprint.as_deref() != Some(fingerprint.as_str());
                         let should_deliver = clipboard_payload_is_new(
                             was_enabled,
-                            cfg!(target_os = "windows"),
+                            cfg!(target_os = "windows") && !baseline_after_resume,
                             change_token,
                             last_change_token,
                             fingerprint_changed,
@@ -6640,7 +6689,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                         last_fingerprint = Some(fingerprint);
                         was_enabled = true;
                         if should_deliver && !ignored {
-                            deliver_clipboard_paths(&app, paths);
+                            deliver_clipboard_paths(&app, paths, revision);
                         }
                     }
                     true
@@ -6655,7 +6704,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                                 last_fingerprint.as_deref() != Some(fingerprint.as_str());
                             let should_deliver = clipboard_payload_is_new(
                                 was_enabled,
-                                cfg!(target_os = "windows"),
+                                cfg!(target_os = "windows") && !baseline_after_resume,
                                 change_token,
                                 last_change_token,
                                 fingerprint_changed,
@@ -6663,7 +6712,7 @@ fn start_clipboard_monitor(app: AppHandle) {
                             last_fingerprint = Some(fingerprint);
                             was_enabled = true;
                             if should_deliver && !ignored {
-                                if let Ok(encoded)=image.into_encoded() {deliver_clipboard_image(&app, encoded);}
+                                if let Ok(encoded)=image.into_encoded() {deliver_clipboard_image(&app, encoded, revision);}
                             }
                             true
                         }
@@ -6681,6 +6730,7 @@ fn start_clipboard_monitor(app: AppHandle) {
             // consume the sequence number until the payload was read, so the
             // next poll retries instead of losing that clipboard change.
             if observed {
+                baseline_after_resume = false;
                 last_change_token = change_token;
             }
             // A lightweight counter check at this cadence feels immediate to
@@ -6735,6 +6785,8 @@ pub fn run() {
             start_clipboard_monitor(app.handle().clone());
             click_through::start(app.handle().clone());
             if std::env::args().any(|argument| argument == "--minimized") {
+                #[cfg(target_os = "macos")]
+                app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory)?;
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }
@@ -6839,6 +6891,10 @@ pub fn run() {
             preview_batch_rename,
             apply_batch_rename,
             update_desktop_preferences,
+            get_clipboard_monitor_paused,
+            set_clipboard_monitor_paused,
+            autostart::get_launch_at_login,
+            autostart::set_launch_at_login,
             set_tray_theme,
             check_for_updates,
             fetch_plugin_source,

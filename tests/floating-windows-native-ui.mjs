@@ -74,7 +74,7 @@ try {
     };
     await ev('picLite.setContentProtected(false)');
     const preset = await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset');
-    for (const mode of ['stack','list']) for (const [width,height] of [[246,188],[392,300]]) {
+    for (const mode of ['list']) for (const [width,height] of [[246,188],[392,300]]) {
       await ev(`(()=>{picLite.resizeDropzoneWindow(${width},${height});const key='piclite.desktop.clop-settings.v1';localStorage.setItem(key,JSON.stringify({...JSON.parse(localStorage.getItem(key)),floatingDisplayMode:'${mode}'}));dispatchEvent(new StorageEvent('storage',{key}));})()`);
       await wait(`Math.abs(innerWidth-${width})<=1 && document.querySelector('main')?.classList.contains('display-${mode}')`);
       const empty=await ev(`(()=>{const f=document.querySelector('.floating-empty-footer'),r=f.getBoundingClientRect();return{bottom:r.bottom,hits:[...f.querySelectorAll('button')].map(b=>{const p=b.getBoundingClientRect();return p.width>0&&document.elementFromPoint(p.x+p.width/2,p.y+p.height/2)?.closest('button')===b})}})()`);
@@ -155,21 +155,23 @@ try {
     }
     await ev(`localStorage.setItem('piclite.desktopPreferences.v1',JSON.stringify({...JSON.parse(localStorage.getItem('piclite.desktopPreferences.v1')),floatingStyle:'immersive'}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}))`);
     await wait('!!document.querySelector(".floating-result-next")');
-    for(let n=0;n<4;n++) {report.pages.push(await ev('document.querySelector(".floating-result-next").textContent'));await click('.floating-result-next');}
+    for(let n=0;n<4;n++) {report.pages.push(await ev(`(()=>{const list=document.querySelector('.floating-list');return [...list.querySelectorAll('.floating-result-next')].find(b=>b.getBoundingClientRect().top>=0&&b.getBoundingClientRect().top<innerHeight)?.textContent})()`));await ev(`(()=>{const list=document.querySelector('.floating-list');[...list.querySelectorAll('.floating-result-next')].find(b=>b.getBoundingClientRect().top>=0&&b.getBoundingClientRect().top<innerHeight)?.click()})()`);}
     assert.deepEqual(report.pages,['1/3','2/3','3/3','1/3']);
     const order=async()=>{
-      await click('.floating-footer button[title="Expand results"]');await wait('!!document.querySelector(".floating-list.list")');
+      await wait('!!document.querySelector(".floating-list.list")');
       assert.equal(await ev('getComputedStyle(document.querySelector("main")).backgroundImage'),'none','expanded results have no shared image backdrop');
       await wait(`(()=>{const c=document.querySelector('.integrated-result-card').getBoundingClientRect();return Math.abs(c.width/c.height-innerWidth/innerHeight)<.01})()`);
       const cardLayout=await ev(`[...document.querySelectorAll('.integrated-result-card')].map(c=>{const r=c.getBoundingClientRect();return{width:r.width,height:r.height,image:!!c.querySelector('.floating-card-image img')}})`);
       assert.ok(cardLayout.every(c=>c.image&&Math.abs(c.width-460)<1&&Math.abs(c.height-360)<1),JSON.stringify(cardLayout));
       report.expanded=cardLayout;
       const images=await ev('[...document.querySelectorAll(".result-metrics")].map(i=>i.textContent)');
-      await click('.floating-footer button[title="Stack results"]');await wait('!!document.querySelector(".floating-list.stack")');
+      assert.equal(await ev('!!document.querySelector(".floating-list.stack")'),false);
       return images;
     };
+    await ev('document.querySelector(".floating-list").scrollTo(0,0)');
     const before=await order();assert.equal(before.length,3);assert.equal(new Set(before).size,3);
     await click('.floating-result-next');assert.deepEqual(await order(),before);
+    await ev('document.querySelector(".floating-list").scrollTo(0,0)');
     assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
     await ev(`localStorage.setItem('piclite.cover-preset.v1',JSON.stringify({version:1,ui:{canvasW:'640',canvasH:'360',innerSize:'200',transparent:false,bgColor:'#1555aa',textContent:'Native cover',format:'image/webp',qualityNum:'77'},pos:{iconPos:{x:320,y:180},textPos:{x:320,y:300}},images:{bg:null}}));const original=picLite.quickCompressPaths.bind(picLite);picLite.quickCompressPaths=async(...args)=>{window.coverCompressionArgs=args;const result=await original(...args);window.coverCompressionResult=result;return result;}`);
     const beforeCover=await ev('document.querySelector(".result-metrics").textContent');

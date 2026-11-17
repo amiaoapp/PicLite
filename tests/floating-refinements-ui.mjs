@@ -34,12 +34,12 @@ await floatingBrowser(async({send,evaluate:ev,wait,click})=>{
  assert.equal(await ev('getComputedStyle(document.querySelector(".result-metrics")).visibility'),'visible','mouse click focus does not pin overlay');
  // Keyboard users retain visible controls until focus leaves the window.
  await ev(`document.activeElement?.blur()`);await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
- await wait(`!!document.querySelector(':focus-visible')`);assert.equal(await ev('getComputedStyle(document.querySelector(".floating-card-header .floating-card-icon")).opacity'),'1');await ev('document.activeElement.blur()');
- await click('.floating-footer button[title="Expand results"]');await wait('!!document.querySelector(".floating-list.list")');
+ await wait(`!!document.querySelector(':focus-visible')`);await wait(`getComputedStyle(document.querySelector('.result-card:has(:focus-visible) .floating-card-header .floating-card-icon')).opacity==='1'`);await ev('document.activeElement.blur();document.querySelector(".floating-list").scrollTo(0,0)');
+ await wait('!!document.querySelector(".floating-list.list")');
  assert.equal(await ev('getComputedStyle(document.querySelector("main")).backgroundImage'),'none');assert.equal(await ev('!!document.querySelector(".floating-window-image")'),false);
  const cards=await ev(`[...document.querySelectorAll('.floating-result-slot')].map(e=>({src:e.querySelector('img').src,radius:getComputedStyle(e.querySelector('.result-card')).borderRadius}))`);assert.equal(cards.length,3);assert.equal(new Set(cards.map(c=>c.src)).size,3);assert.ok(cards.every(c=>c.radius==='24px'));
  shot=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${artifacts}/expanded.png`,Buffer.from(shot.data,'base64'));
- await click('.floating-footer button[title="Stack results"]');await wait('!!document.querySelector(".floating-list.stack")');
+ assert.equal(await ev('!!document.querySelector(".floating-list.stack")'),false);
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:320,y:120});
  await click('.cover-window-trigger');await wait(`document.querySelector('.automatic-badge').textContent.includes('封面制作')`);assert.equal(await ev('calls.filter(c=>c[0]==="compress").length'),0);
  await ev(`window.notices=[];new MutationObserver(()=>notices.push(document.querySelector('.automatic-badge')?.textContent)).observe(document.querySelector('.automatic-badge'),{childList:true,subtree:true,characterData:true});`);

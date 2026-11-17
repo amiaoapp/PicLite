@@ -30,7 +30,7 @@ import {
 import { useInterfaceStyle } from "./interface-style";
 import { StudioWelcome, StudioStatus } from "./studio-ui";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
-import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+import { getLaunchAtLogin, setLaunchAtLogin } from "../desktop/launch-at-login";
 import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
 import packageManifest from "../package.json";
 import { Icon as HeaderIcon } from "../desktop/clop-icons";
@@ -192,6 +192,9 @@ type NativeBridge = {
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;
   readClipboardPaths: () => Promise<string[]>;
+  getClipboardMonitorPaused: () => Promise<boolean>;
+  setClipboardMonitorPaused: (paused: boolean) => Promise<boolean>;
+  onClipboardMonitorPaused: (callback: (paused: boolean) => void) => () => void;
   takePendingClipboard: () => Promise<{ kind: "paths"; paths: string[] } | ({ kind: "image" } & ClipboardImagePayload) | null>;
   copyImageData: (data: Uint8Array) => Promise<void>;
   copyCompressedData: (data: Uint8Array, fileName: string) => Promise<string>;
@@ -2844,7 +2847,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   useEffect(() => {
     if (!nativeBridge || !("__TAURI_INTERNALS__" in window)) return;
-    void isAutostartEnabled()
+    void getLaunchAtLogin()
       .then((enabled) => setDesktopPreferences((current) => current.launchAtStartup === enabled ? current : { ...current, launchAtStartup: enabled }))
       .catch(() => showToast(t("无法读取系统开机启动状态", "Could not read the launch-at-login setting")));
   }, [nativeBridge, showToast, t]);
@@ -3500,12 +3503,11 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     if (!nativeBridge) return;
     const next = !desktopPreferences.launchAtStartup;
     try {
-      if (next) await enableAutostart();
-      else await disableAutostart();
-      setDesktopPreferences((current) => ({ ...current, launchAtStartup: next }));
+      const actual = await setLaunchAtLogin(next);
+      setDesktopPreferences((current) => ({ ...current, launchAtStartup: actual }));
       showToast(next ? t("已开启开机自启动，将静默进入系统托盘", "Launch at login enabled; PicLite will start quietly in the tray") : t("已关闭开机自启动", "Launch at login disabled"));
-    } catch {
-      showToast(t("开机自启动设置失败，请检查系统权限", "Could not change launch-at-login settings; check system permissions"));
+    } catch (error) {
+      showToast(String(error) || t("开机自启动设置失败，请检查系统权限", "Could not change launch-at-login settings; check system permissions"));
     }
   }, [desktopPreferences.launchAtStartup, nativeBridge, showToast, t]);
 

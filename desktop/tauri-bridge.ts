@@ -58,6 +58,16 @@ if ("__TAURI_INTERNALS__" in window) {
       return result ? { ...result, data: decodeBase64(result.data) } : null;
     },
     readClipboardPaths: () => invoke<string[]>("read_clipboard_paths"),
+    getClipboardMonitorPaused: () => invoke<boolean>("get_clipboard_monitor_paused"),
+    setClipboardMonitorPaused: (paused) => invoke<boolean>("set_clipboard_monitor_paused", { paused }),
+    onClipboardMonitorPaused: (callback) => {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void listen<boolean>("clipboard:monitor-paused", event => callback(event.payload)).then(stop => {
+        if (disposed) stop(); else unlisten = stop;
+      });
+      return () => { disposed = true; unlisten?.(); };
+    },
     takePendingClipboard: async () => {
       const result = await invoke<{ kind: "paths"; paths: string[] } | { kind: "image"; data: string; name?: string; type?: string } | null>("take_pending_clipboard");
       return result?.kind === "image" ? { ...result, kind: "image" as const, data: decodeBase64(result.data) } : result;
@@ -304,11 +314,23 @@ if ("__TAURI_INTERNALS__" in window) {
 } else if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
   const label = new URLSearchParams(location.search).get("window") || "main";
   const noop = async () => undefined;
+  let clipboardMonitorPaused = false;
   window.picLite = {
     platform: platformName(),
     windowLabel: label,
     readClipboardImage: async () => null,
     readClipboardPaths: async () => [],
+    getClipboardMonitorPaused: async () => clipboardMonitorPaused,
+    setClipboardMonitorPaused: async (paused) => {
+      clipboardMonitorPaused = paused;
+      window.dispatchEvent(new CustomEvent("piclite:clipboard-monitor-paused", { detail: paused }));
+      return paused;
+    },
+    onClipboardMonitorPaused: (callback) => {
+      const handler = (event: Event) => callback((event as CustomEvent<boolean>).detail);
+      window.addEventListener("piclite:clipboard-monitor-paused", handler);
+      return () => window.removeEventListener("piclite:clipboard-monitor-paused", handler);
+    },
     takePendingClipboard: async () => null,
     copyImageData: noop,
     copyCompressedData: async (_data, fileName) => `/preview/${fileName}`,
