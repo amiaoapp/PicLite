@@ -3,3 +3,8 @@ services:
     build:
       context: .
     image: piclite:local
+  piclite-mcp:
+    build:
+      context: .
+      target: mcp
+    image: piclite-mcp:local

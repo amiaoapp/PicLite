@@ -9,5 +9,9 @@ node_modules
 outputs
 release
 work
+src-tauri/target
+piclite-mcp-data
+.env
+.env.*
 *.log
 .DS_Store

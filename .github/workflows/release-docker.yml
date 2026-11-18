@@ -21,21 +21,30 @@ concurrency:
   group: docker-publish
   cancel-in-progress: true
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/piclite
-
 jobs:
   build:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             runner: ubuntu-24.04
+            target: runner
+            image: piclite
           - arch: arm64
             runner: ubuntu-24.04-arm
+            target: runner
+            image: piclite
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: mcp
+            image: piclite-mcp
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: mcp
+            image: piclite-mcp
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
@@ -51,31 +60,43 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           labels: |
-            org.opencontainers.image.title=PicLite
-            org.opencontainers.image.description=PicLite self-hosted web application
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=PicLite ${{ matrix.target == 'mcp' && 'authenticated remote MCP service' || 'self-hosted web application' }}
 
       - name: Build native image by digest
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
+          target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=piclite-${{ matrix.arch }}
-          cache-to: type=gha,scope=piclite-${{ matrix.arch }},mode=max
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }},mode=max
           provenance: mode=max
           sbom: true
 
       - name: Set up Node for production browser smoke
-        if: matrix.arch == 'amd64'
+        if: matrix.target == 'runner' && matrix.arch == 'amd64'
         uses: actions/setup-node@v6
         with:
           node-version: "24"
 
+      - name: Set up Node for Docker MCP smoke
+        if: matrix.target == 'mcp'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install dependencies for Docker MCP smoke
+        if: matrix.target == 'mcp'
+        run: npm ci --omit=dev
+
       - name: Smoke test native image and amd64 browser UI
+        if: matrix.target == 'runner'
         timeout-minutes: 6
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -84,10 +105,11 @@ jobs:
           ARTIFACTS: ${{ runner.temp }}/docker-ui-smoke
         run: |
           set -euo pipefail
-          container="piclite-smoke-$SMOKE_ARCH"
+          container="piclite-web-smoke-$SMOKE_ARCH"
           trap 'docker logs "$container" || true; docker rm -f "$container" || true' EXIT
-          docker pull "$IMAGE@$DIGEST"
-          docker run -d --name "$container" -p 127.0.0.1:3456:3456 "$IMAGE@$DIGEST"
+          image="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
+          docker pull "$image@$DIGEST"
+          docker run -d --name "$container" -p 127.0.0.1:3456:3456 "$image@$DIGEST"
           healthy=false
           for attempt in $(seq 1 30); do
             status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
@@ -124,8 +146,40 @@ jobs:
             node tests/docker-ui-smoke.mjs
           fi
 
+      - name: Smoke test authenticated Docker MCP service
+        if: matrix.target == 'mcp'
+        timeout-minutes: 6
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PICLITE_MCP_URL: http://127.0.0.1:3210/mcp
+        run: |
+          set -euo pipefail
+          container="piclite-mcp-smoke-${{ matrix.arch }}"
+          workspace="$RUNNER_TEMP/piclite-mcp-workspace"
+          export PICLITE_MCP_TOKEN="$(openssl rand -hex 32)"
+          mkdir -p "$workspace/input" "$workspace/output"
+          image="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
+          trap 'docker logs "$container" || true; docker rm -f "$container" || true' EXIT
+          docker pull "$image@$DIGEST"
+          docker run -d --name "$container" \
+            --init --user "$(id -u):$(id -g)" --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --tmpfs /tmp:mode=1777,size=64m --memory 1g \
+            -e PICLITE_MCP_TOKEN \
+            -v "$workspace/input:/workspace/input:ro" \
+            -v "$workspace/output:/workspace/output" \
+            -p 127.0.0.1:3210:3210 "$image@$DIGEST"
+          healthy=false
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            if [ "$status" = healthy ]; then healthy=true; break; fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != true ]; then exit 1; fi
+            sleep 3
+          done
+          [ "$healthy" = true ]
+          PICLITE_MCP_TEST_WORKSPACE="$workspace" node tests/mcp-docker-smoke.mjs
+
       - name: Upload production browser smoke evidence
-        if: always() && matrix.arch == 'amd64'
+        if: always() && matrix.target == 'runner' && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v7
         with:
           name: docker-ui-smoke-${{ matrix.arch }}
@@ -144,7 +198,7 @@ jobs:
       - name: Upload tested digest
         uses: actions/upload-artifact@v7
         with:
-          name: image-digest-${{ matrix.arch }}
+          name: image-digest-${{ matrix.image }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -153,11 +207,14 @@ jobs:
     runs-on: ubuntu-24.04
     needs: build
     timeout-minutes: 10
+    strategy:
+      matrix:
+        image: [piclite, piclite-mcp]
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
-          pattern: image-digest-*
+          pattern: image-digest-${{ matrix.image }}-*
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@v4
@@ -173,7 +230,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE }}
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
@@ -188,6 +245,7 @@ jobs:
           set -euo pipefail
           mapfile -t digests < <(find . -maxdepth 1 -type f -printf '%f\n')
           [ "${#digests[@]}" -eq 2 ]
+          image="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
           args=()
           while IFS= read -r tag; do
             [ -z "$tag" ] || args+=(--tag "$tag")
@@ -195,7 +253,7 @@ jobs:
           sources=()
           for digest in "${digests[@]}"; do
             [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
-            sources+=("$IMAGE@sha256:$digest")
+            sources+=("$image@sha256:$digest")
           done
           docker buildx imagetools create "${args[@]}" "${sources[@]}"
-          docker buildx imagetools inspect "$IMAGE:latest"
+          docker buildx imagetools inspect "$image:latest"

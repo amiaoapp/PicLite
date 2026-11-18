@@ -77,7 +77,7 @@ npm run pages:build
 
 ## Agents, plugins and license
 
-Run `piclite --mcp` for the built-in stdio server. Compatible MCP clients can inspect local images, batch compress and resize images or animations, and create covers from configuration. ChatGPT requires an MCP bridge; see the [MCP guide](docs/MCP.md).
+Run `piclite --mcp` for the built-in stdio server. Docker deployments can also enable a separate authenticated remote MCP container for agents on the same server. Compatible MCP clients can inspect images, batch compress and resize images or animations, and create covers from configuration. See the [MCP guide](docs/MCP.md) for authentication, workspace setup and Docker deployment.
 
 Import trusted local HTML/JavaScript plugins in Settings. URL plugins are subject to browser CORS rules. [Plugin development guide](docs/PLUGIN_DEVELOPMENT.en-US.md).
 

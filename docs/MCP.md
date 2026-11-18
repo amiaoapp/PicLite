@@ -34,6 +34,34 @@ PICLITE_BINARY=/Applications/PicLite.app/Contents/MacOS/piclite npm run mcp:http
 
 ChatGPT 的云端不能直接访问本机回环地址。在支持的工作区中使用 [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) 将 stdio 服务或上述 HTTP 服务连接到 ChatGPT，再在自定义 MCP 连接中选择 Tunnel。需要工作区开发者模式及 Platform Tunnel 权限。这些权限与账户设置由用户完成；PicLite 不会自动开放公网或写入客户端配置。也可自行部署带认证的 HTTPS 反向代理后按 [官方接入指南](https://developers.openai.com/plugins/build/app-quickstart) 配置远程 MCP。
 
+## Docker 远程 MCP
+
+Docker 版 MCP 是单独的 `piclite-mcp` 镜像，不影响只运行网页的 `piclite` 镜像。MCP 复用 PicLite Rust 压缩引擎，在服务器容器中处理共享工作目录里的文件，不会把图片上传到 PicLite 服务。
+
+准备服务器目录和 Bearer Token：
+
+```bash
+mkdir -p /opt/piclite-mcp/input /opt/piclite-mcp/output
+openssl rand -hex 32
+```
+
+在 `.env` 中填写 `PICLITE_MCP_TOKEN` 的随机值、`PICLITE_MCP_WORKSPACE=/opt/piclite-mcp`，并将 `PICLITE_MCP_UID` / `PICLITE_MCP_GID` 设为 Agent 服务使用的主机用户 ID（分别可用 `id -u` / `id -g` 查询）。MCP 容器只读挂载 input，压缩结果写入 output；匹配 Agent 的用户 ID 可让它直接读取结果。启用远程 MCP 容器：
+
+```bash
+docker compose --profile mcp pull piclite-mcp
+docker compose --profile mcp up -d piclite-mcp
+```
+
+服务默认只发布到服务器本机 `127.0.0.1:3210`。Agent 在同一台主机时使用 `http://127.0.0.1:3210/mcp`，并配置同一个 Bearer Token；运行在同一个 Compose network 的容器时，可连接 `http://piclite-mcp:3210/mcp`。公网 Agent 应通过 HTTPS 反向代理或私有网络访问，不要把无 TLS 的端口直接暴露到公网。
+
+Agent 与 MCP 容器通过主机目录交接文件。把源图写入 `/opt/piclite-mcp/input/`，MCP 工具参数使用相对路径（如 `input/photo.png`）；结果写到独立的 `output/job-*` 目录，工具返回的相对路径也能在主机目录中读取。允许的图像上限为 32 MiB / 文件、64 MiB / 批次、20 张 / 批次；路径限制在挂载目录内。工具错误不会返回容器内部绝对路径。
+
+自行构建：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml --profile mcp up -d --build piclite-mcp
+```
+
 ## 参数与界面字体隔离
 
 压缩参数省略时仍使用既有默认值；显式传入错误类型（例如 `quality: -1`、`quality: "50"`、`scale: "50"` 或非字符串输出目录）会返回工具错误，不再静默套用默认值。已有数值范围与压缩引擎、预设均不变。
@@ -50,4 +78,4 @@ node tests/mcp-smoke.mjs
 PICLITE_BINARY=/绝对路径/piclite node --test tests/mcp-metadata.test.mjs
 ```
 
-测试使用官方 SDK 连接真实二进制，覆盖 stdio / Streamable HTTP 的初始化、工具列表、配置驱动的透明 PNG 封面、GIF→动态 WebP、缩放、动图帧检查、参数错误和源文件保留。
+测试使用官方 SDK 连接真实二进制，覆盖 stdio / Streamable HTTP 的初始化、工具列表、配置驱动的透明 PNG 封面、GIF→动态 WebP、缩放、动图帧检查、参数错误和源文件保留。Docker MCP 发布前还会验证 Bearer Token、Streamable HTTP、工作目录隔离和真实格式转换。

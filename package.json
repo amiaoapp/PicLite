@@ -1,7 +1,7 @@
 {
   "name": "piclite",
-  "version": "2.1.6",
-  "releaseDate": "2026-11-17",
+  "version": "2.1.7",
+  "releaseDate": "2026-11-18",
   "description": "本地优先、可自托管的跨平台图片与 GIF 压缩工作台",
   "author": {
     "name": "PicLite contributors",
@@ -42,7 +42,6 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@eslint/js": "9.39.4",
-    "@modelcontextprotocol/sdk": "^1.27.1",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/postcss": "4.2.1",
     "@tauri-apps/api": "^2.11.0",
@@ -74,6 +73,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@imagemagick/magick-wasm": "0.0.46",
     "svgo": "4.1.0"
   }

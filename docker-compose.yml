@@ -19,3 +19,47 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+
+  piclite-mcp:
+    image: ghcr.io/amiaoapp/piclite-mcp:${PICLITE_MCP_TAG:-latest}
+    container_name: piclite-mcp
+    profiles: [mcp]
+    restart: unless-stopped
+    user: "${PICLITE_MCP_UID:-10001}:${PICLITE_MCP_GID:-10001}"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    mem_limit: ${PICLITE_MCP_MEMORY:-1g}
+    environment:
+      PICLITE_MCP_HOST: 0.0.0.0
+      PICLITE_MCP_PORT: 3210
+      PICLITE_MCP_WORKSPACE: /workspace
+      PICLITE_MCP_TOKEN: ${PICLITE_MCP_TOKEN:-}
+      RAYON_NUM_THREADS: ${PICLITE_MCP_THREADS:-2}
+    ports:
+      - "${PICLITE_MCP_BIND:-127.0.0.1}:${PICLITE_MCP_PORT:-3210}:3210"
+    volumes:
+      - type: bind
+        source: ${PICLITE_MCP_WORKSPACE:-./piclite-mcp-data}/input
+        target: /workspace/input
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PICLITE_MCP_WORKSPACE:-./piclite-mcp-data}/output
+        target: /workspace/output
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3210/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

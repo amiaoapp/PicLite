@@ -63,7 +63,7 @@
 | 父目录规则批量命名、文件夹监测 | 支持 | 使用桌面端 |
 | 持续剪贴板监听、全局快捷键、目录监测、悬浮窗 | 支持 | 使用桌面端 |
 | 写入原目录或覆盖源文件 | 支持 | 需要浏览器支持文件授权，并手动确认权限 |
-| MCP 本地文件操作 | 内置 stdio 服务 | HTTP 桥接见 [MCP 文档](docs/MCP.md) |
+| MCP 本地文件操作 | 内置 stdio 服务 | 可选独立远程容器，见 [MCP 文档](docs/MCP.md) |
 
 ## 桌面安装与常用工作流
 
@@ -115,7 +115,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ## 智能体与插件
 
-桌面程序内置 MCP。通过 `piclite --mcp` 启动 stdio 服务，智能体可以检查图片、批量压缩和缩放图片/动图，也能按配置生成封面。Claude、Hermes、WorkBuddy 等支持标准 MCP 的客户端可配置使用；ChatGPT 通过 MCP 桥接接入，具体权限与配置见 [MCP 指南](docs/MCP.md)。
+桌面程序内置 MCP。通过 `piclite --mcp` 启动 stdio 服务，智能体可以检查图片、批量压缩和缩放图片/动图，也能按配置生成封面。Docker 部署还可启用独立的远程 MCP 容器，让同服务器上的云端 Agent 直接调用。Claude、Hermes、WorkBuddy 等支持标准 MCP 的客户端可配置使用；远程认证、工作目录和 Docker 部署见 [MCP 指南](docs/MCP.md)。
 
 在桌面端“设置 → 插件”启用内置工具，或导入 `.html`、`.js`、`manifest.json`。插件执行的是你信任的代码，请先审阅来源。
 
