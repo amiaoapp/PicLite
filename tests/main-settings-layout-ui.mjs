@@ -25,7 +25,7 @@ const evaluate = async expression => {
 };
 const wait = async expression => {
   for (let i = 0; i < 100; i++) {
-    try { if (await evaluate(expression)) return; } catch {}
+    try { if (await evaluate(expression)) return; } catch { /* The document may reload while the layout initializes. */ }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw Error(`UI condition timed out: ${expression}`);

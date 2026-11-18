@@ -25,7 +25,7 @@ const fits = async () => {
 };
 try {
   await send('Page.navigate', {url: origin});
-  for(let i=0; i<40; i++) {try {if(await evaluate('document.readyState === "complete"')) break;} catch {} await settle();}
+  for(let i=0; i<40; i++) {try {if(await evaluate('document.readyState === "complete"')) break;} catch { /* Navigation can temporarily detach the document. */ } await settle();}
   await evaluate(`(async () => {
     // The real floating document loads only clop-desktop + editor styles.
     // Remove main-workbench sheets from this test page before importing it.

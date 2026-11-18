@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 

@@ -53,13 +53,35 @@ test('only each successful two-platform merge advances stable image tags',()=>{
  const run=merge.steps.find(step=>step.name==='Publish multi-platform manifest')?.run;
  assert.match(run||'',/imagetools create/);
  assert.match(run,/sha256:/);
- assert.match(run,/2/);
+ assert.match(run,/for arch in amd64 arm64/);
  assert.match(run,/matrix\.image/);
  assert.deepEqual(merge.strategy.matrix.image,['piclite','piclite-mcp']);
  const metadata=merge.steps.find(step=>step.uses?.startsWith('docker/metadata-action@'));
  assert.match(metadata.with.tags,/value=latest/);
  assert.match(metadata.with.tags,/inputs.version/);
  assert.ok(!workflow.jobs.build.steps.some(step=>step.with?.tags?.includes('latest')),'platform builds must not overwrite latest');
+});
+
+test('web and MCP manifests download only their own architecture digests',()=>{
+ const downloads=workflow.jobs.merge.steps.filter(step=>step.uses?.startsWith('actions/download-artifact@'));
+ for(const image of workflow.jobs.merge.strategy.matrix.image){
+  const names=downloads.map(step=>step.with.name?.replace('${{ matrix.image }}',image));
+  assert.deepEqual(names,workflow.jobs.build.strategy.matrix.include.filter(entry=>entry.image===image)
+   .map(entry=>`image-digest-${entry.image}-${entry.arch}`));
+  assert.ok(downloads.every(step=>!step.with.pattern));
+ }
+ assert.deepEqual(workflow.on.push,{tags:['v*']},'pushing main and the version tag together must start only one Docker release');
+});
+
+test('Windows compiles Rust test targets and validates the built desktop application',()=>{
+ const desktop=yaml.load(readFileSync(new URL('../.github/workflows/release-desktop.yml',import.meta.url),'utf8'));
+ const steps=desktop.jobs.build.steps;
+ const compile=steps.find(step=>step.name==='Compile Windows Rust regression tests');
+ assert.equal(compile.if,"runner.os == 'Windows'");
+ assert.match(compile.run,/cargo check --tests/);
+ const smoke=steps.find(step=>step.name==='Windows native WebView2 floating window regression');
+ assert.equal(smoke.if,"runner.os == 'Windows'");
+ assert.match(smoke.run,/floating-windows-native-ui\.mjs/);
 });
 
 test('remote MCP Docker service is opt-in and requires a token',()=>{

@@ -14,7 +14,7 @@ const dir='/Users/amiao/.hermes/cache/scratch/piclite-ui-v4';mkdirSync(dir,{recu
 try{
  await send('Emulation.setDeviceMetricsOverride',{width:900,height:760,deviceScaleFactor:1,mobile:false});
  await send('Page.navigate',{url:origin});
- for(let i=0;i<60;i++){try{if(await evaluate('!!document.querySelector(".topbar")'))break;}catch{}await pause();}
+ for(let i=0;i<60;i++){try{if(await evaluate('!!document.querySelector(".topbar")'))break;}catch{/* Wait for the page to finish navigating. */}await pause();}
  await evaluate(`(async()=>{
   document.querySelectorAll('style[data-vite-dev-id]').forEach(s=>s.remove());await import('/clop-desktop.css');
   const text=await fetch('/floating-result-editor.tsx').then(r=>r.text()),reactUrl=text.split('"').find(s=>s.includes('deps/react.js'));

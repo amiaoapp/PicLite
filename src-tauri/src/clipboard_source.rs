@@ -150,42 +150,58 @@ fn macos_source(board: &objc2_app_kit::NSPasteboard) -> SourceIdentity {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn current_source() -> SourceIdentity {
+fn windows_owner() -> Option<String> {
+    use windows_sys::core::w;
     use windows_sys::Win32::{
-        Foundation::CloseHandle,
+        Foundation::{HANDLE, HWND},
         System::{
-            DataExchange::GetClipboardOwner,
-            Threading::{
-                OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-            },
+            LibraryLoader::{GetModuleHandleW, GetProcAddress},
+            Threading::PROCESS_QUERY_LIMITED_INFORMATION,
         },
-        UI::WindowsAndMessaging::GetWindowThreadProcessId,
     };
-    // Use the actual clipboard owner, never whichever app happened to become
-    // foreground after copying. Only request process-name access.
-    let owner = unsafe {
-        let window = GetClipboardOwner();
+
+    // Source detection is optional; missing exports must not prevent PicLite from starting.
+    unsafe {
+        let user = GetModuleHandleW(w!("user32.dll"));
+        let kernel = GetModuleHandleW(w!("kernel32.dll"));
+        if user.is_null() || kernel.is_null() {
+            return None;
+        }
+        let owner: unsafe extern "system" fn() -> HWND =
+            std::mem::transmute(GetProcAddress(user, c"GetClipboardOwner".as_ptr().cast())?);
+        let window_pid: unsafe extern "system" fn(HWND, *mut u32) -> u32 = std::mem::transmute(
+            GetProcAddress(user, c"GetWindowThreadProcessId".as_ptr().cast())?,
+        );
+        let open: unsafe extern "system" fn(u32, i32, u32) -> HANDLE =
+            std::mem::transmute(GetProcAddress(kernel, c"OpenProcess".as_ptr().cast())?);
+        let query: unsafe extern "system" fn(HANDLE, u32, *mut u16, *mut u32) -> i32 =
+            std::mem::transmute(GetProcAddress(
+                kernel,
+                c"QueryFullProcessImageNameW".as_ptr().cast(),
+            )?);
+        let close: unsafe extern "system" fn(HANDLE) -> i32 =
+            std::mem::transmute(GetProcAddress(kernel, c"CloseHandle".as_ptr().cast())?);
+        let window = owner();
         let mut pid = 0;
-        if !window.is_null() {
-            GetWindowThreadProcessId(window, &mut pid);
+        if window.is_null() || window_pid(window, &mut pid) == 0 || pid == 0 {
+            return None;
         }
-        let process = if pid == 0 {
-            std::ptr::null_mut()
-        } else {
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
-        };
+        let process = open(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if process.is_null() {
-            None
-        } else {
-            let mut buffer = vec![0u16; 32768];
-            let mut length = buffer.len() as u32;
-            let ok = QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length);
-            CloseHandle(process);
-            (ok != 0).then(|| String::from_utf16_lossy(&buffer[..length as usize]))
+            return None;
         }
-    };
+        let mut buffer = vec![0u16; 32768];
+        let mut length = buffer.len() as u32;
+        let ok = query(process, 0, buffer.as_mut_ptr(), &mut length);
+        close(process);
+        (ok != 0).then(|| String::from_utf16_lossy(&buffer[..length as usize]))
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn current_source() -> SourceIdentity {
     SourceIdentity {
-        owner,
+        owner: windows_owner(),
         ..Default::default()
     }
 }

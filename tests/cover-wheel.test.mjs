@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../app/img2banner-template.html', import.meta.url), 'utf8');
 function cropWheel(deltaY, deltaMode = 0, initial = 1, hasImage = true) {
   const handler = source.match(/editorCanvas\.addEventListener\('wheel', e => \{([\s\S]*?)\}, \{passive: false\}\);/)[1];
-  const helper = source.match(/function wheelZoomScale\([^)]*\) \{[\s\S]*?\n    \}/)?.[0] || '';
+  const helper = source.match(/function wheelZoomScale\([^)]*\) \{[\s\S]*?\n\s{4}\}/)?.[0] || '';
   const state = { crop: { zoom: initial }, origImg: hasImage ? {} : null, zoom: {}, zoomNum: {}, renders: 0, prevented: false };
   const context = vm.createContext({ ...state, e: { deltaY, deltaMode, preventDefault() { state.prevented = true; } }, generateInnerFromOrig() { state.renders++; } });
   vm.runInContext(`${helper}\n(function(){${handler}})()`, context);
