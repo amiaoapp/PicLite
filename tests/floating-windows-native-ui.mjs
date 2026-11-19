@@ -96,8 +96,10 @@ try {
       await ev(`window.__TAURI_INTERNALS__.invoke('plugin:event|emit',{event:'watcher:event',payload:${JSON.stringify(event)}})`);
       await wait(`document.querySelector('.floating-result-next')?.textContent === '1/${n + 1}' || (${n}===0 && !!document.querySelector('.result-metrics'))`);
     }
-    await click('.result-actions [data-action="copy"]');
-    await wait(`document.querySelector('.automatic-badge').textContent.includes('Copied successfully')`);
+    await click('.integrated-result-card.active .result-actions [data-action="copy"]');
+    await wait(`(()=>{const badge=document.querySelector('.automatic-badge');return badge?.classList.contains('operation-success')||badge?.classList.contains('operation-error')})()`);
+    const copyNotice=await ev(`document.querySelector('.automatic-badge').textContent`);
+    assert.match(copyNotice,/Copied successfully/,`Native copy failed: ${copyNotice}`);
     const clipboard = spawnSync('powershell.exe', ['-NoProfile','-NonInteractive','-STA','-Command', `Add-Type -AssemblyName System.Windows.Forms; $stream=[Windows.Forms.Clipboard]::GetData('image/webp'); if ($null -eq $stream) { throw 'Missing original encoded image' }; @{files=@([Windows.Forms.Clipboard]::GetFileDropList()); image=[Windows.Forms.Clipboard]::ContainsImage(); encoded=[Convert]::ToBase64String($stream.ToArray())} | ConvertTo-Json -Compress`], {encoding:'utf8'});
     assert.equal(clipboard.status,0,clipboard.stderr);
     const copied=JSON.parse(clipboard.stdout);
@@ -121,20 +123,20 @@ try {
         const layout = await ev(`(() => {
           const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}};
           const cards=[...document.querySelectorAll('.integrated-result-card')];
-          return {actionsByCard:cards.map(card=>[...card.querySelectorAll('.result-actions button')].map(rect)),footer:[...document.querySelectorAll('.floating-footer button')].map(b=>{const r=rect(b);return{...r,hit:document.elementFromPoint(r.x+r.w/2,r.y+r.h/2)?.closest('button')===b}}),filenames:document.querySelectorAll('.result-name,.floating-filename-badge').length,preview:!!document.querySelector('.result-card img')?.complete};
+          return {actionsByCard:cards.map(card=>({card:rect(card),buttons:[...card.querySelectorAll('.result-actions button')].map(rect)})),footer:[...document.querySelectorAll('.floating-footer button')].map(b=>{const r=rect(b);return{...r,hit:document.elementFromPoint(r.x+r.w/2,r.y+r.h/2)?.closest('button')===b}}),filenames:document.querySelectorAll('.result-name,.floating-filename-badge').length,preview:!!document.querySelector('.result-card img')?.complete};
         })()`);
         assert.equal(layout.actionsByCard.length, 3);
-        assert.ok(layout.actionsByCard.every(actions=>actions.length===6),JSON.stringify(layout.actionsByCard));
-        for(const actions of layout.actionsByCard) {
-          assert.equal(new Set(actions.map(b=>Math.round(b.y))).size, 2);
-          assert.equal(new Set(actions.map(b=>Math.round(b.x))).size, 3);
-          assert.ok(actions.every(b=>b.x>=0&&b.y>=0&&b.right<=width+1&&b.bottom<=height+1));
+        assert.ok(layout.actionsByCard.every(card=>card.buttons.length===6),JSON.stringify(layout.actionsByCard));
+        for(const {card,buttons} of layout.actionsByCard) {
+          assert.ok(buttons.every(b=>b.x>=card.x-1&&b.y>=card.y-1&&b.right<=card.right+1&&b.bottom<=card.bottom+1),JSON.stringify({card,buttons}));
+          assert.equal(new Set(buttons.map(b=>Math.round(b.y))).size, 2);
+          assert.equal(new Set(buttons.map(b=>Math.round(b.x))).size, 3);
         }
         assert.ok(layout.footer.every(b=>b.w>0&&b.h>0&&b.x>=0&&b.right<=width+1&&b.hit), JSON.stringify(layout.footer));
         assert.equal(layout.filenames, 0);
-        if (style==='immersive' && width===392) assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w>=67&&b.w<=69)));
-        if (style==='immersive' && width===520) assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w>=80&&b.w<=85)));
-        if (style==='classic') assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w===(width<=340?38:42))));
+        if (style==='immersive' && width===392) assert.ok(layout.actionsByCard.every(card=>card.buttons.every(b=>b.w>=67&&b.w<=69)));
+        if (style==='immersive' && width===520) assert.ok(layout.actionsByCard.every(card=>card.buttons.every(b=>b.w>=80&&b.w<=85)));
+        if (style==='classic') assert.ok(layout.actionsByCard.every(card=>card.buttons.every(b=>b.w===(width<=340?38:42))));
         await click('[data-action="more"]');
         await wait('!!document.querySelector(".floating-overflow-menu")');
         await move(width+30,height+30);
@@ -149,7 +151,7 @@ try {
         await wait('!!document.querySelector(".result-card")');
         assert.equal(await ev('picLite.getFloatingCollapsed()'), false);
         assert.equal(await ev('document.querySelector(".result-metrics").textContent'), metric);
-        report.cases.push({width,height,style,theme,button:layout.actions[0].w,footer:layout.footer.length});
+        report.cases.push({width,height,style,theme,button:layout.actionsByCard[0].buttons[0].w,footer:layout.footer.length});
         console.log('PASS native WebView2',width,height,style,theme);
         if(width===392&&theme==='dark') {
           const shot=await send('Page.captureScreenshot',{format:'png'});
