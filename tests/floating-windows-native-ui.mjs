@@ -120,17 +120,21 @@ try {
         await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='1'`);
         const layout = await ev(`(() => {
           const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}};
-          return {actions:[...document.querySelectorAll('.result-actions button')].map(rect),footer:[...document.querySelectorAll('.floating-footer button')].map(b=>{const r=rect(b);return{...r,hit:document.elementFromPoint(r.x+r.w/2,r.y+r.h/2)?.closest('button')===b}}),filenames:document.querySelectorAll('.result-name,.floating-filename-badge').length,preview:!!document.querySelector('.result-card img')?.complete};
+          const cards=[...document.querySelectorAll('.integrated-result-card')];
+          return {actionsByCard:cards.map(card=>[...card.querySelectorAll('.result-actions button')].map(rect)),footer:[...document.querySelectorAll('.floating-footer button')].map(b=>{const r=rect(b);return{...r,hit:document.elementFromPoint(r.x+r.w/2,r.y+r.h/2)?.closest('button')===b}}),filenames:document.querySelectorAll('.result-name,.floating-filename-badge').length,preview:!!document.querySelector('.result-card img')?.complete};
         })()`);
-        assert.equal(layout.actions.length, 6);
-        assert.equal(new Set(layout.actions.map(b=>Math.round(b.y))).size, 2);
-        assert.equal(new Set(layout.actions.map(b=>Math.round(b.x))).size, 3);
-        assert.ok(layout.actions.every(b=>b.x>=0&&b.y>=0&&b.right<=width+1&&b.bottom<=height+1));
+        assert.equal(layout.actionsByCard.length, 3);
+        assert.ok(layout.actionsByCard.every(actions=>actions.length===6),JSON.stringify(layout.actionsByCard));
+        for(const actions of layout.actionsByCard) {
+          assert.equal(new Set(actions.map(b=>Math.round(b.y))).size, 2);
+          assert.equal(new Set(actions.map(b=>Math.round(b.x))).size, 3);
+          assert.ok(actions.every(b=>b.x>=0&&b.y>=0&&b.right<=width+1&&b.bottom<=height+1));
+        }
         assert.ok(layout.footer.every(b=>b.w>0&&b.h>0&&b.x>=0&&b.right<=width+1&&b.hit), JSON.stringify(layout.footer));
         assert.equal(layout.filenames, 0);
-        if (style==='immersive' && width===392) assert.ok(layout.actions.every(b=>b.w>=67&&b.w<=69));
-        if (style==='immersive' && width===520) assert.ok(layout.actions.every(b=>b.w>=80&&b.w<=85));
-        if (style==='classic') assert.ok(layout.actions.every(b=>b.w===(width<=340?38:42)));
+        if (style==='immersive' && width===392) assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w>=67&&b.w<=69)));
+        if (style==='immersive' && width===520) assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w>=80&&b.w<=85)));
+        if (style==='classic') assert.ok(layout.actionsByCard.every(actions=>actions.every(b=>b.w===(width<=340?38:42))));
         await click('[data-action="more"]');
         await wait('!!document.querySelector(".floating-overflow-menu")');
         await move(width+30,height+30);
