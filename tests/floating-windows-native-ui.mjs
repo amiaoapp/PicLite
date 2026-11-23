@@ -62,8 +62,24 @@ try {
   await floatingBrowser(async ({ evaluate: ev, wait }) => {
     await wait('!!window.picLite?.showDropzoneWindow');
     assert.equal(await ev('picLite.platform'), 'win32');
+    await wait(`!!document.querySelector('[data-tool-id=workspace]')`);
+    await ev(`(()=>{const key='piclite.workspacePlugins.v2';localStorage.setItem(key,JSON.stringify([{id:'convert',kind:'builtin',enabled:true}]));dispatchEvent(new StorageEvent('storage',{key}));})()`);
+    await wait(`!!document.querySelector('[data-tool-id=convert]')`);
+    await ev(`(()=>{const onFileDrop=picLite.onFileDrop;picLite.onFileDrop=callback=>{window.dropIntoPlugin=callback;return onFileDrop(callback)};document.querySelector('[data-tool-id=convert]').click()})()`);
+    await wait(`!!document.querySelector('.converter-page') && typeof dropIntoPlugin==='function'`);
+    await ev(`dropIntoPlugin({type:'drop',paths:${JSON.stringify(sources)}})`);
+    await wait(`document.querySelectorAll('.converter-page .tool-queue-list article').length===${sources.length}`);
+    for (const [format, extension, magic] of [['PNG', 'png', '89504e470d0a1a0a'], ['JPEG', 'jpg', 'ffd8ff']]) {
+      await ev(`(()=>{[...document.querySelectorAll('.conversion-format-grid button')].find(b=>b.querySelector('strong').textContent===${JSON.stringify(format)}).click();})()`);
+      await ev(`document.querySelector('.converter-page .tool-actions .primary').click()`);
+      await wait(`(()=>{const rows=[...document.querySelectorAll('.converter-result-list article.done small')];return rows.length===${sources.length}&&rows.every(row=>row.title.endsWith('.${extension}'));})()`);
+      const outputs = await ev(`Array.from(document.querySelectorAll('.converter-result-list article.done small'),row=>row.title)`);
+      for (const output of outputs) {
+        assert.equal((await readFile(output)).subarray(0, magic.length / 2).toString('hex'), magic);
+      }
+    }
     const prefs = { theme: 'dark', language: 'en', floatingStyle: 'immersive', interfaceFontScale: 150, autoCheckUpdates: false, clipboardWatcherEnabled: false, allowFloatingCapture: true };
-    await ev(`localStorage.setItem('piclite.desktopPreferences.v1',${JSON.stringify(JSON.stringify(prefs))});localStorage.setItem('piclite.desktop.clop-settings.v1',JSON.stringify({appearance:'dark',language:'en',autoHideResults:false,clipboardOptimiser:false,updateCheckFrequency:'never',floatingDisplayMode:'stack',floatingActions:['downscale','watermark','undo','copy','preview','reveal'],showCopyClearButtons:true,preset:{mode:'manual',quality:73,scale:80,format:'webp',stripMetadata:false,preventLarger:false,targetSizeKb:0}}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}));picLite.showDropzoneWindow()`);
+    await ev(`localStorage.setItem('piclite.desktopPreferences.v1',${JSON.stringify(JSON.stringify(prefs))});localStorage.setItem('piclite.desktop.clop-settings.v1',JSON.stringify({appearance:'dark',language:'en',autoHideResults:false,clipboardOptimiser:false,updateCheckFrequency:'never',floatingDisplayMode:'stack',floatingActions:['downscale','undo','quality','copy','upload','save'],showCopyClearButtons:true,preset:{mode:'manual',quality:73,scale:80,format:'webp',stripMetadata:false,preventLarger:false,targetSizeKb:0}}));dispatchEvent(new StorageEvent('storage',{key:'piclite.desktopPreferences.v1'}));picLite.showDropzoneWindow()`);
   }, { endpoint, target: await targetFor(false) });
 
   await floatingBrowser(async ({ send, evaluate: ev, wait, click }) => {
@@ -96,21 +112,33 @@ try {
       await ev(`window.__TAURI_INTERNALS__.invoke('plugin:event|emit',{event:'watcher:event',payload:${JSON.stringify(event)}})`);
       await wait(`document.querySelector('.floating-result-next')?.textContent === '1/${n + 1}' || (${n}===0 && !!document.querySelector('.result-metrics'))`);
     }
-    await click('.integrated-result-card.active .result-actions [data-action="copy"]');
-    await wait(`(()=>{const badge=document.querySelector('.automatic-badge');return badge?.classList.contains('operation-success')||badge?.classList.contains('operation-error')})()`);
-    const copyNotice=await ev(`document.querySelector('.automatic-badge').textContent`);
-    assert.match(copyNotice,/Copied successfully/,`Native copy failed: ${copyNotice}`);
+    await wait(`!!document.querySelector('.floating-footer button[title="Choose local images"]:enabled')`);
+    const active = '.integrated-result-card.active';
+    await click(`${active} .result-actions [data-action="copy-file"]`);
+    await wait(`document.querySelector('.automatic-badge')?.textContent === 'Compressed file copied'`);
+    const compressed=await readFile(latestOutput);
+    const fileClipboard = spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-STA','-Command',`Add-Type -AssemblyName System.Windows.Forms; $files=[Windows.Forms.Clipboard]::GetFileDropList(); if ($files.Count -ne 1) { throw 'Expected exactly one compressed file' }; @{name=[IO.Path]::GetFileName($files[0]); bytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($files[0])); image=[Windows.Forms.Clipboard]::ContainsImage()} | ConvertTo-Json -Compress`],{encoding:'utf8'});
+    assert.equal(fileClipboard.status,0,fileClipboard.stderr);
+    const pastedFile=JSON.parse(fileClipboard.stdout);
+    assert.equal(pastedFile.image,false,'An exact file paste must not offer a competing bitmap');
+    assert.equal(pastedFile.name,basename(latestOutput));
+    assert.deepEqual(Buffer.from(pastedFile.bytes,'base64'),compressed);
+    await click(`${active} [data-action="more"]`);
+    const compatibleCopy = `${active} .floating-overflow-menu [data-action="copy"]`;
+    await wait(`!!document.querySelector(${JSON.stringify(compatibleCopy)})`);
+    await ev(`document.querySelector(${JSON.stringify(compatibleCopy)}).scrollIntoView({block:'nearest'})`);
+    await click(compatibleCopy);
+    await wait(`document.querySelector('.automatic-badge')?.textContent === 'Copied successfully'`);
     const clipboard = spawnSync('powershell.exe', ['-NoProfile','-NonInteractive','-STA','-Command', `Add-Type -AssemblyName System.Windows.Forms; $stream=[Windows.Forms.Clipboard]::GetData('image/webp'); if ($null -eq $stream) { throw 'Missing original encoded image' }; @{files=@([Windows.Forms.Clipboard]::GetFileDropList()); image=[Windows.Forms.Clipboard]::ContainsImage(); encoded=[Convert]::ToBase64String($stream.ToArray())} | ConvertTo-Json -Compress`], {encoding:'utf8'});
     assert.equal(clipboard.status,0,clipboard.stderr);
     const copied=JSON.parse(clipboard.stdout);
     assert.equal(copied.image,true,'Image-only paste targets must recognise an image');
-    assert.deepEqual(copied.files,[latestOutput],'Attachment paste must retain the compressed file');
-    const compressed=await readFile(latestOutput);
+    assert.deepEqual(copied.files,[],'WebP clipboard results must not be advertised as file attachments');
     assert.deepEqual(Buffer.from(copied.encoded,'base64'),compressed,'Copied bytes and size must exactly match the compressed result');
     const imported=await ev('(async()=>{const image=await picLite.readClipboardImage();return {...image,data:Array.from(image.data)}})()');
     assert.deepEqual(Buffer.from(imported.data),compressed,'Native re-import must not decode WebP into PNG');
     assert.equal(imported.type,'image/webp');assert.equal(imported.name,basename(latestOutput));
-    report.clipboard={image:true,exactCompressedBytes:compressed.length,reimport:{name:imported.name,type:imported.type,bytes:imported.data.length}};
+    report.clipboard={image:true,exactCompressedBytes:compressed.length,reimport:{name:imported.name,type:imported.type,bytes:imported.data.length},fileMode:{name:pastedFile.name,bytes:compressed.length}};
     // Native resize commands cap logical dimensions at 520 × 420.
     for (const [width, height] of [[392,330],[520,420],[280,220],[246,188],[460,360]]) {
       await ev(`picLite.resizeDropzoneWindow(${width},${height})`);
@@ -193,6 +221,9 @@ try {
     await wait(`document.querySelector('.result-metrics').textContent===${JSON.stringify(beforeCover)}`);
     assert.deepEqual(await ev('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).preset'),preset);
     report.cover={dimensions:cover.dimensions,format:cover.args[1].format,quality:cover.args[1].quality,bytes:coverBytes.length,undo:true};
+    await ev(`picLite.selectImages=async()=>[{path:${JSON.stringify(sources[0])}}]`);
+    await click('.floating-footer button[title="Choose local images"]');
+    await wait(`document.querySelectorAll('.floating-result-slot').length===4 && !document.querySelector('.result-state')`);
     report.status='passed';
     await writeFile(join(artifacts,'report.json'),JSON.stringify(report,null,2));
     console.log('PASS Windows packaged app: native compression, source preservation, 10 WebView2 layouts, menu focus recovery, isolated expanded backgrounds and native automatic cover/undo, footer hits, collapse/restore, cyclic paging, stable history and preset preservation');

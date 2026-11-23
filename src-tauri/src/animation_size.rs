@@ -194,6 +194,15 @@ fn encode_gif(
     animation: &SizedAnimation,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
+    encode_gif_frames(frames, animation, quality, false)
+}
+
+fn encode_gif_frames(
+    frames: &[(image::RgbaImage, i32)],
+    animation: &SizedAnimation,
+    quality: u8,
+    converting_webp: bool,
+) -> Result<Vec<u8>, String> {
     let (width, height) = frames[0].0.dimensions();
     let levels = if quality >= 65 {
         6usize
@@ -219,11 +228,16 @@ fn encode_gif(
     let mut output = Vec::new();
     let mut encoder = gif::Encoder::new(&mut output, width as u16, height as u16, &palette)
         .map_err(|e| e.to_string())?;
+    let repeat = if converting_webp {
+        animation.loop_count.saturating_sub(1)
+    } else {
+        animation.loop_count
+    };
     encoder
         .set_repeat(if animation.loop_count == 0 {
             gif::Repeat::Infinite
         } else {
-            gif::Repeat::Finite(animation.loop_count as u16)
+            gif::Repeat::Finite(repeat as u16)
         })
         .map_err(|e| e.to_string())?;
     let mut previous: Option<Vec<u8>> = None;
@@ -246,7 +260,7 @@ fn encode_gif(
         }
         let opaque = !indices.contains(&transparent);
         let mut bounds = (0, 0, width, height);
-        if opaque {
+        if opaque && !converting_webp {
             if let Some(old) = previous.as_ref().filter(|v| !v.contains(&transparent)) {
                 let (mut l, mut t, mut r, mut b) = (width, height, 0, 0);
                 for y in 0..height {
@@ -289,7 +303,7 @@ fn encode_gif(
             .min(u16::MAX as i32) as u16;
         frame.buffer = Cow::Owned(buffer);
         frame.transparent = Some(transparent);
-        frame.dispose = if opaque {
+        frame.dispose = if opaque && !converting_webp {
             gif::DisposalMethod::Keep
         } else {
             gif::DisposalMethod::Background
@@ -299,6 +313,28 @@ fn encode_gif(
     }
     drop(encoder);
     Ok(output)
+}
+
+// Explicit format conversion retains every frame, independently of the size optimizer.
+pub(super) fn convert_webp_to_gif(data: &[u8], settings: &WatcherSettings) -> Result<OptimizedImage, String> {
+    let source = decode_webp_animation(data)?;
+    let (width, height) = target_dimensions(source.width, source.height, settings);
+    if width > u16::MAX.into() || height > u16::MAX.into() {
+        return Err("GIF 尺寸不能超过 65535 像素".into());
+    }
+    let mut start = 0;
+    let frames = source.frames.into_iter().map(|(pixels, end)| {
+        let frame = (resize_frame(&pixels, width, height), start);
+        start = end;
+        frame
+    }).collect();
+    let animation = SizedAnimation {
+        frames, duration: start, loop_count: source.loop_count, background: source.background,
+    };
+    Ok(OptimizedImage {
+        bytes: encode_gif_frames(&animation.frames, &animation, animation_quality(settings), true)?,
+        extension: "gif".into(),
+    })
 }
 
 pub(super) fn target_bytes(settings: &WatcherSettings) -> usize {

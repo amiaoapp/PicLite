@@ -19,6 +19,7 @@ const paths: Record<string, React.ReactNode> = {
   shortcut: <><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9h.01M11 9h.01M15 9h.01M7 13h.01M11 13h6M7 17h10"/></>,
   info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></>,
   copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></>,
+  document: <><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/></>,
   eye: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></>,
   undo: <><path d="m8 8-4 4 4 4"/><path d="M5 12h8a6 6 0 0 1 6 6"/></>,
   save: <><path d="M5 3h12l2 2v16H5z"/><path d="M8 3v6h8V3M8 17h8"/></>,

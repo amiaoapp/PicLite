@@ -70,7 +70,7 @@ try{
  console.log('PASS transparent result/format/image surfaces, 6 centred larger icons, 0/10/24px corners');
  const oldDrag=await evaluate('calls.filter(c=>c.kind==="drag").length');
  await evaluate(`document.querySelector('.result-preview').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0}))`);await pause();assert.equal(await evaluate('calls.filter(c=>c.kind==="drag").length'),oldDrag+1);
- const afterDrag=await evaluate('calls.filter(c=>c.kind==="drag").length');await evaluate(`document.querySelector('[data-action="copy"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0}))`);await pause();assert.equal(await evaluate('calls.filter(c=>c.kind==="drag").length'),afterDrag,'controls must not drag');
+ const afterDrag=await evaluate('calls.filter(c=>c.kind==="drag").length');await evaluate(`document.querySelector('[data-action="copy-file"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0}))`);await pause();assert.equal(await evaluate('calls.filter(c=>c.kind==="drag").length'),afterDrag,'controls must not drag');
  await click('[data-action="crop"]');assert.equal(await evaluate('!!document.querySelector(".floating-crop-stage")'),false,'crop must open separately');
  assert.equal(await evaluate('calls.filter(c=>c.kind==="openCrop").at(-1).path'),'/source.png');assert.equal(await evaluate('calls.filter(c=>c.kind==="process").at(-1).source'),'/cropped.png');
  const before=await evaluate('calls.filter(c=>c.kind==="process").length');await evaluate('window.cancelCrop=true');await click('[data-action="crop"]');assert.equal(await evaluate('calls.filter(c=>c.kind==="process").length'),before);

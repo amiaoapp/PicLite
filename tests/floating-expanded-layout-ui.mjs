@@ -16,7 +16,7 @@ await floatingBrowser(async({send,evaluate:ev,wait,click})=>{
  // The shared click driver must reveal the hover overlay before checking hits.
  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:-20,y:-20});
  await wait(`getComputedStyle(document.querySelector('.result-hover-actions')).opacity==='0'`);
- await click('.result-card [data-action="copy"]');
+ await click('.result-card [data-action="copy-file"]');
  await wait(`window.copyCalls===1`);
  const report=[];
  for(const [width,height] of [[246,188],[320,230],[392,330],[520,420]]){
@@ -47,7 +47,7 @@ await floatingBrowser(async({send,evaluate:ev,wait,click})=>{
   await wait(`getComputedStyle(document.querySelector('.result-card .result-hover-actions')).opacity==='1'`);
   const hover=await ev(`[...document.querySelectorAll('.result-card')].map(c=>({actions:getComputedStyle(c.querySelector('.result-hover-actions')).opacity,metrics:getComputedStyle(c.querySelector('.result-metrics')).visibility}))`);
   const hits=await ev(`[...document.querySelector('.result-card').querySelectorAll('.result-actions button')].map(b=>{const r=b.getBoundingClientRect();return r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===b})`);assert.equal(hits.length,6);assert.ok(hits.every(Boolean),JSON.stringify({width,height,hits}));
-  await click('.result-card [data-action="copy"]');
+  await click('.result-card [data-action="copy-file"]');
   await wait(`(window.copyCalls||0)>0`);
   assert.equal(await ev('window.dragCalls'),afterDrag,'copy click must not drag the window');
   assert.equal(hover[0].metrics,'hidden');assert.equal(hover[1].metrics,'visible');assert.equal(hover[1].actions,'0');

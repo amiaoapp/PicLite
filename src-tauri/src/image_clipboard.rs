@@ -1,5 +1,5 @@
 //! Publish encoded result bytes and image compatibility formats in one copy.
-//! Original image types remain available alongside browser file representations.
+//! WebP is published as an image, with the original bytes and filename attached.
 //! Windows also needs standard bitmap formats for image-only paste targets.
 use super::*;
 use image::ImageFormat;
@@ -43,12 +43,16 @@ fn read_macos(board: &objc2_app_kit::NSPasteboard) -> Result<Option<ClipboardIma
 pub(super) fn read_encoded() -> Result<Option<ClipboardImage>, String> {
     #[cfg(target_os = "macos")]
     { objc2::rc::autoreleasepool(|_| read_macos(&objc2_app_kit::NSPasteboard::generalPasteboard())) }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(image) = read_windows_result()? { return Ok(Some(image)); }
+        Ok(None)
+    }
+    #[cfg(target_os = "linux")]
     {
         if let Some(paths) = clipboard_file_image_paths()? {
             return paths.first().map(|path| read_image_file(Path::new(path))).transpose();
         }
-        #[cfg(target_os = "linux")]
         for (program, list_args, type_args) in [
             ("wl-paste",vec!["--list-types"],vec!["--no-newline","--type"]),
             ("xclip",vec!["-selection","clipboard","-o","-t","TARGETS"],vec!["-selection","clipboard","-o","-t"]),
@@ -143,22 +147,24 @@ fn write_macos(
     if !item.setData_forType(&NSData::with_bytes(data), &NSString::from_str(uti)) {
         return Err("无法准备压缩图片剪贴板数据".into());
     }
-    // Browsers consume a file representation without PNG re-encoding, retaining
-    // its encoded bytes and filename. Native consumers still receive an image.
-    // The marker lets PicLite/Qimiao distinguish this from a Finder file copy.
     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let snapshot = std::env::temp_dir().join("piclite-clipboard-results")
-        .join(format!("{}-{}-{}", std::process::id(), now_ms(), CLIPBOARD_COPY_ID.fetch_add(1, Ordering::Relaxed)))
-        .join(&name);
-    fs::create_dir_all(snapshot.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(&snapshot, data).map_err(|e| e.to_string())?;
-    let url = url::Url::from_file_path(&snapshot).map_err(|_| "Invalid clipboard result path")?;
-    if !item.setString_forType(&NSString::from_str(url.as_str()), &NSString::from_str("public.file-url")) ||
-       !item.setString_forType(&NSString::from_str(&serde_json::json!({"name":name}).to_string()), &NSString::from_str("com.piclite.image-result")) {
-        return Err("无法准备浏览器原格式图片".into());
+    if !item.setString_forType(&NSString::from_str(&serde_json::json!({"name":name}).to_string()), &NSString::from_str("com.piclite.image-result")) {
+        return Err("无法准备图片名称".into());
     }
-    // Preserve SVG/PNM result bytes and provide a separate compatibility image.
-    if matches!(uti, "org.phoboslab.qoi" | "public.svg-image" | "com.piclite.pnm") {
+    // Chat apps treat a file URL as an attachment even when image data is present.
+    if uti != "org.webmproject.webp" {
+        let snapshot = std::env::temp_dir().join("piclite-clipboard-results")
+            .join(format!("{}-{}-{}", std::process::id(), now_ms(), CLIPBOARD_COPY_ID.fetch_add(1, Ordering::Relaxed)))
+            .join(&name);
+        fs::create_dir_all(snapshot.parent().unwrap()).map_err(|e| e.to_string())?;
+        fs::write(&snapshot, data).map_err(|e| e.to_string())?;
+        let url = url::Url::from_file_path(&snapshot).map_err(|_| "Invalid clipboard result path")?;
+        if !item.setString_forType(&NSString::from_str(url.as_str()), &NSString::from_str("public.file-url")) {
+            return Err("无法准备浏览器原格式图片".into());
+        }
+    }
+    // This compatibility image is separate from the finished compressed result.
+    if matches!(uti, "org.webmproject.webp" | "org.phoboslab.qoi" | "public.svg-image" | "com.piclite.pnm") {
         let decoded = decode_static_oriented(data)?;
         let mut png = Cursor::new(Vec::new());
         decoded
@@ -179,6 +185,50 @@ fn write_macos(
     } else {
         Err("系统未能复制压缩图片".into())
     }
+}
+
+#[cfg(target_os = "windows")]
+const WINDOWS_WEBP_RESULT: &str = "com.piclite.webp-result";
+
+#[cfg(target_os = "windows")]
+fn read_windows_result() -> Result<Option<ClipboardImage>, String> {
+    use windows_sys::Win32::System::{
+        DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW},
+        Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+    };
+    let format = |name: &str| unsafe {
+        RegisterClipboardFormatW(name.encode_utf16().chain([0]).collect::<Vec<_>>().as_ptr())
+    };
+    let metadata = format(WINDOWS_WEBP_RESULT);
+    if metadata == 0 || unsafe { IsClipboardFormatAvailable(metadata) } == 0 { return Ok(None); }
+    let webp = format("image/webp");
+    // Keep the clipboard open while reading both formats so they belong to the same copy.
+    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 { return Ok(None); }
+    let read = |format, max| unsafe {
+        let handle = GetClipboardData(format);
+        if handle.is_null() { return None; }
+        let length = GlobalSize(handle);
+        if length == 0 || length > max { return None; }
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() { return None; }
+        let bytes = std::slice::from_raw_parts(ptr.cast::<u8>(), length).to_vec();
+        GlobalUnlock(handle);
+        Some(bytes)
+    };
+    let result = (|| {
+        let metadata = read(metadata, 8192)?;
+        let end = metadata.iter().position(|b| *b == 0).unwrap_or(metadata.len());
+        let value: serde_json::Value = serde_json::from_slice(&metadata[..end]).ok()?;
+        let size = usize::try_from(value["size"].as_u64()?).ok()?;
+        if size > 128 * 1024 * 1024 { return None; }
+        let mut bytes = read(webp, size + 4096)?;
+        if bytes.len() < size { return None; }
+        bytes.truncate(size);
+        if !matches!(image_types(&bytes), Ok((_, "image/webp"))) { return None; }
+        Some((bytes, value["name"].as_str().map(str::to_owned)))
+    })();
+    unsafe { CloseClipboard() };
+    result.map(|(bytes, name)| encoded_payload(bytes, name)).transpose()
 }
 
 #[cfg(target_os = "windows")]
@@ -207,16 +257,21 @@ fn write_windows(path: &Path, data: &[u8], mime: &str) -> Result<(), String> {
         return Err(error.to_string());
     }
     drop(temp);
-    // One DataObject carries the compressed file and its original MIME bytes,
-    // plus PNG/Bitmap for apps that only accept standard Windows image formats.
+    let metadata = serde_json::json!({"name": path.file_name().unwrap_or_default().to_string_lossy(), "size": data.len()}).to_string();
     let script = r#"$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing;
 $image=[Drawing.Image]::FromFile($env:PICLITE_CLIPBOARD_PNG); $png=New-Object IO.MemoryStream(,[IO.File]::ReadAllBytes($env:PICLITE_CLIPBOARD_PNG)); $encoded=New-Object IO.MemoryStream(,[IO.File]::ReadAllBytes($env:PICLITE_CLIPBOARD_FILE));
-try { $data=New-Object Windows.Forms.DataObject; $data.SetData($env:PICLITE_CLIPBOARD_MIME,$false,$encoded); $data.SetData('PNG',$false,$png); $data.SetImage($image); $files=New-Object Collections.Specialized.StringCollection; [void]$files.Add($env:PICLITE_CLIPBOARD_FILE); $data.SetFileDropList($files); [Windows.Forms.Clipboard]::SetDataObject($data,$true,3,80) } finally { $image.Dispose(); $png.Dispose(); $encoded.Dispose() }"#;
+$meta=New-Object IO.MemoryStream(,[Text.Encoding]::UTF8.GetBytes($env:PICLITE_CLIPBOARD_METADATA));
+try { $data=New-Object Windows.Forms.DataObject; $data.SetData($env:PICLITE_CLIPBOARD_MIME,$false,$encoded); $data.SetData('PNG',$false,$png); $data.SetImage($image);
+if ($env:PICLITE_CLIPBOARD_MIME -eq 'image/webp') { $data.SetData($env:PICLITE_CLIPBOARD_RESULT_TYPE,$false,$meta) }
+else { $files=New-Object Collections.Specialized.StringCollection; [void]$files.Add($env:PICLITE_CLIPBOARD_FILE); $data.SetFileDropList($files) };
+[Windows.Forms.Clipboard]::SetDataObject($data,$true,3,80) } finally { $image.Dispose(); $png.Dispose(); $encoded.Dispose(); $meta.Dispose() }"#;
     let result = Command::new("powershell.exe")
         .creation_flags(0x0800_0000)
         .env("PICLITE_CLIPBOARD_FILE", path)
         .env("PICLITE_CLIPBOARD_PNG", &png_path)
         .env("PICLITE_CLIPBOARD_MIME", mime)
+        .env("PICLITE_CLIPBOARD_METADATA", metadata)
+        .env("PICLITE_CLIPBOARD_RESULT_TYPE", WINDOWS_WEBP_RESULT)
         .args(["-NoProfile", "-NonInteractive", "-STA", "-Command", script])
         .status();
     let _ = fs::remove_file(&png_path);
@@ -284,18 +339,16 @@ mod tests {
                 let imported = read_macos(&board).unwrap().unwrap();
                 assert_eq!(BASE64.decode(imported.data).unwrap(),data);
                 assert_eq!(imported.name,path.file_name().unwrap().to_string_lossy());
-                let url = board.stringForType(&NSString::from_str("public.file-url")).unwrap();
-                let snapshot = url::Url::parse(&url.to_string()).unwrap().to_file_path().unwrap();
-                assert_eq!(fs::read(&snapshot).unwrap(),data);
-                assert_eq!(snapshot.file_name(),path.file_name());
-                fs::remove_dir_all(snapshot.parent().unwrap()).unwrap();
+                let url = board.stringForType(&NSString::from_str("public.file-url"));
                 if format == ImageFormat::WebP {
-                    assert!(
-                        board
-                            .dataForType(&NSString::from_str("public.png"))
-                            .is_none(),
-                        "Do not offer a larger re-encoded PNG for WebP results"
-                    );
+                    assert!(url.is_none(), "WebP must not be advertised as a file attachment");
+                    let png = board.dataForType(&NSString::from_str("public.png")).unwrap();
+                    assert_eq!(image::load_from_memory(&png.to_vec()).unwrap().dimensions(), (20, 12));
+                } else {
+                    let snapshot = url::Url::parse(&url.unwrap().to_string()).unwrap().to_file_path().unwrap();
+                    assert_eq!(fs::read(&snapshot).unwrap(),data);
+                    assert_eq!(snapshot.file_name(),path.file_name());
+                    fs::remove_dir_all(snapshot.parent().unwrap()).unwrap();
                 }
                 assert!(board
                     .stringForType(&NSString::from_str("public.utf8-plain-text"))

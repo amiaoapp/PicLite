@@ -1,6 +1,6 @@
 [package]
 name = "piclite"
-version = "2.2.0"
+version = "2.2.1"
 description = "PicLite local-first image compressor"
 authors = ["PicLite contributors"]
 edition = "2021"
@@ -18,7 +18,9 @@ arboard = "3.6"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 color_quant = "1.1"
+crc32fast = "1"
 fast_image_resize = { version = "6.0", features = ["rayon"] }
+flate2 = "1"
 gif = "0.14.2"
 heic-rs = "=0.1.4"
 hmac = "0.12"

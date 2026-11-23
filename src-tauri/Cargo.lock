@@ -3840,13 +3840,15 @@ dependencies = [
 
 [[package]]
 name = "piclite"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "arboard",
  "base64 0.22.1",
  "chrono",
  "color_quant",
+ "crc32fast",
  "fast_image_resize",
+ "flate2",
  "gif 0.14.2",
  "heic-rs",
  "hmac",

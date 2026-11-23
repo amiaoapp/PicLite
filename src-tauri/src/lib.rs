@@ -14,6 +14,7 @@ mod crop_editor;
 mod heic_input;
 mod svg_input;
 mod image_clipboard;
+mod apng;
 mod png_candidate;
 mod native_material;
 
@@ -77,7 +78,7 @@ use webp::{
 use webp::{Encoder as LossyWebPEncoder, WebPConfig};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jfif", "png", "webp", "gif", "avif", "bmp", "tif", "tiff", "ico", "qoi", "tga",
+    "jpg", "jpeg", "jfif", "png", "apng", "webp", "gif", "avif", "bmp", "tif", "tiff", "ico", "qoi", "tga",
     "heic", "heif", "svg", "ppm", "pam",
 ];
 
@@ -1232,7 +1233,7 @@ fn mime_for(path: &Path) -> &'static str {
         .as_str()
     {
         "jpg" | "jpeg" | "jfif" => "image/jpeg",
-        "png" => "image/png",
+        "png" | "apng" => "image/png",
         "webp" => "image/webp",
         "gif" => "image/gif",
         "avif" => "image/avif",
@@ -2607,11 +2608,17 @@ fn optimize_image_data(
     source_extension: String,
     settings: &WatcherSettings,
 ) -> Result<OptimizedImage, String> {
+    if apng::frame_count(&original).is_some() {
+        return apng::optimize(original, settings);
+    }
     if source_extension == "svg" && matches!(settings.format.as_str(), "keep" | "image/svg+xml") {
         return svg_input::optimize(original, settings);
     }
     if settings.format == "image/svg+xml" {
         return Err("SVG 输出仅支持已有 SVG 矢量图；位图请选 PNG、WebP 等格式".into());
+    }
+    if source_extension == "webp" && settings.format == "image/gif" && is_animated_webp(&original) {
+        return animation_size::convert_webp_to_gif(&original, settings);
     }
     let is_animation =
         source_extension == "gif" || (source_extension == "webp" && is_animated_webp(&original));
@@ -3388,7 +3395,8 @@ async fn compress_image_data(
         .to_ascii_lowercase();
     let source_extension = match named_extension.as_str() {
         "jpg" | "jpeg" | "jfif" => "jpg".to_string(),
-        "png" | "webp" | "gif" | "heic" | "heif" | "svg" | "avif" | "bmp" | "tif" | "tiff" | "ico" | "qoi" | "tga" | "ppm" | "pam" => named_extension,
+        "png" | "apng" => "png".into(),
+        "webp" | "gif" | "heic" | "heif" | "svg" | "avif" | "bmp" | "tif" | "tiff" | "ico" | "qoi" | "tga" | "ppm" | "pam" => named_extension,
         _ => match image::guess_format(&data).map_err(|error| error.to_string())? {
             image::ImageFormat::Jpeg => "jpg".to_string(),
             image::ImageFormat::Png => "png".to_string(),
@@ -3458,6 +3466,9 @@ async fn compress_image_with_watermark_base64(
     };
     if source_extension == "webp" && is_animated_webp(&original) {
         return Err("动态 WebP 暂不支持图片水印；已停止处理以避免动画被压成静态图".to_string());
+    }
+    if apng::frame_count(&original).is_some() {
+        return Err("APNG 暂不支持水印 / APNG watermarking is not supported".into());
     }
     let compression = quick_settings(&settings);
     let decoded = decode_static_oriented(&original)?;
@@ -4772,7 +4783,7 @@ async fn cache_image_data(
 }
 
 #[tauri::command]
-async fn copy_image_path(path: String, state: State<'_, DesktopState>) -> Result<(), String> {
+async fn copy_image_path(path: String, as_file: Option<bool>, app: AppHandle, state: State<'_, DesktopState>) -> Result<(), String> {
     // Suppress before writing because Windows can notify the monitor before the
     // blocking clipboard operation returns to this async command.
     suppress_next_clipboard_observation(&state);
@@ -4781,7 +4792,15 @@ async fn copy_image_path(path: String, state: State<'_, DesktopState>) -> Result
         if !path.is_file() {
             return Err("结果文件已经不存在".to_string());
         }
-        copy_image_path_to_clipboard(&path)
+        if as_file.unwrap_or(false) {
+            let name = path.file_name().ok_or("结果文件没有文件名")?.to_string_lossy();
+            let snapshot = clipboard_cache_path(&app, &name)?;
+            fs::copy(&path, &snapshot).map_err(|error| format!("无法缓存压缩文件：{error}"))?;
+            let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
+            clipboard.set().file_list(&[snapshot]).map_err(|error| format!("无法复制压缩文件：{error}"))
+        } else {
+            copy_image_path_to_clipboard(&path)
+        }
     })
     .await
     .map_err(|error| error.to_string())?;

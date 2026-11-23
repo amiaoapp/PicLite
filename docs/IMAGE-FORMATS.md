@@ -18,7 +18,7 @@
 | --- | --- |
 | JPEG / JFIF | 照片与兼容场景；不支持透明通道。JFIF 使用 JPEG 编码，文件扩展名为 .jfif |
 | PNG / WebP / AVIF | 常用网页图片格式，支持透明通道 |
-| GIF | 支持静态图片；桌面的 GIF / WebP 动画处理沿用现有实现 |
+| GIF | 支持静态图片和动态 WebP 转 GIF |
 | BMP / TIFF | 位图与交换格式 |
 | ICO | 最大 256×256，超出时等比缩小 |
 | QOI / TGA | 支持透明通道的图片交换格式 |
@@ -27,7 +27,7 @@
 
 网页与 Docker 的转换工具新增 AVIF、JFIF、GIF、BMP、TIFF、ICO、QOI、TGA、PPM、PAM、SVG。新解码器支持 TIFF、ICO、QOI、TGA、PPM、PAM 的导入与预览。新增格式用独立 Worker 本地处理，60 秒超时会终止该任务。ImageMagick WASM 约 15.5 MB（gzip 约 5.5 MB），首次处理需要它的格式时加载；无需上传图片。
 
-网页转换暂不处理 GIF / WebP 动画的跨格式转换，会提示使用桌面版，避免静默丢帧。桌面已有的编码器、质量参数、预设、候选比较和目标体积策略保持原实现。
+动态 WebP 可转为 GIF，保留各帧、播放时长和循环次数。桌面、MCP 和 Docker MCP 使用同一转换逻辑；网页及 Docker 的网页界面需要支持 WebCodecs 图像解码的浏览器（如 Chrome、Edge）。已有压缩方案继续使用原有的编码和目标体积策略。
 
 ## 开源选型
 

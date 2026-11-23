@@ -24,7 +24,7 @@ for (const folder of Object.values(folders)) {
 await access(folders.input, constants.R_OK | constants.X_OK);
 await access(folders.output, constants.W_OK | constants.X_OK);
 
-const extensions = new Set('jpg jpeg jfif png webp gif avif bmp tif tiff ico qoi tga heic heif svg ppm pam'.split(' '));
+const extensions = new Set('jpg jpeg jfif png apng webp gif avif bmp tif tiff ico qoi tga heic heif svg ppm pam'.split(' '));
 const MiB = 1024 * 1024;
 const maxBatch = 20;
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));

@@ -82,7 +82,7 @@ if ("__TAURI_INTERNALS__" in window) {
       getCropEditorSource: (request) => invoke("get_crop_editor_source", { request }),
       finishCropEditor: (request, edit) => invoke("finish_crop_editor", { request, edit }),
     } satisfies Pick<import("./clop-types").PicLiteBridge, "editFloatingImage" | "saveFloatingResult" | "openCropEditor" | "getCropEditorSource" | "finishCropEditor">),
-    copyImagePath: (path) => invoke("copy_image_path", { path }),
+    copyImagePath: (path, asFile = false) => invoke("copy_image_path", { path, asFile }),
     copyText: (text) => invoke("copy_text", { text }),
     selectImages: async () => {
       const images = await invoke<EncodedImage[]>("select_images");

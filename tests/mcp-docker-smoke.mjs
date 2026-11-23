@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { apngFixture, verifyCompressedApng } from './apng-fixture.mjs';
+import { animatedWebpFixture, verifyWebpToGif } from './animated-webp-fixture.mjs';
 
 const localBinary = process.env.PICLITE_MCP_BINARY;
 const localRoot = localBinary ? await mkdtemp(join(tmpdir(), 'piclite-docker-mcp-test-')) : null;
@@ -69,6 +71,19 @@ try {
     ]);
     assert.equal(tools.find(tool => tool.name === 'piclite_compress').inputSchema.properties.outputDirectory, undefined);
     assert.match(tools.find(tool => tool.name === 'piclite_compress').inputSchema.properties.paths.items.description, /relative/);
+
+    const animation = apngFixture();
+    await writeFile(join(workspace, 'input', 'animation.apng'), animation);
+    const apng = await client.callTool({ name: 'piclite_compress', arguments: { paths: ['input/animation.apng'] } });
+    assert.notEqual(apng.isError, true, JSON.stringify(apng));
+    const [apngOutput] = apng.structuredContent.result;
+    assert.match(apngOutput.output, /^output\/job-[^/]+\/animation-piclite\.png$/);
+    verifyCompressedApng(animation, await readFile(join(workspace, apngOutput.output)));
+    await writeFile(join(workspace, 'input', 'animated.webp'), animatedWebpFixture());
+    const conversion = await client.callTool({ name: 'piclite_convert', arguments: { paths: ['input/animated.webp'], format: 'image/gif' } });
+    const [gifOutput] = conversion.structuredContent.result;
+    assert.ok(gifOutput.output?.endsWith('.gif'), JSON.stringify(gifOutput));
+    await verifyWebpToGif(await readFile(join(workspace, gifOutput.output)));
 
     const inspected = await client.callTool({ name: 'piclite_inspect', arguments: { path: 'input/vector.svg' } });
     assert.notEqual(inspected.isError, true, JSON.stringify(inspected));

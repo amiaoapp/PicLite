@@ -18,11 +18,12 @@ export const CONVERSION_FORMATS = [
 ] as const;
 export type ConversionFormat = typeof CONVERSION_FORMATS[number]["value"];
 export type ImageOutputFormat = "keep" | ConversionFormat;
-export const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|png|webp|avif|gif|heic|heif|svg|bmp|tiff?|ico|qoi|tga|ppm|pam)$/i;
-export const IMAGE_INPUT_ACCEPT = "image/*,.jfif,.heic,.heif,.svg,.tif,.tiff,.ico,.qoi,.tga,.ppm,.pam";
+export const SUPPORTED_IMAGE_PATH = /\.(?:jpe?g|jfif|a?png|webp|avif|gif|heic|heif|svg|bmp|tiff?|ico|qoi|tga|ppm|pam)$/i;
+export const IMAGE_INPUT_ACCEPT = "image/*,.apng,.jfif,.heic,.heif,.svg,.tif,.tiff,.ico,.qoi,.tga,.ppm,.pam";
 export function imageMime(name: string) {
   const ext = name.split(".").pop()?.toLowerCase();
   if (ext === "jpeg" || ext === "jfif") return "image/jpeg";
+  if (ext === "apng") return "image/png";
   if (ext === "tif") return "image/tiff";
   if (ext === "heic" || ext === "heif") return `image/${ext}`;
   if (["pbm", "pgm", "pnm"].includes(ext || "")) return "image/x-portable-anymap";

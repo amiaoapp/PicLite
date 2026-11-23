@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   floatingHeight: 230,
   floatingCornerRadius: 24,
   floatingSurfaceVersion: 2,
-  floatingActions: ["downscale", "undo", "quality", "copy", "upload", "save"],
+  floatingActions: ["downscale", "undo", "quality", "copy-file", "upload", "save"],
   floatingWatermark: {
     text: "PicLite",
     fontFamily: "Microsoft YaHei",
@@ -187,7 +187,10 @@ export function loadSettings(): DesktopSettings {
       pauseAutomaticOptimisations: false,
       floatingCornerRadius: parsed.floatingSurfaceVersion !== 2 && parsed.floatingCornerRadius === 10 ? 24 : floatingRadius(parsed.floatingCornerRadius),
       floatingSurfaceVersion: 2,
-      floatingActions: Array.isArray(parsed.floatingActions) && parsed.floatingActions.join(",") !== "downscale,watermark,undo,copy,preview,reveal" ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
+      floatingActions: Array.isArray(parsed.floatingActions) && ![
+        "downscale,watermark,undo,copy,preview,reveal",
+        "downscale,undo,quality,copy,upload,save",
+      ].includes(parsed.floatingActions.join(",")) ? parsed.floatingActions.slice(0, 6) : DEFAULT_SETTINGS.floatingActions,
       floatingWatermark: { ...DEFAULT_SETTINGS.floatingWatermark, ...(parsed.floatingWatermark || {}) },
       watchProfiles: Array.isArray(parsed.watchProfiles) ? parsed.watchProfiles : (parsed.watchFolders || []).map((path, index) => ({
         id: `migrated-${index}`, name: fileName(path), enabled: true,

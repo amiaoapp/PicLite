@@ -56,6 +56,8 @@ export type BuiltinToolBridge = {
   selectImageFolderEntries: () => Promise<NativeImageEntry[]>;
   selectFolder: (kind: "input" | "output" | "export") => Promise<string | null>;
   quickCompressPaths: (paths: string[], settings: QuickSettings) => Promise<QuickResult[]>;
+  readImageEntriesFromPaths: (paths: string[]) => Promise<NativeImageEntry[]>;
+  onFileDrop: (callback: (event: { type: "over" | "drop" | "leave" | "error"; paths?: string[]; error?: string }) => void) => () => void;
 };
 
 export type WatcherPatch = {
@@ -166,6 +168,12 @@ function useToolQueue(bridge: BuiltinToolBridge | undefined, language: "zh" | "e
     try { add(await (folder ? bridge.selectImageFolderEntries() : bridge.selectImageEntries())); }
     catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
   }, [add, bridge, t]);
+  useEffect(() => bridge?.onFileDrop((event) => {
+    if (event.type === "error") setNotice(event.error || t("无法接收拖入的文件", "Could not receive dropped files"));
+    if (event.type === "drop" && event.paths?.length) {
+      void bridge.readImageEntriesFromPaths(event.paths).then(add).catch(error => setNotice(String(error)));
+    }
+  }), [add, bridge, t]);
   const remove = useCallback((id: string) => setItems((current) => {
     const item = current.find((candidate) => candidate.id === id);
     if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -198,7 +206,12 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
       queue.setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "working" } : candidate));
       try {
         const [result] = await bridge.quickCompressPaths([item.path], { mode, quality: effectiveQuality, scale: 100, format, stripMetadata: true, preventLarger: false, exportMode: placement, exportSuffix: suffix, fixedFolder: placement === "fixed-folder" ? folder : undefined });
-        queue.setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: result?.error ? "error" : "done", result } : candidate));
+        if (!result?.output && !result?.error) throw new Error(queue.t("转换未生成文件", "Conversion produced no file"));
+        const extension = OUTPUT_FORMAT_OPTIONS.find(option => option.value === format)?.extension;
+        if (result.output && extension && !result.output.toLowerCase().endsWith(`.${extension}`)) {
+          throw new Error(queue.t(`转换结果不是 ${extension.toUpperCase()} 格式`, `Conversion did not produce ${extension.toUpperCase()}`));
+        }
+        queue.setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: result.error ? "error" : "done", result } : candidate));
       } catch (error) {
         queue.setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "error", result: { source: item.path, keptOriginal: false, error: error instanceof Error ? error.message : String(error) } } : candidate));
       }
@@ -219,10 +232,10 @@ export function FormatConverterPlugin({ bridge, language, onCreateMonitor }: Sha
           <label><span>{queue.t("文件名后缀", "Filename suffix")}</span><input value={suffix} onChange={(event) => setSuffix(event.target.value)} /></label>
           <OutputLocationFields bridge={bridge} language={language} placement={placement} setPlacement={setPlacement} folder={folder} setFolder={setFolder} />
         </fieldset>
-        <footer className="tool-actions"><small role="status" aria-live="polite">{queue.notice || queue.t("所有图片仅在本机处理", "All images stay on this device")}</small><div><button type="button" disabled={queue.busy || (placement === "fixed-folder" && !folder)} onClick={async () => queue.setNotice(await onCreateMonitor({ outputFolder: placement === "fixed-folder" ? folder : "@same-folder", outputSuffix: suffix, mode, quality: effectiveQuality, format, scale: 100, resize: false }, queue.t("格式转换", "Format conversion")))}>{queue.t("保存为监控任务", "Create watch task")}</button><button className="primary" type="button" disabled={queue.busy || !queue.items.length || (placement === "fixed-folder" && !folder)} onClick={() => void process()}>{queue.busy ? queue.t("转换中…", "Converting…") : queue.t("开始转换", "Convert")}</button></div></footer>
+        <footer className="tool-actions"><small role="status" aria-live="polite">{queue.notice || queue.t("所有图片仅在本机处理", "All images stay on this device")}</small><div><button type="button" disabled={queue.busy || (placement === "fixed-folder" && !folder)} onClick={async () => queue.setNotice(await onCreateMonitor({ outputFolder: placement === "fixed-folder" ? folder : "@same-folder", outputSuffix: suffix, mode, quality: effectiveQuality, format, scale: 100, resize: false, preventLarger: false }, queue.t("格式转换", "Format conversion")))}>{queue.t("保存为监控任务", "Create watch task")}</button><button className="primary" type="button" disabled={queue.busy || !queue.items.length || (placement === "fixed-folder" && !folder)} onClick={() => void process()}>{queue.busy ? queue.t("转换中…", "Converting…") : queue.t("开始转换", "Convert")}</button></div></footer>
       </div>
       <section className="converter-results" aria-label={queue.t("转换结果", "Results")}><header className="converter-section-heading"><DownloadSimpleIcon size={22} /><div><h2>{queue.t("转换结果", "Results")}</h2><p>{queue.t("完成后可查看文件大小和保存路径", "Review file sizes and saved locations")}</p></div><span className="converter-count">{queue.items.filter((item) => item.status === "done").length} / {queue.items.length}</span></header>
-        {queue.items.some((item) => item.status === "done" || item.status === "error") ? <div className="converter-result-list">{queue.items.filter((item) => item.status === "done" || item.status === "error").map((item) => <article key={item.id} className={item.status}><CheckCircleIcon size={20} /><div><strong>{item.name}</strong><p>{item.result?.error || `${formatBytes(item.result?.originalBytes)} → ${formatBytes(item.result?.outputBytes)}`}</p><small title={item.result?.output}>{item.result?.output}</small></div><span>{item.status === "error" ? queue.t("失败", "Failed") : queue.t("已保存", "Saved")}</span></article>)}</div> : <div className="converter-results-empty"><DownloadSimpleIcon size={26} /><p>{queue.t("转换完成的文件会显示在这里", "Converted files will appear here")}</p><small>{queue.t("设置输出格式后，点击开始转换", "Choose an output format, then select Convert")}</small></div>}
+        {queue.items.some((item) => item.status === "done" || item.status === "error") ? <div className="converter-result-list">{queue.items.filter((item) => item.status === "done" || item.status === "error").map((item) => <article key={item.id} className={item.status}><CheckCircleIcon size={20} /><div><strong>{item.result?.output?.split(/[\\/]/).pop() || item.name}</strong><p>{item.result?.error || `${formatBytes(item.result?.originalBytes)} → ${formatBytes(item.result?.outputBytes)}`}</p><small title={item.result?.output}>{item.result?.output}</small></div><span>{item.status === "error" ? queue.t("失败", "Failed") : queue.t("已保存", "Saved")}</span></article>)}</div> : <div className="converter-results-empty"><DownloadSimpleIcon size={26} /><p>{queue.t("转换完成的文件会显示在这里", "Converted files will appear here")}</p><small>{queue.t("设置输出格式后，点击开始转换", "Choose an output format, then select Convert")}</small></div>}
       </section>
     </div>
   </section>;

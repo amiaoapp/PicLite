@@ -481,7 +481,8 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     downscale: { title: tr(language, "再缩小一半", "Downscale by half again"), icon: "minus", run: onDownscale },
     watermark: { title: tr(language, "按已保存参数添加水印", "Apply the saved watermark"), icon: "watermark", run: onWatermark },
     undo: { title: tr(language, "撤销上一次处理", "Undo last operation"), icon: "undo", disabled: !item.history?.length, run: onUndo },
-    copy: { title: tr(language, "复制优化结果", "Copy optimised result"), icon: "copy", run: () => void copy() },
+    copy: { title: tr(language, "兼容复制（用于不支持 WebP 粘贴的软件）", "Copy compatible image (for apps that cannot paste WebP)"), icon: "copy", run: () => void copy() },
+    "copy-file": { title: tr(language, "复制压缩文件（保留格式和大小）", "Copy compressed file (keep format and size)"), icon: "document", run: () => { const path = item.output; if (path) void runWithNotice(() => api.copyImagePath(path, true), tr(language, "已复制压缩文件", "Compressed file copied")); } },
     preview: { title: tr(language, "在新窗口预览", "Open image in a new window"), icon: "eye", run: () => void preview() },
     reveal: { title: tr(language, "在文件夹中显示", "Show in folder"), icon: "folder", run: () => void reveal() },
     gallery: { title: tr(language, "打开图库", "Open library"), icon: "gallery", run: () => void runWithNotice(() => api.showGalleryWindow(), tr(language, "已打开图库", "Library opened")) },
@@ -651,9 +652,16 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     void api.startDragging();
   };
   const chooseLocalImages = async () => {
-    const images = await api.selectImages();
-    if (images.length) await optimise(images.map((image) => image.path));
+    if (settings.floatingClickThrough) return;
+    try {
+      const images = await api.selectImages();
+      if (images.length) await optimise(images.map((image) => image.path));
+    } catch (error) {
+      showOperationNotice(String(error), "error");
+    }
   };
+  const addLocalImagesLabel = tr(settings.language, "选择本地图片", "Choose local images");
+  const addLocalImages = <button type="button" title={addLocalImagesLabel} aria-label={addLocalImagesLabel} disabled={settings.floatingClickThrough} onPointerDown={(event) => event.stopPropagation()} onClick={() => void chooseLocalImages()}><Icon name="plus" /></button>;
 
   useEffect(() => {
     let disposed = false;
@@ -934,7 +942,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
         <div>
           {clickThroughToggle}
           <FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />
-          <button title={tr(settings.language, "选择本地图片", "Choose local images")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void chooseLocalImages()}><Icon name="plus" /></button>
+          {addLocalImages}
           <button title={tr(settings.language, "打开工作台", "Open workbench")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>
           <button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onPointerDown={(event) => event.stopPropagation()} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button>
         </div>
@@ -946,7 +954,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
         <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
-        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} /><button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="trash" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
+        <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />{addLocalImages}<button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="trash" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
     <button className="floating-resize-handle" aria-label={tr(settings.language, "调整悬浮窗大小", "Resize floating window")} title={tr(settings.language, "拖动调整大小", "Drag to resize")} onPointerDown={(event) => { event.preventDefault(); void api.startResizeDragging("SouthEast"); }} />
@@ -1024,7 +1032,7 @@ const settingsNav: Array<{ id: SettingsSection; icon: string; zh: string; en: st
   { id: "sponsor", icon: "heart", zh: "赞助支持", en: "Support PicLite" },
 ];
 
-const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy", "upload", "save", "cover", "watermark", "preview", "reveal", "gallery", "clipboard-monitor"];
+const FLOATING_ACTION_OPTIONS: FloatingAction[] = ["downscale", "undo", "quality", "copy-file", "copy", "upload", "save", "cover", "watermark", "preview", "reveal", "gallery", "clipboard-monitor"];
 
 function floatingActionLabel(language: Language, action: FloatingAction) {
   return ({
@@ -1034,7 +1042,8 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
     downscale: tr(language, "减半", "Half"),
     watermark: tr(language, "水印", "Watermark"),
     undo: tr(language, "撤销", "Undo"),
-    copy: tr(language, "复制", "Copy"),
+    copy: tr(language, "兼容复制", "Copy compatible image"),
+    "copy-file": tr(language, "复制压缩文件", "Copy compressed file"),
     preview: tr(language, "预览", "Preview"),
     reveal: tr(language, "定位", "Reveal"),
     "clipboard-monitor": tr(language, "剪贴板检测开关", "Clipboard monitoring"),
@@ -1044,7 +1053,7 @@ function floatingActionLabel(language: Language, action: FloatingAction) {
 }
 
 function floatingActionIcon(action: FloatingAction) {
-  return ({ "clipboard-monitor":"clipboard", cover:"image", quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
+  return ({ "clipboard-monitor":"clipboard", cover:"image", quality:"sliders", save:"save", downscale: "minus", watermark: "watermark", undo: "undo", copy: "copy", "copy-file": "document", preview: "eye", reveal: "folder", gallery: "gallery", upload: "upload" } as Record<FloatingAction, string>)[action];
 }
 
 function SettingsRow({ title, note, children }: { title: React.ReactNode; note?: React.ReactNode; children: React.ReactNode }) {

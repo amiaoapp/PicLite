@@ -1,4 +1,6 @@
 import {coverFixture,inspectCoverExport} from "./helpers/cover-export.mjs";
+import { apngFixture, verifyCompressedApng } from './apng-fixture.mjs';
+import { animatedWebpFixture, verifyWebpToGif } from './animated-webp-fixture.mjs';
 // Runs against the real published container, never a fixture renderer or native IPC mock.
 // Node 24 + installed Chrome; ORIGIN defaults to Docker's published localhost port.
 // Set CDP to a debugging port/HTTP endpoint to reuse an isolated external Chrome.
@@ -380,6 +382,25 @@ try {
   await click('.web-tool-run');await wait(`document.querySelector('.web-tool-result img')?.naturalWidth===80`);
   const resizedTool=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
   assert.deepEqual([resizedTool.width,resizedTool.height],[80,50]);
+  await click('[data-tool-id=convert]');
+  const animation = apngFixture();
+  await evaluate(`(()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(animation.toString('base64'))}),c=>c.charCodeAt(0));const dt=new DataTransfer();dt.items.add(new File([bytes],'container-animation.apng',{type:'image/apng'}));const input=document.querySelector('.browser-image-tool input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait(`document.querySelector('.browser-image-tool .web-tool-item:last-child strong')?.textContent==='container-animation.apng'`);
+  await evaluate(`(()=>{const select=document.getElementById('web-tool-format');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'image/png');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('.web-tool-run');
+  await wait(`document.querySelectorAll('.browser-image-tool .web-tool-item.done').length===2`);
+  await click('.browser-image-tool .web-tool-item:last-child .web-tool-select');
+  const animationOutput = await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.arrayBuffer()))))()`);
+  verifyCompressedApng(animation, Buffer.from(animationOutput));
+  const webp = animatedWebpFixture().toString('base64');
+  await evaluate(`(()=>{const dt=new DataTransfer();dt.items.add(new File([Uint8Array.from(atob(${JSON.stringify(webp)}),c=>c.charCodeAt(0))],'animated.webp',{type:'image/webp'}));const input=document.querySelector('.browser-image-tool input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait(`document.querySelector('.browser-image-tool .web-tool-item:last-child strong')?.textContent==='animated.webp'`);
+  await evaluate(`(()=>{const select=document.getElementById('web-tool-format');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'image/gif');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('.web-tool-run');
+  await wait(`document.querySelector('.browser-image-tool .web-tool-item:last-child')?.classList.contains('done')`);
+  await click('.browser-image-tool .web-tool-item:last-child .web-tool-select');
+  const gifOutput = await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.arrayBuffer()))))()`);
+  await verifyWebpToGif(Buffer.from(gifOutput));
   await click('[data-tool-id=gallery]');await wait(`document.querySelectorAll('.gallery-card').length>0`);
   report.independentTools={converted:convertedTool,resized:resizedTool,galleryRecords:await evaluate(`document.querySelectorAll('.gallery-card').length`)};
   console.log('PASS actual container independent tool outputs',JSON.stringify(report.independentTools));

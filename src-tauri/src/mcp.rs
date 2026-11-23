@@ -358,6 +358,8 @@ fn call(name: &str, args: Value) -> Result<Value, String> {
                     .len()
             } else if is_animated_webp(&bytes) {
                 decode_webp_animation(&bytes)?.frames.len()
+            } else if let Some(frames) = apng::frame_count(&bytes) {
+                frames as usize
             } else {
                 1
             };

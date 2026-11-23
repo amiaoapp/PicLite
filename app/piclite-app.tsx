@@ -3,6 +3,7 @@
 import { ClipboardSourceControls } from "../desktop/clipboard-source-controls";
 import { DEFAULT_CLIPBOARD_SOURCE_SETTINGS, normalizeClipboardExcludedApps } from "../desktop/clipboard-source-settings";
 import { clipboardImageFile, type ClipboardImageMetadata, type ClipboardImagePayload } from "./clipboard-image";
+import { isAnimatedPng, optimizeApng } from "./apng";
 import { shortcutFromEvent, shortcutLabel } from "../desktop/shortcuts";
 import type { ShortcutKeyEvent } from "../desktop/shortcuts";
 import { loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
@@ -1295,21 +1296,24 @@ type DecodedGifFrame = {
 };
 
 type GifDecoder = {
-  tracks: { ready: Promise<void>; selectedTrack?: { frameCount?: number } | null };
+  tracks: { ready: Promise<void>; selectedTrack?: { frameCount?: number; repetitionCount?: number } | null };
   decode: (options: { frameIndex: number }) => Promise<DecodedGifFrame>;
   close: () => void;
 };
 
 type GifDecoderConstructor = new (options: { data: ArrayBuffer; type: string }) => GifDecoder;
 
-async function animatedGifCompress(item: ImageItem, settings: CompressionSettings) {
+async function animatedGifCompress(item: ImageItem, settings: CompressionSettings, inputType: "image/gif" | "image/webp" = "image/gif") {
   const Decoder = (window as unknown as { ImageDecoder?: GifDecoderConstructor }).ImageDecoder;
   if (!Decoder) throw new Error("动态 GIF 实时压缩需要最新版 Chrome、Edge 或桌面客户端");
 
   const { width, height } = getTargetDimensions(item, settings);
-  const decoder = new Decoder({ data: await item.file.arrayBuffer(), type: "image/gif" });
+  const decoder = new Decoder({ data: await item.file.arrayBuffer(), type: inputType });
   await decoder.tracks.ready;
   const frameCount = decoder.tracks.selectedTrack?.frameCount || 1;
+  const webp = inputType === "image/webp";
+  const repetitionCount = decoder.tracks.selectedTrack?.repetitionCount;
+  const repeat = !webp || repetitionCount === Infinity ? 0 : repetitionCount ? Math.min(65535, repetitionCount) : -1;
   const encoder = GIFEncoder();
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -1337,8 +1341,11 @@ async function animatedGifCompress(item: ImageItem, settings: CompressionSetting
       const transparentIndex = palette.findIndex((color) => color[3] === 0);
       encoder.writeFrame(indexed, width, height, {
         palette,
-        delay: Math.max(20, Math.round((image.duration || 100_000) / 1000)),
-        repeat: 0,
+        delay: webp
+          ? Math.min(655350, Math.max(10, Math.round((image.duration ?? 100_000) / 1000)))
+          : Math.max(20, Math.round((image.duration || 100_000) / 1000)),
+        repeat,
+        ...(webp && { dispose: 2 }),
         transparent: transparentIndex >= 0,
         transparentIndex: Math.max(0, transparentIndex),
       });
@@ -1530,9 +1537,15 @@ function strategyLabel(settings: CompressionSettings) {
 }
 
 async function compressImageBase(item: ImageItem, settings: CompressionSettings, nativeBridge?: NativeBridge): Promise<CompressionResult> {
+  const animatedWebP = await isAnimatedWebPFile(item.file);
+  if (!nativeBridge && animatedWebP && settings.format === "image/gif") {
+    if (hasWatermark(settings.watermark)) throw new Error("请先转换为 GIF，再添加水印");
+    const result = await animatedGifCompress(item, settings, "image/webp");
+    return { ...result, strategy: "GIF · 保留动画帧" };
+  }
   const extendedOutput = !["keep", "image/jpeg", "image/png", "image/webp"].includes(settings.format);
   if (!nativeBridge && (extendedOutput || isSvg(item.file) || needsExtendedDecoder(item.file))) {
-    if (item.type === "image/gif" || await isAnimatedWebPFile(item.file)) throw new Error("此动画转换请使用桌面客户端，避免丢失动画帧");
+    if (item.type === "image/gif" || animatedWebP) throw new Error("此动画转换请使用桌面客户端，避免丢失动画帧");
     if (hasWatermark(settings.watermark)) throw new Error("新增格式请先转换为 PNG 或 WebP 后再添加水印");
     const { width, height } = getTargetDimensions(item, settings);
     let input = item.file as Blob;
@@ -1553,9 +1566,8 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
     }
     return { blob: new Blob([new Uint8Array(result.data)], { type: result.type }), width: result.width, height: result.height, strategy: `${type.split("/")[1].toUpperCase()} · 格式转换` };
   }
-  const animatedWebP = await isAnimatedWebPFile(item.file);
-  if (animatedWebP && !["keep", "image/webp"].includes(settings.format)) {
-    throw new Error("动态 WebP 只能保持 WebP 格式；已停止处理以避免动画被压成静态图");
+  if (animatedWebP && !["keep", "image/webp", "image/gif"].includes(settings.format)) {
+    throw new Error("动态 WebP 只能输出 GIF 或动态 WebP");
   }
   if (animatedWebP && !nativeBridge) {
     throw new Error("动态 WebP 压缩需要 PicLite 桌面客户端；网页端不会将动画压成静态图");
@@ -1600,7 +1612,7 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
       strategy: `${result.extension === "webp" ? "动态 WebP" : "动态 GIF"} · ${Math.round(settings.quality)}% · ${settings.watermark.kind === "blind" ? "盲水印" : settings.watermark.kind === "image" ? "图片水印" : "文字水印"}`,
     };
   }
-  if (nativeAnimation && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp")) {
+  if (nativeAnimation && nativeBridge && !hasWatermark(settings.watermark) && (settings.format === "keep" || settings.format === "image/webp" || (animatedWebP && settings.format === "image/gif"))) {
     const result = await nativeBridge.compressAnimationData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
@@ -1759,6 +1771,23 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
     item.file = file;
     item.sourceIsThumbnail = false;
     return compressImage(item, settings, nativeBridge);
+  }
+
+  if ((/^image\/(?:a?png)$/.test(item.type) || /\.a?png$/i.test(item.name)) && await isAnimatedPng(item.file)) {
+    if (hasWatermark(settings.watermark)) throw new Error("APNG 暂不支持水印 / APNG watermarking is not supported");
+    if (settings.format !== "keep" && settings.format !== "image/png") throw new Error("APNG 目前只支持保留 PNG 动画格式 / APNG output must stay PNG to preserve animation");
+    const { width, height } = getTargetDimensions(item, settings);
+    if (width !== item.width || height !== item.height) throw new Error("APNG 无损压缩暂不支持缩放 / Lossless APNG compression does not resize frames");
+    if (nativeBridge) {
+      const result = await nativeBridge.compressImageData(new Uint8Array(await item.file.arrayBuffer()), item.name, {
+        mode: settings.mode, quality: settings.quality, scale: 100, format: settings.format,
+        stripMetadata: settings.stripMetadata, preventLarger: settings.preventLarger,
+        exportMode: "same-folder", exportSuffix: "-piclite",
+      });
+      return { blob: new Blob([new Uint8Array(result.data)], { type: result.mimeType }), width: result.width, height: result.height, keptOriginal: result.keptOriginal, strategy: "APNG · Lossless" };
+    }
+    const blob = await optimizeApng(item.file, settings.stripMetadata);
+    return { blob, width, height, keptOriginal: blob.size === item.originalBytes, strategy: "APNG · Lossless" };
   }
 
   if (nativeBridge && isSvg(item.file) && !hasWatermark(settings.watermark)) {
@@ -2968,7 +2997,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [settings]);
 
   useEffect(() => {
-    if (!nativeBridge) return;
+    if (!nativeBridge || view === "convert" || view === "resize") return;
     return nativeBridge.onFileDrop((event) => {
       if (event.type === "error") {
         showToast(event.error || t("系统文件拖放监听不可用", "The system file-drop listener is unavailable"));
@@ -2978,7 +3007,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (event.type !== "drop" || !event.paths?.length) return;
       void nativeBridge.readImageEntriesFromPaths(event.paths).then(addNativeEntries);
     });
-  }, [addNativeEntries, nativeBridge, showToast, t]);
+  }, [addNativeEntries, nativeBridge, showToast, t, view]);
 
   useEffect(() => nativeBridge?.onTrayAction(setPendingTrayAction), [nativeBridge]);
 

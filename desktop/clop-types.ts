@@ -8,7 +8,7 @@ export type ResultDisplayMode = "stack" | "list";
 export type FilePlacement = "same-folder" | "fixed-folder";
 export type ImageFormat = "keep" | "jpeg" | "png" | "webp";
 export type CleanupUnit = "hours" | "days" | "months";
-export type FloatingAction = "cover" | "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "preview" | "reveal" | "gallery" | "upload" | "clipboard-monitor";
+export type FloatingAction = "cover" | "quality" | "save" | "downscale" | "watermark" | "undo" | "copy" | "copy-file" | "preview" | "reveal" | "gallery" | "upload" | "clipboard-monitor";
 
 export type FloatingWatermark = {
   text: string;
@@ -250,7 +250,7 @@ export type PicLiteBridge = {
   openCropEditor: (path: string) => Promise<string | null>;
   getCropEditorSource: (request: string) => Promise<{ path: string; name: string; width: number; height: number; preview: string }>;
   finishCropEditor: (request: string, edit: { x: number; y: number; width: number; height: number; outputWidth: number; outputHeight: number } | null) => Promise<void>;
-  copyImagePath: (path: string) => Promise<void>;
+  copyImagePath: (path: string, asFile?: boolean) => Promise<void>;
   selectImages: () => Promise<NativeImage[]>;
   readImagesFromPaths: (paths: string[]) => Promise<NativeImage[]>;
   selectFolder: (kind: "input" | "output" | "export") => Promise<string | null>;
