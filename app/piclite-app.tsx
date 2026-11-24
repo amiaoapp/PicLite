@@ -4164,35 +4164,37 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               {items.length > 0 && <button className="text-button" type="button" onClick={clearAll}>{t("清空", "Clear")}</button>}
             </div>
 
-            <div className="import-actions">
-              <button className="import-button" type="button" disabled={Boolean(importProgress)} onClick={importImages}><span aria-hidden="true">＋</span> {t("添加图片", "Add images")}</button>
-              <button className="folder-import-button" type="button" disabled={Boolean(importProgress)} onClick={importImageFolder}><span aria-hidden="true">▱</span> {t("导入文件夹", "Import folder")}</button>
-            </div>
+            <div className="queue-body">
+              <div className="import-actions">
+                <button className="import-button" type="button" disabled={Boolean(importProgress)} onClick={importImages}><span aria-hidden="true">＋</span> {t("添加图片", "Add images")}</button>
+                <button className="folder-import-button" type="button" disabled={Boolean(importProgress)} onClick={importImageFolder}><span aria-hidden="true">▱</span> {t("导入文件夹", "Import folder")}</button>
+              </div>
 
-            <div className="queue-list">
-              {items.length === 0 ? (
-                <div className="queue-empty">
-                  <div className="empty-stack" aria-hidden="true"><i /><i /><i /></div>
-                  <strong>{t("队列还是空的", "Your queue is empty")}</strong>
-                  <p>{t("拖入图片、导入文件夹，或从剪贴板粘贴", "Drop images, import a folder, or paste from the clipboard")}</p>
-                  <button type="button" onClick={addDemo}>{t("载入演示图片", "Load a sample image")}</button>
-                </div>
-              ) : items.map((item) => (
-                <button className={`queue-item ${selected?.id === item.id ? "selected" : ""}`} type="button" key={item.id} onClick={() => setSelectedId(item.id)}>
-                  <img src={item.sourceUrl} alt="" />
-                  <span className="queue-copy">
-                    <strong>{item.name}</strong>
-                    <small>{item.width} × {item.height} · {formatBytes(item.originalBytes)}</small>
-                    <span className={`item-status ${item.status}`}>
-                      {item.status === "processing" && t("正在实时试压…", "Testing…")}
-                      {item.status === "ready" && t("等待实时试压", "Waiting")}
-                      {item.status === "error" && (item.error || t("处理失败", "Failed"))}
-                      {item.status === "done" && <><b className={savedPercent(item.originalBytes, item.outputBytes) < 0 ? "larger" : ""}>{sizeChangeLabel(item.originalBytes, item.outputBytes)}</b> {item.keptOriginal ? t("已保留原图", "Original kept") : formatBytes(item.outputBytes)}</>}
+              <div className="queue-list">
+                {items.length === 0 ? (
+                  <div className="queue-empty">
+                    <div className="empty-stack" aria-hidden="true"><i /><i /><i /></div>
+                    <strong>{t("队列还是空的", "Your queue is empty")}</strong>
+                    <p>{t("拖入图片、导入文件夹，或从剪贴板粘贴", "Drop images, import a folder, or paste from the clipboard")}</p>
+                    <button type="button" onClick={addDemo}>{t("载入演示图片", "Load a sample image")}</button>
+                  </div>
+                ) : items.map((item) => (
+                  <button className={`queue-item ${selected?.id === item.id ? "selected" : ""}`} type="button" key={item.id} onClick={() => setSelectedId(item.id)}>
+                    <img src={item.sourceUrl} alt="" />
+                    <span className="queue-copy">
+                      <strong>{item.name}</strong>
+                      <small>{item.width} × {item.height} · {formatBytes(item.originalBytes)}</small>
+                      <span className={`item-status ${item.status}`}>
+                        {item.status === "processing" && t("正在实时试压…", "Testing…")}
+                        {item.status === "ready" && t("等待实时试压", "Waiting")}
+                        {item.status === "error" && (item.error || t("处理失败", "Failed"))}
+                        {item.status === "done" && <><b className={savedPercent(item.originalBytes, item.outputBytes) < 0 ? "larger" : ""}>{sizeChangeLabel(item.originalBytes, item.outputBytes)}</b> {item.keptOriginal ? t("已保留原图", "Original kept") : formatBytes(item.outputBytes)}</>}
+                      </span>
                     </span>
-                  </span>
-                  <span className="remove-item" role="button" aria-label={`移除 ${item.name}`} onClick={(event) => { event.stopPropagation(); removeItem(item.id); }}>×</span>
-                </button>
-              ))}
+                    <span className="remove-item" role="button" aria-label={`移除 ${item.name}`} onClick={(event) => { event.stopPropagation(); removeItem(item.id); }}>×</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="queue-footer">
@@ -4276,12 +4278,16 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="result-strip">
-              <div><span>{t("当前原图", "Selected original")}</span><strong>{formatBytes(selectedMetrics.original)}</strong></div>
-              <span className="result-arrow">→</span>
-              <div><span>{t("当前实时结果", "Selected result")}</span><strong>{selectedMetrics.hasOutput ? formatBytes(selectedMetrics.output) : "—"}</strong></div>
-              <div className={`savings-pill ${selectedMetrics.saved < 0 ? "larger" : ""}`}><span>{selectedMetrics.saved < 0 ? t("体积增加", "Larger") : t("节省", "Saved")}</span><strong>{selectedMetrics.hasOutput ? sizeChangeLabel(selectedMetrics.original, selectedMetrics.output) : "—"}</strong></div>
-              <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting} onClick={exportSelected} />
-              <button className="export-button" type="button" disabled={!items.length || exporting} onClick={exportAll}><span>↓</span> {exporting ? t("正在导出", "Exporting") : t("导出全部", "Export all")}</button>
+              <div className="result-metrics">
+                <div><span>{t("原图", "Original")}</span><strong>{selected ? formatBytes(selectedMetrics.original) : "—"}</strong></div>
+                <span className="result-arrow" aria-hidden="true">→</span>
+                <div><span>{t("结果", "Result")}</span><strong>{selectedMetrics.hasOutput ? formatBytes(selectedMetrics.output) : "—"}</strong></div>
+                <div className={`savings-pill ${selectedMetrics.saved < 0 ? "larger" : ""}`}><span>{selectedMetrics.saved < 0 ? t("体积增加", "Larger") : t("节省", "Saved")}</span><strong>{selectedMetrics.hasOutput ? sizeChangeLabel(selectedMetrics.original, selectedMetrics.output) : "—"}</strong></div>
+              </div>
+              <div className="result-actions">
+                <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting} onClick={exportSelected} />
+                <button className="export-button" type="button" disabled={!items.length || exporting} onClick={exportAll}><span aria-hidden="true">↓</span> {exporting ? t("正在导出", "Exporting") : t("导出全部", "Export all")}</button>
+              </div>
             </div>
           </section>
 
@@ -4452,9 +4458,15 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             <div className="settings-footer">
               {selected && <div className="live-size-card" aria-live="polite">
-                <div><span>{t("实时试压结果", "Live result")}</span><strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong></div>
+                <div className="live-size-row">
+                  <span>{t("实时试压结果", "Live result")}</span>
+                  <div className="live-size-value">
+                    {selected.status === "done" && selected.outputBytes != null && Boolean(selected.outputWidth && selected.outputHeight) && <small className="live-size-dimensions">{selected.outputWidth} × {selected.outputHeight} px</small>}
+                    <strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong>
+                  </div>
+                </div>
                 {selected.status === "done" && selected.outputBytes != null && <>
-                  <small>{selected.outputWidth && selected.outputHeight ? `${selected.outputWidth} × ${selected.outputHeight} px` : null}{apngOutput ? ` · APNG` : selected.keptOriginal ? ` · ${t("已保留原图", "Original kept")}` : ""}{!vectorOutput && settings.targetSizeKb > 0 ? ` · ${selected.outputBytes <= settings.targetSizeKb * 1000 ? "≤" : ">"} ${settings.targetSizeKb} KB` : ""}</small>
+                  {(apngOutput || selected.keptOriginal || (!vectorOutput && settings.targetSizeKb > 0)) && <small>{[apngOutput ? "APNG" : selected.keptOriginal ? t("已保留原图", "Original kept") : null, !vectorOutput && settings.targetSizeKb > 0 ? `${selected.outputBytes <= settings.targetSizeKb * 1000 ? "≤" : ">"} ${settings.targetSizeKb} KB` : null].filter(Boolean).join(" · ")}</small>}
                   {apngOutput && settings.targetSizeKb > 0 && selected.outputBytes > settings.targetSizeKb * 1000 && <small className="live-size-warning">{t("保留全部帧，未达到目标体积", "All frames kept; size target not met")}</small>}
                 </>}
               </div>}

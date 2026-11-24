@@ -13,23 +13,48 @@ const wait=async expression=>{for(let i=0;i<150;i++){if(await ev(expression))ret
 const results=[];
 try{
  await send('Network.enable');await send('Network.setCacheDisabled',{cacheDisabled:true});await send('Page.navigate',{url:origin});await wait(`!!document.querySelector('.app-shell')`);
- for(const layout of ['classic','studio'])for(const scale of [90,110,150])for(const width of [820,1120,1440]){
+ for(const layout of ['classic','studio'])for(const scale of [90,110,150])for(const width of [390,820,1120,1440]){
   await send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
   await ev(`(()=>{localStorage.setItem('piclite.interfaceStyle.v1',${JSON.stringify(layout)});const p={language:'en',theme:'light',interfaceFontScale:${scale}};for(const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1'])localStorage.setItem(key,JSON.stringify(p));location.reload()})()`);
   await wait(`document.querySelector('.web-app.${layout}-shell')&&document.documentElement.lang==='en'`);
   for(const populated of [false,true]){
    if(populated){await ev(`(async()=>{const c=document.createElement('canvas');c.width=800;c.height=500;const x=c.getContext('2d');x.fillStyle='#244863';x.fillRect(0,0,800,500);const blob=await new Promise(r=>c.toBlob(r));const d=new DataTransfer();d.items.add(new File([blob],'workspace-regression.png',{type:'image/png'}));const i=document.querySelector('input[type=file][multiple]:not([webkitdirectory])');i.files=d.files;i.dispatchEvent(new Event('change',{bubbles:true}))})()`);await wait(`!!document.querySelector('.compare-canvas')`)}
    await wait(`!document.querySelector('.toast')`);
+   if(populated) await wait(`!!document.querySelector('.live-size-dimensions')`);
    await ev(`Promise.all(document.getAnimations().filter(a=>a.playState==='running'&&a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`);
    const state=await ev(`(()=>{const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}},t=document.querySelector('.preview-toolbar'),s=document.querySelector('.preview-stage'),p=document.querySelector('.preview-panel'),c=s.querySelector('.compare-canvas,.hero-dropzone,.studio-welcome'),heading=t.querySelector('strong');const range=document.createRange();range.selectNodeContents(heading);return{toolbar:rect(t),stage:rect(s),panel:rect(p),canvas:c&&rect(c),heading:rect(heading),glyphs:[...range.getClientRects()].map(r=>({y:r.y,bottom:r.bottom})),headingDisplay:getComputedStyle(heading.parentElement).display,rows:getComputedStyle(p).gridTemplateRows,buttons:[...t.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{label:b.textContent,rect:rect(b),hit:hit===b||b.contains(hit)}})}})()`);
    const errors=[];const check=(ok,message)=>{if(!ok)errors.push(message)};
+   const footer=await ev(`(()=>{
+     const bounds=element=>{const {top,bottom,left,right}=element.getBoundingClientRect();return {top,bottom,left,right}};
+     const strip=document.querySelector('.result-strip');
+     const [queue,settings]=['.queue-footer','.settings-footer'].map(selector=>bounds(document.querySelector(selector)));
+     const middle=bounds(strip);
+     const controls=[...strip.querySelectorAll('button,.result-metrics strong')].map(bounds);
+     const dimensions=document.querySelector('.live-size-dimensions');
+     const trial=dimensions&&[dimensions,document.querySelector('.live-size-value strong')].map(bounds);
+     return {queue,middle,settings,controls,trial};
+   })()`);
+   if((layout==='studio'&&width>800)||width>900){
+     for(const side of [footer.queue,footer.settings]){
+       check(Math.abs(side.top-footer.middle.top)<=1,'footer dividers not aligned');
+       check(Math.abs(side.bottom-footer.middle.bottom)<=1,'footer bottoms not aligned');
+     }
+   }
+   for(const control of footer.controls){
+     check(control.left>=footer.middle.left-1&&control.right<=footer.middle.right+1&&control.top>=footer.middle.top-1&&control.bottom<=footer.middle.bottom+1,'result content escapes footer');
+   }
+   if(footer.trial){
+     const [dimensions,bytes]=footer.trial;
+     check(dimensions.right<=bytes.left&&dimensions.bottom>bytes.top&&dimensions.top<bytes.bottom,'dimensions and file size must share a line');
+     check(dimensions.left>=footer.settings.left&&bytes.right<=footer.settings.right,'trial result escapes settings footer');
+   }
    check(state.headingDisplay!=='none','heading hidden');
    for(const r of state.glyphs)check(r.y>=state.toolbar.y-1&&r.bottom<=state.toolbar.bottom+1,'heading glyphs outside toolbar');
    check(state.stage.y>=state.toolbar.bottom-1,'stage overlaps toolbar');
    if(state.canvas){check(state.canvas.y>=state.stage.y-1,'canvas escapes above stage');check(state.canvas.bottom<=state.stage.bottom+1,'canvas escapes below stage');check(state.canvas.h>=180,'preview area too small')}
    for(const b of state.buttons){check(b.rect.y>=state.toolbar.y-1&&b.rect.bottom<=state.toolbar.bottom+1,`${b.label} outside toolbar`);check(b.hit,`${b.label} occluded`)}
-   const entry={layout,scale,width,populated,...state,errors};results.push(entry);
-   if(errors.length&&process.env.ARTIFACTS){mkdirSync(process.env.ARTIFACTS,{recursive:true});const {data}=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${process.env.ARTIFACTS}/${layout}-${scale}-${width}-${populated?'image':'empty'}.png`,Buffer.from(data,'base64'))}
+   const entry={layout,scale,width,populated,...state,footer,errors};results.push(entry);
+   if(process.env.ARTIFACTS&&(errors.length||(populated&&scale===110&&[390,1440].includes(width)))){mkdirSync(process.env.ARTIFACTS,{recursive:true});const {data}=await send('Page.captureScreenshot',{format:'png'});writeFileSync(`${process.env.ARTIFACTS}/${layout}-${scale}-${width}-${populated?'image':'empty'}.png`,Buffer.from(data,'base64'))}
   }
  }
  if(process.env.ARTIFACTS){mkdirSync(process.env.ARTIFACTS,{recursive:true});writeFileSync(`${process.env.ARTIFACTS}/workspace-results.json`,JSON.stringify(results,null,2));}

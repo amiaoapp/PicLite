@@ -57,8 +57,8 @@ html .app-shell.studio-shell .queue-item.selected { border-color: var(--studio-l
 .studio-shell .queue-item > img { width: 40px; height: 48px; border-radius: 4px; object-fit: cover; }
 .studio-shell .queue-copy > strong { font-size: 10px; font-weight: 600; }
 .studio-shell .queue-copy small, .studio-shell .item-status { font-size: 9px; }
-html .app-shell.studio-shell .queue-footer { padding: 14px 16px; border-top: 1px solid var(--studio-line); background: none; }
-.studio-shell .queue-footer .paste-button { height: 32px; background: none; border: 1px solid var(--studio-line); border-radius: 6px; box-shadow: none; font-size: 10px; color: var(--studio-ink); }
+html .app-shell.studio-shell .queue-footer { padding: 10px 16px; border-top-color: var(--studio-line); background: none; }
+.studio-shell .queue-footer .paste-button { min-height: 32px; background: none; border: 1px solid var(--studio-line); border-radius: 6px; box-shadow: none; font-size: 10px; color: var(--studio-ink); }
 .studio-shell .queue-footer small { font-size: 9px; color: var(--studio-muted); }
 html .app-shell.studio-shell .preview-toolbar { padding: 13px 24px; grid-template-columns: minmax(0,1fr) auto auto; border: 0; border-bottom: 1px solid var(--studio-line); background: transparent; gap: 8px; }
 .studio-shell .preview-toolbar strong { max-width: 230px; font-size: 12px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -78,12 +78,12 @@ html .app-shell.studio-shell.studio-shell .preview-stage { min-height: 0; paddin
 .studio-import > button:active { transform: translateY(0) scale(.98); }
 .studio-import small { font-size: 10px; color: var(--studio-muted); }
 .studio-formats { display: flex; align-items: center; gap: 16px; font: 9px ui-monospace, monospace; color: var(--studio-muted); letter-spacing: .04em; }
-html .app-shell.studio-shell .result-strip { display: grid; grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr) minmax(0,.7fr) 36px 110px; padding: 12px 22px; gap: 10px; border-top: 1px solid var(--studio-line); background: var(--studio-surface); }
-.studio-shell .result-strip > div span { font-size: 9px; letter-spacing: .02em; color: var(--studio-muted); }
-.studio-shell .result-strip > div strong { font: 13px ui-monospace, monospace; color: var(--studio-ink); }
-.studio-shell .result-strip .export-button { width: 110px; min-width: 110px; max-width: 110px; height: 36px; padding: 0 10px; white-space: nowrap; justify-self: end; border-radius: 5px; background: var(--accent); color: #162019; box-shadow: none; font-size: 11px; }
+html .app-shell.studio-shell .result-strip { padding-inline: 22px; border-top-color: var(--studio-line); background: var(--studio-surface); }
+.studio-shell .result-metrics > div > span { color: var(--studio-muted); }
+.studio-shell .result-metrics strong { font-family: ui-monospace, monospace; font-weight: 500; }
+.studio-shell .result-strip .export-button { background: var(--accent); color: #162019; box-shadow: none; }
 .studio-shell .result-strip .export-button:disabled { opacity: .4; }
-.studio-shell .result-strip .savings-pill { color: var(--studio-ink); background: color-mix(in srgb, var(--accent) 20%, transparent); border: 0; border-radius: 4px; padding: 5px 8px; }
+.studio-shell .result-strip .savings-pill { border-inline-start-color: var(--studio-line); }
 html .app-shell.studio-shell .setting-section { padding: 18px 20px; border: 0; border-bottom: 1px solid var(--studio-line); }
 .studio-shell .setting-label { font-size: 11px; font-weight: 600; color: var(--studio-ink); }
 .studio-shell .setting-section .setting-hint { font-size: 10px; line-height: 1.7; color: var(--studio-muted); }
@@ -134,8 +134,7 @@ html .app-shell.studio-shell .rename-preview header { background: var(--studio-p
   .studio-shell .privacy-badge { display: none; }
   .studio-shell .studio-welcome { gap: 20px; }
   html .app-shell.studio-shell .preview-stage { padding-inline: 22px; }
-  html .app-shell.studio-shell .result-strip { gap: 7px; padding-inline: 14px; grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr) 36px 110px; }
-  .studio-shell .result-strip > div:nth-child(4) { display: none; }
+  html .app-shell.studio-shell .result-strip { padding-inline: 14px; }
 }
 @media (max-height: 800px) and (min-width: 801px) {
   .studio-shell .studio-welcome { gap: 16px; }
@@ -169,7 +168,6 @@ html .app-shell.studio-shell .rename-preview header { background: var(--studio-p
 
 html .app-shell.studio-shell .setting-section { background: transparent; }
 .studio-shell .empty-stack { display: none; }
-html .app-shell.studio-shell .result-strip > div { background: transparent; box-shadow: none; border: 0; }
 .studio-shell .studio-details { margin-top: 12px; color: var(--studio-muted); font-size: 10px; }
 .studio-details summary { cursor: pointer; user-select: none; }
 .studio-details summary:hover { color: var(--studio-ink); }
@@ -199,9 +197,7 @@ html .app-shell.studio-shell { background: var(--studio-paper); }
 
 /* The native title bar used to keep the classic 20px width subtraction. */
 html .app-shell.studio-shell .topbar { width: 100%; }
-html .app-shell.studio-shell .result-strip > .icon-button { width: 36px; min-width: 36px; height: 36px; padding: 0; border-radius: 6px; color: var(--studio-ink); background: var(--studio-surface); box-shadow: none; }
-html .app-shell.studio-shell .result-strip > div { min-width: 0; }
-html .app-shell.studio-shell .result-strip strong { white-space: nowrap; }
+html .app-shell.studio-shell .result-actions > .icon-button { color: var(--studio-ink); background: var(--studio-surface); box-shadow: none; }
 html[data-theme="dark"] .app-shell.studio-shell .import-actions .import-button,
 html[data-theme="dark"] .app-shell.studio-shell .studio-import > button:not(.studio-demo-link) {
   background: color-mix(in srgb, var(--accent) 13%, var(--studio-surface));
@@ -209,23 +205,11 @@ html[data-theme="dark"] .app-shell.studio-shell .studio-import > button:not(.stu
 }
 html[data-theme="dark"] .app-shell.studio-shell .result-strip .export-button:disabled { background: var(--studio-surface); color: var(--studio-muted); border: 1px solid var(--studio-line); opacity: .65; }
 @media (max-width: 360px) {
-  html .app-shell.studio-shell .result-strip { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 32px 100px; gap: 6px; padding-inline: 10px; }
-  .studio-shell .result-strip .result-arrow { display: none; }
-  html .app-shell.studio-shell .result-strip > .icon-button { width: 32px; min-width: 32px; }
-  .studio-shell .result-strip .export-button { width: 100px; min-width: 100px; max-width: 100px; }
+  html .app-shell.studio-shell .result-strip { padding-inline: 12px; }
 }
 
 /* Match the visible footer children at each breakpoint. Hidden metrics must
    release their tracks, while both export actions keep their intrinsic width. */
-html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr) minmax(0,.7fr) 38px max-content; }
-html .app-shell.studio-shell .workspace .result-strip > .icon-button { width: 38px; min-width: 38px; }
-html .app-shell.studio-shell .workspace .result-strip > .export-button { width: auto; min-width: 78px; max-width: none; justify-self: stretch; }
-@media (max-width: 1180px) {
-  html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) 12px minmax(0,1fr) 38px max-content; }
-}
-@media (max-width: 1000px) {
-  html .app-shell.studio-shell .workspace .result-strip { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 38px max-content; }
-}
 
 html .app-shell.studio-shell .compare-canvas,
 html .app-shell.studio-shell .image-inspector { height: 100%; max-height: 100%; min-height: 0; }

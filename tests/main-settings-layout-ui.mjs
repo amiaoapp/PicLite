@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 const port = process.env.PICLITE_CDP_PORT || 9457;
 const origin = process.env.PICLITE_TEST_ORIGIN || 'http://127.0.0.1:1457';
-const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then(r => r.json());
-const ws = new WebSocket(pages.find(p => p.type === 'page').webSocketDebuggerUrl);
+const endpoint = `http://127.0.0.1:${port}`;
+const target = await fetch(`${endpoint}/json/new?about:blank`, { method: 'PUT' }).then(r => r.json());
+const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise(resolve => ws.addEventListener('open', resolve, { once: true }));
 let sequence = 0;
 const pending = new Map();
@@ -48,12 +49,12 @@ try {
     for (const state of ['empty', 'loaded']) {
       if (state === 'loaded') {
         await evaluate(`(async()=>{const c=document.createElement('canvas');c.width=640;c.height=400;const ctx=c.getContext('2d');ctx.fillStyle='#5083b2';ctx.fillRect(0,0,640,400);ctx.fillStyle='#efc35d';ctx.fillRect(80,80,200,200);const blob=await new Promise(r=>c.toBlob(r,'image/png'));const transfer=new DataTransfer();transfer.items.add(new File([blob],'layout-regression.png',{type:'image/png'}));const input=document.querySelector('input[type=file][accept^="image/*"]:not([webkitdirectory])');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-        await wait('!!document.querySelector(".queue-item") && !document.querySelector(".result-strip > .icon-button").disabled');
+        await wait('!!document.querySelector(".queue-item") && !document.querySelector(".result-actions > .icon-button").disabled');
         await wait('[...document.querySelectorAll(".preview-stage img")].some(img=>img.naturalWidth>0)');
       }
       for (const [width, height] of sizes) {
         await resize(width, height);
-        const geometry = await evaluate(`(()=>{const rect=${rectFunction};const strip=document.querySelector('.result-strip');return {strip:rect(strip),controls:[...strip.querySelectorAll(':scope > button')].map(el=>({...rect(el),disabled:el.disabled,clipped:el.scrollWidth>el.clientWidth+1})),children:[...strip.children].filter(el=>getComputedStyle(el).display!=='none').map(rect)}})()`);
+        const geometry = await evaluate(`(()=>{const rect=${rectFunction};const strip=document.querySelector('.result-strip');return {strip:rect(strip),controls:[...strip.querySelectorAll('.result-actions > button')].map(el=>({...rect(el),disabled:el.disabled,clipped:el.scrollWidth>el.clientWidth+1})),children:[...strip.children].map(rect),sides:[...document.querySelectorAll('.queue-footer,.settings-footer')].map(rect)}})()`);
         assert.equal(geometry.controls.length, 2, 'both export controls exist');
         const [current, all] = geometry.controls;
         assert.ok(current.right + 5 <= all.x && all.x - current.right <= 12, `${layout}/${state}/${width}: export spacing must be 5–12px: ${JSON.stringify(geometry)}`);
@@ -63,7 +64,9 @@ try {
           assert.ok(control.x >= geometry.strip.x && control.right <= geometry.strip.right + 1 && control.bottom <= height && control.y >= 0, 'exports inside footer and viewport');
           assert.equal(control.clipped, false, 'export label is not clipped');
         }
-        for (let i=1;i<geometry.children.length;i++) assert.ok(geometry.children[i-1].right<=geometry.children[i].x+1,'footer content must not overlap');
+        const [metrics, actions] = geometry.children;
+        assert.ok(metrics.right <= actions.x + 1 || metrics.bottom <= actions.y + 1, 'footer content must not overlap');
+        for (const side of geometry.sides) assert.ok(Math.abs(side.y - geometry.strip.y) <= 1 && Math.abs(side.bottom - geometry.strip.bottom) <= 1, `footer rows align: ${JSON.stringify(geometry)}`);
         console.log(`PASS exports ${layout} ${state} ${width}x${height}: gap=${(all.x-current.right).toFixed(1)}`);
       }
       if (state === 'loaded') {
@@ -95,4 +98,4 @@ try {
   await wait('document.querySelector(".settings-palette.violet").getAttribute("aria-pressed")==="true"');
   assert.equal(await evaluate('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1")).colorTheme'),'violet');
   console.log('PASS palette selection persists');
-} finally { ws.close(); }
+} finally { ws.close(); await fetch(`${endpoint}/json/close/${target.id}`); }
