@@ -4307,28 +4307,28 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           </section>
 
           <aside className="settings-panel">
-            <div className="panel-heading"><div><span className="eyebrow">{t("实时试压", "LIVE TEST")}</span><strong>{vectorOutput ? t("矢量清理与尺寸调整", "Vector cleanup and dimensions") : t("滑动即预览体积", "Preview output size as you slide")}</strong></div><button className="reset-button" type="button" onClick={() => setSettings(DEFAULT_SETTINGS)}>{t("重置", "Reset")}</button></div>
+            <div className="panel-heading"><div><strong>{t("压缩参数", "Compression")}</strong></div><button className="reset-button" type="button" onClick={() => setSettings(DEFAULT_SETTINGS)}>{t("重置", "Reset")}</button></div>
 
             <div className="settings-scroll-content">
             <div className="preset-toolbar">
               <div className="select-wrap"><select disabled={vectorOutput} aria-label={t("压缩预设", "Compression preset")} value={activePresetId} onChange={(event) => {
                 const preset = presets.find((candidate) => candidate.id === event.target.value);
                 if (preset) applyPreset(preset);
-              }}><option value="current">{t("当前参数（自动保存）", "Current settings (saved automatically)")}</option>{presets.map((preset) => <option value={preset.id} key={preset.id}>{preset.custom ? `${t("自定义", "Custom")} · ${preset.name}` : ({ lossless: t("无损优先", "Lossless"), balanced: t("智能平衡", "Smart balance"), small: t("更小体积", "Smaller files") }[preset.id] || preset.name)}</option>)}</select></div>
+              }}><option value="current">{t("当前参数", "Current")}</option>{presets.map((preset) => <option value={preset.id} key={preset.id}>{preset.custom ? `${t("自定义", "Custom")} · ${preset.name}` : ({ lossless: t("无损优先", "Lossless"), balanced: t("智能平衡", "Smart balance"), small: t("更小体积", "Smaller files") }[preset.id] || preset.name)}</option>)}</select></div>
               <button type="button" title={t("保存当前参数为预设", "Save current settings as a preset")} onClick={() => setPresetDialogOpen(true)}>＋ {t("保存", "Save")}</button>
               {presets.find((preset) => preset.id === activePresetId)?.custom && <button className="preset-delete" type="button" title={t("删除当前预设", "Delete current preset")} onClick={deleteActivePreset}>{t("删除", "Delete")}</button>}
             </div>
 
-            <div className="setting-section">
+            <div className="setting-section quick-mode-section">
               <label className="setting-label">{vectorOutput ? t("SVG 矢量优化", "SVG vector optimisation") : t("快速方案", "Quick modes")}</label>
-              {vectorOutput && <p className="setting-hint svg-vector-hint" role="note">{t("当前保留 SVG 矢量，只清理冗余代码。调整尺寸会改变画布尺寸，不会减少图形元素，文件体积可能基本不变。", "SVG stays vector and removes redundant code. Resizing changes the canvas dimensions, not the number of drawing elements, so file size may barely change.")}<button type="button" className="settings-button" onClick={() => setSettings(current => ({ ...current, format: "image/webp" }))}>{t("转为 WebP 压缩", "Compress as WebP")}</button></p>}
+              {vectorOutput && <p className="setting-hint svg-vector-hint" role="note">{t("保留矢量，仅清理冗余代码。", "Vector paths are preserved.")}<button type="button" className="settings-button" onClick={() => setSettings(current => ({ ...current, format: "image/webp" }))}>{t("转为 WebP", "Convert to WebP")}</button></p>}
               <div className="mode-grid">
                 {([
-                  ["lossless", 92, t("无损优先", "Lossless priority"), t("肉眼高质量", "Visually high quality"), "eye"],
-                  ["balanced", 82, t("智能平衡", "Smart balance"), t("快速实测", "Fast measured pass"), "sliders"],
-                  ["small", 45, t("更小体积", "Smaller files"), t("快速压缩", "Fast compression"), "down15"],
-                ] as const).map(([value, quality, label, note, icon]) => (
-                  <button disabled={vectorOutput} title={vectorOutput ? t("SVG 保留矢量时统一使用无损清理", "SVG output uses lossless cleanup") : undefined} className={!vectorOutput && settings.mode === value ? "active" : ""} type="button" key={value} onClick={() => {
+                  ["lossless", 92, t("无损优先", "Lossless"), "eye"],
+                  ["balanced", 82, t("智能平衡", "Balanced"), "sliders"],
+                  ["small", 45, t("更小体积", "Smaller"), "down15"],
+                ] as const).map(([value, quality, label, icon]) => (
+                  <button disabled={vectorOutput} aria-pressed={!vectorOutput && settings.mode === value} className={!vectorOutput && settings.mode === value ? "active" : ""} type="button" key={value} onClick={() => {
                     const preset = BUILT_IN_PRESETS.find((candidate) => candidate.id === value);
                     if (preset) applyPreset({
                       ...preset,
@@ -4343,14 +4343,26 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                       },
                     });
                   }}>
-                    <span className="quick-mode-icon"><HeaderIcon name={icon} /></span><strong>{label}</strong><small>{note}</small>
+                    <span className="quick-mode-icon"><HeaderIcon name={icon} /></span><strong>{label}</strong>
                   </button>
                 ))}
               </div>
             </div>
 
+            <div className="setting-section">
+              <label className="setting-label" htmlFor="output-format">{t("输出格式", "Output format")}</label>
+              <div className="select-wrap">
+                <select id="output-format" value={settings.format} onChange={(event) => setSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}>
+                  <option value="keep">{selected && isSvg(selected.file) ? t("SVG · 保留矢量", "SVG · Keep vector") : settings.mode === "manual" ? t("保持原格式", "Keep original") : t("自动选择", "Auto")}</option>
+                  <option value="image/jpeg">JPG</option>
+                  <option value="image/png">PNG</option>
+                  <option value="image/webp">WebP</option>
+                </select>
+              </div>
+            </div>
+
             <div className="setting-section slider-section">
-              <div className="slider-heading"><label className="setting-label" htmlFor="quality-range">{t("画质 / 编码质量", "Quality / encoding")}</label><output htmlFor="quality-range">{vectorOutput ? t("不适用 SVG", "Not used for SVG") : `${settings.quality}%`}</output></div>
+              <div className="slider-heading"><label className="setting-label" htmlFor="quality-range">{t("画质", "Quality")}</label><output htmlFor="quality-range">{vectorOutput ? t("不适用", "N/A") : `${settings.quality}%`}</output></div>
               <input
                 id="quality-range"
                 disabled={vectorOutput}
@@ -4366,17 +4378,19 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                   setSettings((current) => ({ ...current, quality, mode: modeFromQuality(quality) }));
                 }}
               />
-              <div className="range-labels">{vectorOutput ? <span>{t("SVG 不使用位图编码质量，路径精度保持不变", "SVG does not use bitmap quality; path precision is preserved")}</span> : <><span>{t("更小文件", "Smaller file")}</span><span>{t("更多细节", "More detail")}</span></>}</div>
-              {!vectorOutput && !apngOutput && <details className="encoding-help"><summary>{t("智能方案如何选择格式？", "How does smart format selection work?")}</summary><p className="setting-hint">{t("三档预设会实测候选格式并采用体积最小的有效结果；透明图片会跳过 JPG。", "Presets test candidate formats and use the smallest valid result; JPEG is skipped for transparent images.")}</p></details>}
             </div>
 
             <div className="setting-section target-size-section">
-              <div className="slider-heading"><label className="setting-label" htmlFor="target-size-input">{t("目标文件大小", "Target file size")}</label><output htmlFor="target-size-input">{vectorOutput ? t("不适用 SVG", "Not used for SVG") : settings.targetSizeKb > 0 ? `≤ ${settings.targetSizeKb} KB` : t("不限", "Unlimited")}</output></div>
+              <div className="slider-heading"><label className="setting-label" htmlFor="target-size-input">{t("目标体积（KB）", "Target size (KB)")}</label>{vectorOutput && <output htmlFor="target-size-input">{t("不适用", "N/A")}</output>}</div>
               <div className="target-size-presets" aria-label={t("目标文件大小预设", "Target size presets")}>
-                {[0, 200, 100, 50].map((size) => <button disabled={vectorOutput} className={!vectorOutput && settings.targetSizeKb === size ? "active" : ""} type="button" key={size} onClick={() => setSettings((current) => ({ ...current, targetSizeKb: size }))}>{size ? `${size} KB` : t("不限", "Unlimited")}</button>)}
+                {[0, 200, 100, 50].map((size) => {
+                  const label = size ? `${size} KB` : t("不限", "No limit");
+                  const active = !vectorOutput && settings.targetSizeKb === size;
+                  return <button disabled={vectorOutput} aria-label={label} title={label} aria-pressed={active} className={active ? "active" : ""} type="button" key={size} onClick={() => setSettings((current) => ({ ...current, targetSizeKb: size }))}>{size || t("不限", "∞")}</button>;
+                })}
               </div>
-              <label className="target-size-custom" htmlFor="target-size-input"><span>{t("自定义上限", "Custom limit")}</span><input id="target-size-input" disabled={vectorOutput} type="number" inputMode="numeric" min="1" max="102400" step="1" value={settings.targetSizeKb || ""} placeholder={t("输入大小", "Enter size")} onChange={(event) => setSettings((current) => ({ ...current, targetSizeKb: event.target.value ? Math.max(1, Math.min(102400, Math.round(Number(event.target.value)))) : 0 }))} /><b>KB</b></label>
-              <p className="setting-hint"><i /> {vectorOutput ? t("保留 SVG 时不按目标体积降低精度，也不会自动转成位图。需要按 KB 控制体积，请选择 WebP / JPEG 输出。", "SVG output does not lower precision or rasterise to meet a byte target. Choose WebP / JPEG to target a file size.") : apngOutput ? t("APNG 保留全部动画帧。目标体积优先；超出上限时会降低颜色精度并按比例缩小，可能小于当前尺寸设置。", "APNG keeps every frame. The byte target takes priority; if needed, colour precision and dimensions are reduced proportionally, below the current size setting.") : t("静态图按实际体积调整画质和尺寸。智能动图默认目标 500 KB，可降低画质、等比缩小和抽帧，并保持播放时长；指定上限优先生效。", "Static images adjust quality and dimensions. Smart animations target 500 KB through lower quality, proportional resizing and frame thinning while preserving duration; a custom limit takes priority.")}</p>
+              <label className="target-size-custom" htmlFor="target-size-input"><span>{t("自定义上限", "Custom limit")}</span><input id="target-size-input" disabled={vectorOutput} type="number" inputMode="numeric" min="1" max="102400" step="1" value={settings.targetSizeKb || ""} placeholder="—" onChange={(event) => setSettings((current) => ({ ...current, targetSizeKb: event.target.value ? Math.max(1, Math.min(102400, Math.round(Number(event.target.value)))) : 0 }))} /><b>KB</b></label>
+              {apngOutput && settings.targetSizeKb > 0 && <p className="setting-hint">{t("保留所有帧，必要时缩小尺寸。", "Keeps all frames; may reduce dimensions.")}</p>}
             </div>
 
             <div className="setting-section slider-section">
@@ -4392,39 +4406,29 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 style={{ "--range-progress": `${settings.scale}%` } as CSSProperties}
                 onChange={(event) => setSettings((current) => ({ ...current, scale: Number(event.target.value) }))}
               />
-              <div className="range-labels"><span>{t("0.1% · 极小", "0.1% · tiny")}</span><span>{t("100% · 原尺寸", "100% · original")}</span></div>
               <div className="scale-presets">
-                {[100, 50, 25, 10].map((scale) => <button className={settings.scale === scale ? "active" : ""} type="button" key={scale} onClick={() => setSettings((current) => ({ ...current, scale }))}>{scale}%</button>)}
-                <button type="button" onClick={() => setSettings((current) => ({ ...current, scale: Math.max(0.1, Math.round(current.scale * 5) / 10) }))}>{t("继续减半", "Halve again")}</button>
+                {[100, 50, 25, 10].map((scale) => <button aria-pressed={settings.scale === scale} className={settings.scale === scale ? "active" : ""} type="button" key={scale} onClick={() => setSettings((current) => ({ ...current, scale }))}>{scale}%</button>)}
+                <button type="button" title={t("将当前比例减半", "Halve the current scale")} onClick={() => setSettings((current) => ({ ...current, scale: Math.max(0.1, Math.round(current.scale * 5) / 10) }))}>{t("减半", "Half")}</button>
               </div>
               <div className="exact-dimension-grid">
                 <label><span>{t("宽度", "Width")}</span><b><input aria-label={t("输出宽度", "Output width")} type="number" min="1" max={selected?.width || undefined} disabled={!selected} value={selectedTarget?.width || ""} placeholder="—" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExactDimension("width", Number(event.target.value))} /> px</b></label>
-                <i aria-hidden="true">⌁</i>
+                <i aria-hidden="true" title={t("保持原始宽高比", "Keeps the original aspect ratio")}>⌁</i>
                 <label><span>{t("高度", "Height")}</span><b><input aria-label={t("输出高度", "Output height")} type="number" min="1" max={selected?.height || undefined} disabled={!selected} value={selectedTarget?.height || ""} placeholder="—" onFocus={(event) => event.currentTarget.select()} onChange={(event) => setExactDimension("height", Number(event.target.value))} /> px</b></label>
               </div>
-              <p className="setting-hint">{t("默认读取原图尺寸。拖动滑杆或输入任一边的像素，另一边会按原图比例自动适配。", "Starts from the source dimensions. Drag the slider or enter either side; the other side follows the source aspect ratio.")}</p>
             </div>
 
+            <details className="parameter-advanced">
+              <summary>
+                <span>{t("高级选项", "Advanced")}</span>
+                {(settings.resize || settings.watermark.enabled) && <small>{[settings.resize && t("像素上限", "Size cap"), settings.watermark.enabled && t("水印", "Watermark")].filter(Boolean).join(" · ")}</small>}
+              </summary>
             <div className="setting-section">
-              <label className="setting-label" htmlFor="output-format">{t("输出格式", "Output format")}</label>
-              <div className="select-wrap">
-                <select id="output-format" value={settings.format} onChange={(event) => setSettings((current) => ({ ...current, format: event.target.value as OutputFormat }))}>
-                  <option value="keep">{selected && isSvg(selected.file) ? t("SVG · 保留矢量", "SVG · keep vector") : settings.mode === "manual" ? t("保持原格式", "Keep original") : t("智能择优格式", "Auto-select best format")}</option>
-                  <option value="image/jpeg">{t("JPG · 适合照片", "JPG · photos")}</option>
-                  <option value="image/png">{t("PNG · 透明 / 100% 无损", "PNG · alpha / lossless at 100%")}</option>
-                  <option value="image/webp">{t("WebP · 适合网页", "WebP · web")}</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="setting-section">
-              <div className="label-row"><label className="setting-label" htmlFor="resize-toggle">{t("批量最大像素边界（可选）", "Batch maximum pixels (optional)")}</label><button id="resize-toggle" className={`switch ${settings.resize ? "on" : ""}`} type="button" role="switch" aria-checked={settings.resize} onClick={() => setSettings((current) => ({ ...current, resize: !current.resize }))}><i /></button></div>
-              <div className={`dimension-grid ${settings.resize ? "" : "disabled"}`}>
+              <div className="label-row"><label className="setting-label" htmlFor="resize-toggle">{t("批量像素上限", "Batch pixel limit")}</label><button id="resize-toggle" className={`switch ${settings.resize ? "on" : ""}`} type="button" role="switch" aria-checked={settings.resize} onClick={() => setSettings((current) => ({ ...current, resize: !current.resize }))}><i /></button></div>
+              {settings.resize && <div className="dimension-grid">
                 <label>{t("最大宽度", "Max width")} <span><input type="number" min="1" value={settings.width} disabled={!settings.resize} onChange={(event) => setSettings((current) => ({ ...current, width: Number(event.target.value) }))} /> px</span></label>
-                <button className={settings.lockRatio ? "locked" : ""} type="button" disabled={!settings.resize} aria-label={t("锁定宽高比", "Lock aspect ratio")} onClick={() => setSettings((current) => ({ ...current, lockRatio: !current.lockRatio }))}>↕</button>
+                <button className={settings.lockRatio ? "locked" : ""} type="button" aria-pressed={settings.lockRatio} title={t("锁定宽高比", "Lock aspect ratio")} aria-label={t("锁定宽高比", "Lock aspect ratio")} onClick={() => setSettings((current) => ({ ...current, lockRatio: !current.lockRatio }))}>↕</button>
                 <label>{t("最大高度", "Max height")} <span><input type="number" min="1" value={settings.height} disabled={!settings.resize} onChange={(event) => setSettings((current) => ({ ...current, height: Number(event.target.value) }))} /> px</span></label>
-              </div>
-              <p className="setting-hint">{t("会与上方比例同时生效，且不会放大小图；开启 ↕ 时保持原始宽高比。", "Works with scale above and never enlarges small images. ↕ keeps the original aspect ratio.")}</p>
+              </div>}
             </div>
 
             <div className="setting-section watermark-section">
@@ -4445,7 +4449,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 {settings.watermark.kind === "blind" ? <>
                   <input className="watermark-text-input" aria-label={t("盲水印内容", "Blind watermark payload")} value={settings.watermark.text} placeholder={t("输入版权信息或识别码", "Enter copyright text or an identifier")} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, text: event.target.value } }))} />
                   <label className="mini-range"><span>{t("嵌入强度", "Embedding strength")} <b>{settings.watermark.blindStrength}</b></span><input type="range" min="1" max="8" step="1" value={settings.watermark.blindStrength} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, blindStrength: Number(event.target.value) } }))} /></label>
-                  <p className="watermark-note">{t("将内容编码为低感知像素纹理；强压缩、裁剪或截图会降低可恢复性。", "Encodes the payload as a low-visibility pixel pattern. Heavy compression, cropping, or screenshots reduce recoverability.")}</p>
+                  <p className="watermark-note">{t("压缩、裁剪或截图可能影响读取。", "Compression or cropping may affect recovery.")}</p>
                 </> : <>
                   <div className="segmented-control" aria-label={t("水印铺设方式", "Watermark layout")}><button className={settings.watermark.layout === "tile" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "tile" } }))}>{t("全屏重复", "Tile")}</button><button className={settings.watermark.layout === "single" ? "active" : ""} type="button" onClick={() => setSettings((current) => ({ ...current, watermark: { ...current.watermark, layout: "single" } }))}>{t("单点定位", "Position")}</button></div>
                   <label className="mini-range"><span>{t("方向", "Angle")} <b>{settings.watermark.rotation}°</b></span><input type="range" min="-180" max="180" step="1" value={settings.watermark.rotation} onChange={(event) => setSettings((current) => ({ ...current, watermark: { ...current.watermark, rotation: Number(event.target.value) } }))} /></label>
@@ -4457,16 +4461,17 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="setting-section compact">
-              <label className="check-row"><input type="checkbox" checked={settings.stripMetadata} onChange={(event) => setSettings((current) => ({ ...current, stripMetadata: event.target.checked }))} /><span><strong>{t("移除隐私元数据", "Strip private metadata")}</strong><small>{t("删除位置、相机与拍摄信息", "Remove location, camera and capture details")}</small></span></label>
-              {!nativeBridge && <label className="check-row secondary-check"><input type="checkbox" checked={settings.preventLarger} onChange={(event) => setSettings((current) => ({ ...current, preventLarger: event.target.checked }))} /><span><strong>{t("避免无意义地变大", "Avoid unnecessary size increases")}</strong><small>{t("普通优化会保留更小的原图；明确改格式、尺寸或水印时始终按设置输出", "Keep the smaller original for ordinary optimisation; explicit format, resize, or watermark changes are always honoured")}</small></span></label>}
+              <label className="check-row" title={t("删除位置、相机与拍摄信息", "Remove location, camera and capture details")}><input type="checkbox" checked={settings.stripMetadata} onChange={(event) => setSettings((current) => ({ ...current, stripMetadata: event.target.checked }))} /><strong>{t("移除隐私元数据", "Strip private metadata")}</strong></label>
+              {!nativeBridge && <label className="check-row secondary-check" title={t("改格式、尺寸或水印时除外", "Except with explicit format, resize or watermark changes")}><input type="checkbox" checked={settings.preventLarger} onChange={(event) => setSettings((current) => ({ ...current, preventLarger: event.target.checked }))} /><strong>{t("普通压缩保留较小文件", "Keep smaller file when optimising")}</strong></label>}
             </div>
+            </details>
 
             <div className="setting-section export-settings">
               <label className="setting-label" htmlFor="export-mode">{t("导出位置", "Export location")}</label>
               <div className="select-wrap"><select id="export-mode" value={exportMode} onChange={(event) => { const mode = event.target.value as ExportMode; setExportMode(mode); if (nativeBridge && mode !== "download") setDesktopPreferences((current) => ({ ...current, exportMode: mode })); }}>{!nativeBridge && <option value="download">{t("浏览器下载", "Browser download")}</option>}<option value="overwrite">{t("覆盖源文件", "Replace original")}</option><option value="same-folder">{t("原文件夹重命名", "Rename in original folder")}</option><option value="fixed-folder">{t("固定文件夹", "Fixed folder")}</option></select></div>
               {exportMode !== "overwrite" && <label className="suffix-input">{t("文件名后缀", "Filename suffix")}<input value={exportSuffix} onChange={(event) => { const value = event.target.value; setExportSuffix(value); if (nativeBridge) setDesktopPreferences((current) => ({ ...current, exportSuffix: value })); }} placeholder="-piclite" /></label>}
               {(exportMode === "fixed-folder" || (!nativeBridge && exportMode === "same-folder")) && <button className="folder-picker-button" type="button" onClick={chooseExportFolder}><span>⌑</span><strong>{exportFolderName || (exportMode === "same-folder" ? t("授权原文件夹", "Authorise original folder") : t("选择固定文件夹", "Choose fixed folder"))}</strong><b>{t("选择", "Choose")}</b></button>}
-              <p className={`setting-hint ${exportMode === "overwrite" ? "warning" : ""}`}>{exportMode === "download" && t("使用浏览器下载，不需要文件夹权限。", "Downloads through the browser and requires no folder permission.")}{exportMode === "overwrite" && t("会直接替换原图且无法撤销；仅支持保持原格式，并要求从“添加图片”导入。", "Replaces originals and cannot be undone. This requires keeping the original format and importing with Add images.")}{exportMode === "same-folder" && (nativeBridge ? t("桌面端会在每张源图旁输出重命名文件。", "The desktop app saves a renamed result next to each source image.") : t("网页无法自动获知父文件夹，需要手动授权一次目标文件夹。", "The web app needs one-time permission for the destination folder."))}{exportMode === "fixed-folder" && t("所有处理结果写入指定文件夹。", "All results are written to the selected folder.")}</p>
+              {exportMode === "overwrite" && <p className="setting-hint warning" role="note">{t("覆盖不可撤销。须保留原格式，并用「添加图片」导入。", "Cannot be undone. Keep the original format and import with Add images.")}</p>}
             </div>
 
             </div>

@@ -109,9 +109,6 @@ html[data-density] .app-shell .workspace .hero-dropzone{min-height:0;max-height:
 .app-shell.web-app .plugin-import-panel>input{display:block;width:100%;min-width:0;max-width:100%;height:auto;min-height:40px;padding:10px 11px;line-height:1.5;color:inherit;font:inherit}
 .app-shell.web-app .plugin-import-panel>button:last-child{justify-self:start;max-width:100%;height:auto;min-height:40px;padding:9px 14px;white-space:normal;line-height:1.5}
 @media(min-width:1100px){.app-shell.web-app .plugin-import-panel{grid-template-columns:minmax(180px,.8fr) minmax(240px,1.2fr)}.app-shell.web-app .plugin-import-panel>button:first-child,.app-shell.web-app .plugin-import-panel>button:last-child{grid-column:1/-1}}
-.app-shell .encoding-help{margin-top:10px;color:var(--muted);font-size:11px}
-.app-shell .encoding-help summary{cursor:pointer;min-height:26px;padding:5px 0}
-.app-shell .encoding-help summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px;border-radius:4px}
 /* Fit the decorative photo to the available preview height. Enlarged text must
    keep import actions visible without creating a nested welcome scrollbar. */
 html .app-shell.web-app.studio-shell .preview-stage:has(>.studio-welcome){container:studio-welcome-stage / size}

@@ -84,19 +84,15 @@ html .app-shell.studio-shell .result-strip { padding-inline: 22px; border-top-co
 .studio-shell .result-strip .export-button { background: var(--accent); color: #162019; box-shadow: none; }
 .studio-shell .result-strip .export-button:disabled { opacity: .4; }
 .studio-shell .result-strip .savings-pill { border-inline-start-color: var(--studio-line); }
-html .app-shell.studio-shell .setting-section { padding: 18px 20px; border: 0; border-bottom: 1px solid var(--studio-line); }
+html .app-shell.studio-shell .setting-section { border-color: var(--studio-line); }
 .studio-shell .setting-label { font-size: 11px; font-weight: 600; color: var(--studio-ink); }
 .studio-shell .setting-section .setting-hint { font-size: 10px; line-height: 1.7; color: var(--studio-muted); }
 .studio-shell .setting-section .setting-hint:empty { display: none; }
-html .app-shell.studio-shell .mode-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
-html .app-shell.studio-shell .mode-grid button { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; text-align: left; min-height: 38px; padding: 7px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; box-shadow: none; }
-html .app-shell.studio-shell .mode-grid button.active { border-color: var(--studio-line); background: color-mix(in srgb, var(--studio-ink) 5%, var(--studio-surface)); }
-.studio-shell .mode-grid button strong { font-size: 11px; font-weight: 500; }
-.studio-shell .mode-grid button small { font-size: 9px; color: var(--studio-muted); }
-.studio-shell .mode-grid button > span { font-size: 15px; }
+html .app-shell.studio-shell .mode-grid button { border-color: var(--studio-line); background: transparent; box-shadow: none; }
+html .app-shell.studio-shell .mode-grid button.active { border-color: color-mix(in srgb, var(--studio-ink) 38%, var(--studio-line)); background: color-mix(in srgb, var(--studio-ink) 8%, var(--studio-surface)); }
+.studio-shell .mode-grid button strong { font-weight: 600; }
 html .app-shell.studio-shell .select-wrap select, html .app-shell.studio-shell .suffix-input input, html .app-shell.studio-shell .dimension-grid input, html .app-shell.studio-shell .watermark-text-input { min-height: 34px; border: 1px solid var(--studio-line); border-radius: 5px; background: transparent; color: var(--studio-ink); box-shadow: none; font-size: 11px; }
 .studio-shell input[type="range"] { accent-color: var(--accent); }
-.studio-shell .range-labels, .studio-shell .check-row small { color: var(--studio-muted); font-size: 9px; }
 .studio-shell .preset-toolbar > button, .studio-shell .scale-presets button, .studio-shell .target-size-presets button { border-radius: 4px; background: transparent; box-shadow: none; font-size: 10px; }
 .studio-shell .studio-status { height: var(--studio-footer); padding: 0 20px; display: flex; align-items: center; gap: 24px; border-top: 1px solid var(--studio-line); background: var(--studio-surface); color: var(--studio-muted); font-size: 9px; }
 .studio-status > span { display: flex; align-items: center; gap: 6px; }
@@ -174,7 +170,6 @@ html .app-shell.studio-shell .setting-section { background: transparent; }
 .studio-details .setting-hint { padding: 4px 0 0; }
 .studio-shell .setting-label, .studio-shell .check-row strong { font-size: 12px; }
 .studio-shell .setting-section .setting-hint { font-size: 11px; }
-.studio-shell .mode-grid button small { font-size: 10px; }
 html .app-shell.studio-shell .mode-grid button.active > span { color: var(--studio-ink); }
 
 /* Layout and palette are independent preferences. */
