@@ -20,7 +20,7 @@ try{
   for(const populated of [false,true]){
    if(populated){await ev(`(async()=>{const c=document.createElement('canvas');c.width=800;c.height=500;const x=c.getContext('2d');x.fillStyle='#244863';x.fillRect(0,0,800,500);const blob=await new Promise(r=>c.toBlob(r));const d=new DataTransfer();d.items.add(new File([blob],'workspace-regression.png',{type:'image/png'}));const i=document.querySelector('input[type=file][multiple]:not([webkitdirectory])');i.files=d.files;i.dispatchEvent(new Event('change',{bubbles:true}))})()`);await wait(`!!document.querySelector('.compare-canvas')`)}
    await wait(`!document.querySelector('.toast')`);
-   if(populated) await wait(`!!document.querySelector('.live-size-dimensions')`);
+   if(populated) await wait(`document.querySelector('.result-details')?.textContent.includes('800 × 500 px')`);
    await ev(`Promise.all(document.getAnimations().filter(a=>a.playState==='running'&&a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})))`);
    const state=await ev(`(()=>{const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}},t=document.querySelector('.preview-toolbar'),s=document.querySelector('.preview-stage'),p=document.querySelector('.preview-panel'),c=s.querySelector('.compare-canvas,.hero-dropzone,.studio-welcome'),heading=t.querySelector('strong');const range=document.createRange();range.selectNodeContents(heading);return{toolbar:rect(t),stage:rect(s),panel:rect(p),canvas:c&&rect(c),heading:rect(heading),glyphs:[...range.getClientRects()].map(r=>({y:r.y,bottom:r.bottom})),headingDisplay:getComputedStyle(heading.parentElement).display,rows:getComputedStyle(p).gridTemplateRows,buttons:[...t.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{label:b.textContent,rect:rect(b),hit:hit===b||b.contains(hit)}})}})()`);
    const errors=[];const check=(ok,message)=>{if(!ok)errors.push(message)};
@@ -30,9 +30,9 @@ try{
      const [queue,settings]=['.queue-footer','.settings-footer'].map(selector=>bounds(document.querySelector(selector)));
      const middle=bounds(strip);
      const controls=[...strip.querySelectorAll('button,.result-metrics strong')].map(bounds);
-     const dimensions=document.querySelector('.live-size-dimensions');
-     const trial=dimensions&&[dimensions,document.querySelector('.live-size-value strong')].map(bounds);
-     return {queue,middle,settings,controls,trial};
+     const trial=document.querySelector('.live-size-card');
+     const details=strip.querySelector('.result-details');
+     return {queue,middle,settings,controls,trial:trial&&[...trial.children].map(bounds),details:details&&bounds(details)};
    })()`);
    if((layout==='studio'&&width>800)||width>900){
      for(const side of [footer.queue,footer.settings]){
@@ -44,9 +44,14 @@ try{
      check(control.left>=footer.middle.left-1&&control.right<=footer.middle.right+1&&control.top>=footer.middle.top-1&&control.bottom<=footer.middle.bottom+1,'result content escapes footer');
    }
    if(footer.trial){
-     const [dimensions,bytes]=footer.trial;
-     check(dimensions.right<=bytes.left&&dimensions.bottom>bytes.top&&dimensions.top<bytes.bottom,'dimensions and file size must share a line');
-     check(dimensions.left>=footer.settings.left&&bytes.right<=footer.settings.right,'trial result escapes settings footer');
+     const [label,bytes]=footer.trial;
+     check(footer.trial.length===2,'right footer contains only the trial label and file size');
+     check(label.right<=bytes.left&&label.bottom>bytes.top&&label.top<bytes.bottom,'trial label and file size must share a line');
+     check(label.left>=footer.settings.left&&bytes.right<=footer.settings.right,'trial result escapes settings footer');
+   }
+   if(footer.details){
+     const {left,right,top,bottom}=footer.details;
+     check(left>=footer.middle.left-1&&right<=footer.middle.right+1&&top>=footer.middle.top-1&&bottom<=footer.middle.bottom+1,'result details escape middle footer');
    }
    check(state.headingDisplay!=='none','heading hidden');
    for(const r of state.glyphs)check(r.y>=state.toolbar.y-1&&r.bottom<=state.toolbar.bottom+1,'heading glyphs outside toolbar');

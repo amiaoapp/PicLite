@@ -357,7 +357,9 @@ try {
   assert.ok(targetResult.bytes <= targetKb * 1000, `APNG target size is honoured after an explicit scale: ${targetResult.bytes} bytes`);
   const targetBytes = Buffer.from(await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.compare-after').src).then(r=>r.arrayBuffer()))))()`));
   const frames = verifyResizedApng(targetAnimation, targetBytes, targetResult.width, targetResult.height).frames.length;
-  assert.match(await evaluate(`document.querySelector('.settings-footer .live-size-card').textContent`), new RegExp(`≤ ${targetKb} KB`));
+  const resultDetails = await evaluate(`document.querySelector('.result-strip .result-details').textContent`);
+  assert.ok(resultDetails.includes(`${targetResult.width} × ${targetResult.height} px · APNG · ≤ ${targetKb} KB`));
+  assert.doesNotMatch(await evaluate(`document.querySelector('.settings-footer .live-size-card').textContent`), /px|APNG|≤|>/);
   assert.match(await evaluate(`document.querySelector('.settings-footer .compress-button').textContent`), /Apply to all · 2 images/);
   await evaluate(`document.querySelector('.settings-scroll-content').scrollTop = 0`);
   const footerTop = await evaluate(`document.querySelector('.settings-footer').getBoundingClientRect().top`);

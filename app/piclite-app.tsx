@@ -4106,6 +4106,15 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   const addDemo = useCallback(async () => addFiles([await createDemoFile()]), [addFiles]);
 
+  const finishedResult = selected?.status === "done" && selected.outputBytes != null ? selected : null;
+  const targetKb = vectorOutput ? 0 : settings.targetSizeKb;
+  const targetMissed = Boolean(finishedResult && targetKb > 0 && selectedMetrics.output > targetKb * 1000);
+  const resultDetails = finishedResult ? [
+    finishedResult.outputWidth && finishedResult.outputHeight ? `${finishedResult.outputWidth} × ${finishedResult.outputHeight} px` : "",
+    apngOutput ? "APNG" : finishedResult.keptOriginal ? t("已保留原图", "Original kept") : "",
+    targetKb > 0 ? `${targetMissed ? ">" : "≤"} ${targetKb} KB` : "",
+  ].filter(Boolean).join(" · ") : "";
+
   return (
     <main
       className={`app-shell ${interfaceStyle === "studio" ? "studio-shell" : "classic-shell"} ${nativeBridge ? "desktop-app" : "web-app"} ${standalonePreferences ? "preferences-window" : ""}`}
@@ -4278,11 +4287,17 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="result-strip">
-              <div className="result-metrics">
-                <div><span>{t("原图", "Original")}</span><strong>{selected ? formatBytes(selectedMetrics.original) : "—"}</strong></div>
-                <span className="result-arrow" aria-hidden="true">→</span>
-                <div><span>{t("结果", "Result")}</span><strong>{selectedMetrics.hasOutput ? formatBytes(selectedMetrics.output) : "—"}</strong></div>
-                <div className={`savings-pill ${selectedMetrics.saved < 0 ? "larger" : ""}`}><span>{selectedMetrics.saved < 0 ? t("体积增加", "Larger") : t("节省", "Saved")}</span><strong>{selectedMetrics.hasOutput ? sizeChangeLabel(selectedMetrics.original, selectedMetrics.output) : "—"}</strong></div>
+              <div className="result-summary">
+                <div className="result-metrics">
+                  <div><span>{t("原图", "Original")}</span><strong>{selected ? formatBytes(selectedMetrics.original) : "—"}</strong></div>
+                  <span className="result-arrow" aria-hidden="true">→</span>
+                  <div><span>{t("结果", "Result")}</span><strong>{selectedMetrics.hasOutput ? formatBytes(selectedMetrics.output) : "—"}</strong></div>
+                  <div className={`savings-pill ${selectedMetrics.saved < 0 ? "larger" : ""}`}><span>{selectedMetrics.saved < 0 ? t("体积增加", "Larger") : t("节省", "Saved")}</span><strong>{selectedMetrics.hasOutput ? sizeChangeLabel(selectedMetrics.original, selectedMetrics.output) : "—"}</strong></div>
+                </div>
+                {resultDetails && <div className="result-details">
+                  <span>{resultDetails}</span>
+                  {apngOutput && targetMissed && <span className="result-size-warning">{t("保留全部帧，未达到目标体积", "All frames kept; size target not met")}</span>}
+                </div>}
               </div>
               <div className="result-actions">
                 <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting} onClick={exportSelected} />
@@ -4458,17 +4473,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
             <div className="settings-footer">
               {selected && <div className="live-size-card" aria-live="polite">
-                <div className="live-size-row">
-                  <span>{t("实时试压结果", "Live result")}</span>
-                  <div className="live-size-value">
-                    {selected.status === "done" && selected.outputBytes != null && Boolean(selected.outputWidth && selected.outputHeight) && <small className="live-size-dimensions">{selected.outputWidth} × {selected.outputHeight} px</small>}
-                    <strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong>
-                  </div>
-                </div>
-                {selected.status === "done" && selected.outputBytes != null && <>
-                  {(apngOutput || selected.keptOriginal || (!vectorOutput && settings.targetSizeKb > 0)) && <small>{[apngOutput ? "APNG" : selected.keptOriginal ? t("已保留原图", "Original kept") : null, !vectorOutput && settings.targetSizeKb > 0 ? `${selected.outputBytes <= settings.targetSizeKb * 1000 ? "≤" : ">"} ${settings.targetSizeKb} KB` : null].filter(Boolean).join(" · ")}</small>}
-                  {apngOutput && settings.targetSizeKb > 0 && selected.outputBytes > settings.targetSizeKb * 1000 && <small className="live-size-warning">{t("保留全部帧，未达到目标体积", "All frames kept; size target not met")}</small>}
-                </>}
+                <span>{t("实时试压结果", "Live result")}</span>
+                <strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong>
               </div>}
               <button className="compress-button" type="button" disabled={!items.length || processingAll} aria-busy={processingAll} onClick={processAll}>
                 <HeaderIcon name="spark" width={15} height={15} />
