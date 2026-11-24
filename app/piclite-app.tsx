@@ -3,7 +3,7 @@
 import { ClipboardSourceControls } from "../desktop/clipboard-source-controls";
 import { DEFAULT_CLIPBOARD_SOURCE_SETTINGS, normalizeClipboardExcludedApps } from "../desktop/clipboard-source-settings";
 import { clipboardImageFile, type ClipboardImageMetadata, type ClipboardImagePayload } from "./clipboard-image";
-import { isAnimatedPng, optimizeApng } from "./apng";
+import { compressApng, isAnimatedPng } from "./apng";
 import { shortcutFromEvent, shortcutLabel } from "../desktop/shortcuts";
 import type { ShortcutKeyEvent } from "../desktop/shortcuts";
 import { loadLibraryFolders, chooseFolderForWrite, LIBRARY_FOLDERS_KEY } from "./library-organization";
@@ -35,13 +35,12 @@ import { useInterfaceStyle } from "./interface-style";
 import { StudioWelcome, StudioStatus } from "./studio-ui";
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import { getLaunchAtLogin, setLaunchAtLogin } from "../desktop/launch-at-login";
-import { isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
+import { cachedOutputMatchesFormat, isRequestedMimeType, isSmartCompressionWorthwhile, minimumSmartSavingsBytes, smartCandidateOutputFormats } from "./compression-policy";
 import packageManifest from "../package.json";
 import { Icon as HeaderIcon } from "../desktop/clop-icons";
 import { loadSettings as loadDesktopSettings, saveSettings as saveDesktopSettings } from "../desktop/clop-store";
 import { FormatConverterPlugin, ResizePlugin, type NativeOutputFormat } from "./builtin-image-tools";
 import { BannerMaker } from "./banner-maker";
-import { BrowserFloatingResult } from "./browser-floating-result";
 import { BrowserImageTool, type BrowserToolOptions } from "./browser-image-tool";
 
 type CompressionMode = "lossless" | "balanced" | "small" | "manual";
@@ -105,6 +104,26 @@ type NativeImageEntry = {
 };
 type NativeExportItem = { sourcePath?: string; outputName: string; data: Uint8Array };
 type ImageSourceInput = { file: File; fileHandle?: FileHandleLike; sourcePath?: string };
+
+async function imageFingerprint(file: Blob) {
+  const bytes = await file.arrayBuffer();
+  if (globalThis.crypto?.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  // Self-hosted HTTP pages do not have SubtleCrypto.
+  let forward = 0x811c9dc5, reverse = 0x811c9dc5;
+  const view = new Uint8Array(bytes);
+  for (let i = 0; i < view.length; i++) {
+    forward = Math.imul(forward ^ view[i], 0x01000193);
+    reverse = Math.imul(reverse ^ view[view.length - 1 - i], 0x01000193);
+  }
+  return `${file.size}:${forward}:${reverse}`;
+}
+
+function pathFingerprint(path: string) {
+  return /^([a-z]:[\\/]|\\\\)/i.test(path) ? `path:${path.replaceAll("\\", "/").toLowerCase()}` : `path:${path}`;
+}
 type UploadProvider = "webdav" | "s3" | "r2" | "oss" | "ftp" | "sftp";
 
 type UploadSettings = {
@@ -306,6 +325,7 @@ type ImageItem = {
   sourcePath?: string;
   sourceIsThumbnail?: boolean;
   thumbnailUrl?: string;
+  sourceFingerprint?: string;
 };
 
 type WatermarkSettings = {
@@ -1662,6 +1682,8 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
     };
   }
   if (nativeBridge && item.type !== "image/gif" && !hasWatermark(settings.watermark)) {
+    // A requested format change may legitimately be larger than the original.
+    const convertingFormat = settings.format !== "keep" && !isRequestedMimeType(item.type, settings.format);
     const result = await nativeBridge.compressImageData(
       new Uint8Array(await item.file.arrayBuffer()),
       item.name,
@@ -1671,7 +1693,7 @@ async function compressImageBase(item: ImageItem, settings: CompressionSettings,
         scale: settings.scale,
         format: settings.format,
         stripMetadata: settings.stripMetadata,
-        preventLarger: settings.preventLarger,
+        preventLarger: settings.preventLarger && !convertingFormat,
         exportMode: "same-folder",
         exportSuffix: "-piclite",
       },
@@ -1777,17 +1799,25 @@ async function compressImage(item: ImageItem, settings: CompressionSettings, nat
     if (hasWatermark(settings.watermark)) throw new Error("APNG 暂不支持水印 / APNG watermarking is not supported");
     if (settings.format !== "keep" && settings.format !== "image/png") throw new Error("APNG 目前只支持保留 PNG 动画格式 / APNG output must stay PNG to preserve animation");
     const { width, height } = getTargetDimensions(item, settings);
-    if (width !== item.width || height !== item.height) throw new Error("APNG 无损压缩暂不支持缩放 / Lossless APNG compression does not resize frames");
-    if (nativeBridge) {
+    const quality = settings.mode === "lossless" ? 100 : settings.quality;
+    const targetSizeKb = Math.max(0, Math.round(settings.targetSizeKb || 0));
+    const fixedDimensions = settings.resize || settings.scale !== 100;
+    const output = await (async () => {
+      if (!nativeBridge) return compressApng(item.file, {
+        originalWidth: item.width, originalHeight: item.height, width, height, quality,
+        stripMetadata: settings.stripMetadata, targetBytes: targetSizeKb * 1000, preventLarger: settings.preventLarger,
+      });
       const result = await nativeBridge.compressImageData(new Uint8Array(await item.file.arrayBuffer()), item.name, {
-        mode: settings.mode, quality: settings.quality, scale: 100, format: settings.format,
+        mode: settings.mode, quality, scale: 100, format: settings.format, targetSizeKb,
+        resize: fixedDimensions, resizeMode: "exact", maxWidth: width, maxHeight: height,
         stripMetadata: settings.stripMetadata, preventLarger: settings.preventLarger,
         exportMode: "same-folder", exportSuffix: "-piclite",
       });
-      return { blob: new Blob([new Uint8Array(result.data)], { type: result.mimeType }), width: result.width, height: result.height, keptOriginal: result.keptOriginal, strategy: "APNG · Lossless" };
-    }
-    const blob = await optimizeApng(item.file, settings.stripMetadata);
-    return { blob, width, height, keptOriginal: blob.size === item.originalBytes, strategy: "APNG · Lossless" };
+      return { blob: new Blob([new Uint8Array(result.data)], { type: result.mimeType }), width: result.width, height: result.height, keptOriginal: result.keptOriginal };
+    })();
+    const lossless = !targetSizeKb && quality === 100 && width === item.width && height === item.height;
+    const target = targetSizeKb ? ` · ${output.blob.size <= targetSizeKb * 1000 ? "≤" : ">"} ${targetSizeKb} KB` : "";
+    return { ...output, strategy: `APNG · ${lossless ? "Lossless · " : ""}${output.width} × ${output.height}${target}` };
   }
 
   if (nativeBridge && isSvg(item.file) && !hasWatermark(settings.watermark)) {
@@ -2416,8 +2446,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [interfaceStyle, setInterfaceStyle] = useInterfaceStyle();
   const [items, setItems] = useState<ImageItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [floatingResultId, setFloatingResultId] = useState<string | null>(null);
-  const dismissBrowserResult = useCallback(() => setFloatingResultId(null), []);
   const [settings, setSettings] = useState<CompressionSettings>(loadStoredSettings);
   const [presets, setPresets] = useState<SavedPreset[]>(loadStoredPresets);
   const [activePresetId, setActivePresetId] = useState(() => typeof window === "undefined" ? "current" : window.localStorage.getItem("piclite.activePreset.v1") || "current");
@@ -2488,6 +2516,24 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const compareRef = useRef<HTMLDivElement>(null);
   const previewDragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
   const itemsRef = useRef<ImageItem[]>([]);
+  const appendUniqueItems = useCallback((incoming: ImageItem[]) => {
+    const known = new Set(itemsRef.current.map((item) => item.sourceFingerprint).filter((value): value is string => Boolean(value)));
+    const accepted: ImageItem[] = [];
+    for (const item of incoming) {
+      if (item.sourceFingerprint && known.has(item.sourceFingerprint)) {
+        URL.revokeObjectURL(item.sourceUrl);
+        if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
+        continue;
+      }
+      if (item.sourceFingerprint) known.add(item.sourceFingerprint);
+      accepted.push(item);
+    }
+    if (!accepted.length) return accepted;
+    itemsRef.current = [...itemsRef.current, ...accepted];
+    setItems((current) => [...current, ...accepted]);
+    setSelectedId((current) => current ?? accepted[0].id);
+    return accepted;
+  }, []);
   const settingsReadyRef = useRef(false);
   const desktopPreferencesReadyRef = useRef(false);
   const livePreviewGenerationRef = useRef(0);
@@ -2603,6 +2649,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   const selected = useMemo(() => items.find((item) => item.id === selectedId) || items[0] || null, [items, selectedId]);
   const vectorOutput = !!selected && preservesSvg(selected.file, settings.format);
+  const apngOutput = selected?.strategy?.startsWith("APNG ·") === true;
   const selectedTarget = useMemo(() => selected ? getTargetDimensions(selected, settings) : null, [selected, settings]);
   const setExactDimension = useCallback((axis: "width" | "height", value: number) => {
     if (!selected || !Number.isFinite(value) || value < 1) return;
@@ -2807,7 +2854,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           const preview = decoded ? { blob: new Blob([new Uint8Array(decoded.data)], { type: decoded.mimeType }), width: decoded.width, height: decoded.height } : await browserImagePreview(file);
           const dimensions = preview;
           const previewFile = preview.blob;
-          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(previewFile), status: "ready", fileHandle, sourcePath };
+          const sourceFingerprint = sourcePath ? pathFingerprint(sourcePath) : await imageFingerprint(file);
+          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(previewFile), status: "ready", fileHandle, sourcePath, sourceFingerprint };
         } catch {
           nextItems[index] = null;
         } finally {
@@ -2818,10 +2866,11 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     });
     await Promise.all(workers);
     const validItems = nextItems.filter((item): item is ImageItem => Boolean(item));
-    setItems((current) => [...current, ...validItems]);
-    if (!selectedId && validItems[0]) setSelectedId(validItems[0].id);
-    showToast(t(`已加入 ${validItems.length} 张图片`, `Added ${validItems.length} images`));
-  }, [nativeBridge, selectedId, showToast, t]);
+    const added = appendUniqueItems(validItems);
+    showToast(added.length === validItems.length
+      ? t(`已加入 ${added.length} 张图片`, `Added ${added.length} images`)
+      : t(`已加入 ${added.length} 张，跳过 ${validItems.length - added.length} 张重复图片`, `Added ${added.length}; skipped ${validItems.length - added.length} duplicate images`));
+  }, [appendUniqueItems, nativeBridge, showToast, t]);
 
   const addNativeEntries = useCallback((entries: NativeImageEntry[]) => {
     const validEntries = entries.filter((entry) => entry.type.startsWith("image/") || SUPPORTED_IMAGE_PATH.test(entry.name));
@@ -2845,14 +2894,16 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         originalBytes: entry.originalBytes,
         sourceUrl: URL.createObjectURL(previewFile),
         sourcePath: entry.path,
+        sourceFingerprint: pathFingerprint(entry.path),
         sourceIsThumbnail: true,
         status: "ready",
       };
     });
-    setItems((current) => [...current, ...nextItems]);
-    if (!selectedId && nextItems[0]) setSelectedId(nextItems[0].id);
-    showToast(t(`已加入 ${nextItems.length} 张图片`, `Added ${nextItems.length} images`));
-  }, [selectedId, showToast, t]);
+    const added = appendUniqueItems(nextItems);
+    showToast(added.length === nextItems.length
+      ? t(`已加入 ${added.length} 张图片`, `Added ${added.length} images`)
+      : t(`已加入 ${added.length} 张，跳过 ${nextItems.length - added.length} 张重复图片`, `Added ${added.length}; skipped ${nextItems.length - added.length} duplicate images`));
+  }, [appendUniqueItems, showToast, t]);
 
   const addFiles = useCallback((files: File[], onProgress?: (current: number, total: number) => void) => addSources(files.map((file) => ({ file })), onProgress), [addSources]);
 
@@ -3051,7 +3102,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 status: "done",
               };
             }));
-            if (!nativeBridge) setFloatingResultId(job.id);
           } catch (error) {
             if (job.generation !== livePreviewGenerationRef.current) continue;
             setItems((current) => current.map((candidate) => candidate.id === job.id ? {
@@ -3150,7 +3200,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
         return { ...completed, fileHandle: candidate.fileHandle, sourcePath: candidate.sourcePath };
       }));
-      if (!nativeBridge) setFloatingResultId(completed.id);
       await saveItemToGallery(completed, result.blob);
     } catch (error) {
       setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("压缩失败", "Optimisation failed") } : candidate));
@@ -3356,10 +3405,13 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const prepareItemsForExport = useCallback(async (sourceItems: ImageItem[], preserveSourceFormat = false) => {
     const prepared: Array<{ item: ImageItem; blob: Blob }> = [];
     for (const item of sourceItems) {
-      // Overwriting a source file must preserve its container. Other export
-      // modes keep the measured cross-format result and use its real extension.
-      const cachedFormatMatches = !preserveSourceFormat
-        || outputExtension(item.outputBlob?.type || item.outputType || item.type, item.name) === outputExtension(item.type, item.name);
+      // Never export a stale live preview after the requested output format
+      // changed. Windows can otherwise retain a WebP preview while the
+      // selected setting requests PNG/JPEG.
+      const cachedType = item.outputBlob?.type || item.outputType || item.type;
+      const cachedFormatMatches = preserveSourceFormat
+        ? isRequestedMimeType(cachedType, item.type)
+        : cachedOutputMatchesFormat(cachedType, settings.format);
       if (item.outputBlob && cachedFormatMatches) {
         prepared.push({ item, blob: item.outputBlob });
         continue;
@@ -3501,7 +3553,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
     }
     const remaining = items.filter((candidate) => candidate.id !== id);
-    setItems(remaining);
+    itemsRef.current = remaining;
+    setItems((current) => current.filter((candidate) => candidate.id !== id));
     if (selectedId === id) setSelectedId(remaining[0]?.id || null);
   }, [items, selectedId]);
 
@@ -3511,6 +3564,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
       if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
     });
+    itemsRef.current = [];
     setItems([]);
     setSelectedId(null);
   }, [items]);
@@ -4051,8 +4105,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [nativeBridge, pluginName, pluginUrl, showToast, t]);
 
   const addDemo = useCallback(async () => addFiles([await createDemoFile()]), [addFiles]);
-  const floatingItem = items.find((item) => item.id === floatingResultId && item.outputBlob);
-  const completedItems = items.filter((item) => item.outputBlob);
 
   return (
     <main
@@ -4062,7 +4114,6 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={onDrop}
     >
-      {!nativeBridge && floatingItem && <BrowserFloatingResult item={floatingItem} count={completedItems.length} style={desktopPreferences.floatingStyle} seconds={desktopPreferences.floatingResultSeconds} language={desktopPreferences.language} busy={floatingItem.status === "processing" || exporting} onDismiss={dismissBrowserResult} onNext={() => { const next = completedItems[(completedItems.findIndex((item) => item.id === floatingItem.id) + 1) % completedItems.length]; if (next) { setFloatingResultId(next.id); setSelectedId(next.id); } }} onCopy={() => void copyResult(floatingItem)} onSave={() => void exportItems([floatingItem])} onProcess={() => void processOne(floatingItem.id)} onInspect={() => { setSelectedId(floatingItem.id); setView("workspace"); setPreviewMode("compare"); setFloatingResultId(null); }} onSettings={() => { setPreferenceSection("floating"); setView("preferences"); setFloatingResultId(null); }} />}
       <input ref={fileInputRef} className="visually-hidden" type="file" accept={IMAGE_INPUT_ACCEPT} multiple onChange={onFilesSelected} />
       <input ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }} className="visually-hidden" type="file" accept={IMAGE_INPUT_ACCEPT} multiple onChange={onFolderFilesSelected} />
       <input ref={fontInputRef} className="visually-hidden" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={onFontSelected} />
@@ -4084,7 +4135,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             const destination=(plugin.kind==="builtin"?plugin.id:`plugin:${plugin.id}`) as ViewName;
             const shortZh:Record<string,string>={rename:"批量命名",resize:"尺寸与扩图",convert:"格式转换",watcher:"文件夹监测",gallery:"图库"};
             const label=!nativeBridge&&plugin.id==="resize"?pluginLabel(plugin):desktopPreferences.language==="zh"?(shortZh[plugin.id]||plugin.nameZh):plugin.nameEn;
-            return {id:plugin.id,visible:plugin.enabled&&availableWorkspacePlugins.includes(plugin),label,active:view===destination,live:plugin.id==="watcher"&&watcherActive,select:()=>{setView(destination);setFloatingResultId(null);}};
+            return {id:plugin.id,visible:plugin.enabled&&availableWorkspacePlugins.includes(plugin),label,active:view===destination,live:plugin.id==="watcher"&&watcherActive,select:()=>setView(destination)};
           }),
         ]} />}
         <div className="topbar-actions">
@@ -4237,6 +4288,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           <aside className="settings-panel">
             <div className="panel-heading"><div><span className="eyebrow">{t("实时试压", "LIVE TEST")}</span><strong>{vectorOutput ? t("矢量清理与尺寸调整", "Vector cleanup and dimensions") : t("滑动即预览体积", "Preview output size as you slide")}</strong></div><button className="reset-button" type="button" onClick={() => setSettings(DEFAULT_SETTINGS)}>{t("重置", "Reset")}</button></div>
 
+            <div className="settings-scroll-content">
             <div className="preset-toolbar">
               <div className="select-wrap"><select disabled={vectorOutput} aria-label={t("压缩预设", "Compression preset")} value={activePresetId} onChange={(event) => {
                 const preset = presets.find((candidate) => candidate.id === event.target.value);
@@ -4294,13 +4346,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 }}
               />
               <div className="range-labels">{vectorOutput ? <span>{t("SVG 不使用位图编码质量，路径精度保持不变", "SVG does not use bitmap quality; path precision is preserved")}</span> : <><span>{t("更小文件", "Smaller file")}</span><span>{t("更多细节", "More detail")}</span></>}</div>
-              <div className={`live-size-card ${selected?.status === "processing" ? "calculating" : ""}`}>
-                <span><i /> {t("实时试压结果", "Live result")}</span>
-                <strong>{selected?.status === "processing" ? t("计算中…", "Calculating…") : selected?.outputBytes ? formatBytes(selected.outputBytes) : t("导入图片后显示", "Shown after import")}</strong>
-                {vectorOutput && selected?.outputWidth && selected.outputHeight && <small className="svg-output-dimensions">{t("实际输出尺寸", "Actual output dimensions")} · {selected.outputWidth} × {selected.outputHeight} px</small>}
-                <small>{selected?.outputBytes ? selected.keptOriginal ? vectorOutput ? t("SVG 无损清理未减小体积，已保留原文件", "SVG cleanup was not smaller; original kept") : settings.mode === "lossless" ? t("高画质候选没有减小体积，已保留原文件", "High-quality candidates were not smaller, so the original was kept") : selected.strategy || t("所有候选都更大，已保留原图", "Every candidate was larger; original kept") : selected.strategy ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${vectorOutput ? t("矢量优化", "Vector optimisation") : t("智能选择", "Smart choice")} ${selected.strategy}` : selected.sizeGuardQuality ? `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${t("已自动调整编码质量至", "Quality adjusted to")} ${selected.sizeGuardQuality}%` : `${formatBytes(selected.originalBytes)} → ${formatBytes(selected.outputBytes)} · ${savedPercent(selected.originalBytes, selected.outputBytes) >= 0 ? t("节省", "Saved") : t("增加", "Larger")} ${Math.abs(savedPercent(selected.originalBytes, selected.outputBytes))}%` : t("显示的是本机实际编码后的文件大小", "Actual local encoding result")}</small>
-              </div>
-              {!vectorOutput && <details className="encoding-help"><summary>{t("智能方案如何选择格式？", "How does smart format selection work?")}</summary><p className="setting-hint"><i /> {t("三档预设会并行实测原格式、WebP、JPG 和 PNG，并采用体积最小的有效结果；透明图片会自动跳过 JPG。无损优先使用肉眼高质量参数，智能平衡保持原尺寸，更小体积会同时降低画质和尺寸。", "The three presets measure the source format, WebP, JPEG and PNG in parallel and use the smallest valid result; JPEG is skipped for transparent images. Lossless priority uses visually high-quality settings, Smart balance keeps the original dimensions, and Smaller files reduces both quality and dimensions.")}</p></details>}
+              {!vectorOutput && !apngOutput && <details className="encoding-help"><summary>{t("智能方案如何选择格式？", "How does smart format selection work?")}</summary><p className="setting-hint">{t("三档预设会实测候选格式并采用体积最小的有效结果；透明图片会跳过 JPG。", "Presets test candidate formats and use the smallest valid result; JPEG is skipped for transparent images.")}</p></details>}
             </div>
 
             <div className="setting-section target-size-section">
@@ -4309,7 +4355,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 {[0, 200, 100, 50].map((size) => <button disabled={vectorOutput} className={!vectorOutput && settings.targetSizeKb === size ? "active" : ""} type="button" key={size} onClick={() => setSettings((current) => ({ ...current, targetSizeKb: size }))}>{size ? `${size} KB` : t("不限", "Unlimited")}</button>)}
               </div>
               <label className="target-size-custom" htmlFor="target-size-input"><span>{t("自定义上限", "Custom limit")}</span><input id="target-size-input" disabled={vectorOutput} type="number" inputMode="numeric" min="1" max="102400" step="1" value={settings.targetSizeKb || ""} placeholder={t("输入大小", "Enter size")} onChange={(event) => setSettings((current) => ({ ...current, targetSizeKb: event.target.value ? Math.max(1, Math.min(102400, Math.round(Number(event.target.value)))) : 0 }))} /><b>KB</b></label>
-              <p className="setting-hint"><i /> {vectorOutput ? t("保留 SVG 时不按目标体积降低精度，也不会自动转成位图。需要按 KB 控制体积，请选择 WebP / JPEG 输出。", "SVG output does not lower precision or rasterise to meet a byte target. Choose WebP / JPEG to target a file size.") : t("静态图按实际体积调整画质和尺寸。智能动图默认目标 500 KB，可降低画质、等比缩小和抽帧，并保持播放时长；指定上限优先生效。", "Static images adjust quality and dimensions. Smart animations target 500 KB through lower quality, proportional resizing and frame thinning while preserving duration; a custom limit takes priority.")}</p>
+              <p className="setting-hint"><i /> {vectorOutput ? t("保留 SVG 时不按目标体积降低精度，也不会自动转成位图。需要按 KB 控制体积，请选择 WebP / JPEG 输出。", "SVG output does not lower precision or rasterise to meet a byte target. Choose WebP / JPEG to target a file size.") : apngOutput ? t("APNG 保留全部动画帧。目标体积优先；超出上限时会降低颜色精度并按比例缩小，可能小于当前尺寸设置。", "APNG keeps every frame. The byte target takes priority; if needed, colour precision and dimensions are reduced proportionally, below the current size setting.") : t("静态图按实际体积调整画质和尺寸。智能动图默认目标 500 KB，可降低画质、等比缩小和抽帧，并保持播放时长；指定上限优先生效。", "Static images adjust quality and dimensions. Smart animations target 500 KB through lower quality, proportional resizing and frame thinning while preserving duration; a custom limit takes priority.")}</p>
             </div>
 
             <div className="setting-section slider-section">
@@ -4402,9 +4448,21 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <p className={`setting-hint ${exportMode === "overwrite" ? "warning" : ""}`}>{exportMode === "download" && t("使用浏览器下载，不需要文件夹权限。", "Downloads through the browser and requires no folder permission.")}{exportMode === "overwrite" && t("会直接替换原图且无法撤销；仅支持保持原格式，并要求从“添加图片”导入。", "Replaces originals and cannot be undone. This requires keeping the original format and importing with Add images.")}{exportMode === "same-folder" && (nativeBridge ? t("桌面端会在每张源图旁输出重命名文件。", "The desktop app saves a renamed result next to each source image.") : t("网页无法自动获知父文件夹，需要手动授权一次目标文件夹。", "The web app needs one-time permission for the destination folder."))}{exportMode === "fixed-folder" && t("所有处理结果写入指定文件夹。", "All results are written to the selected folder.")}</p>
             </div>
 
-            <div className="settings-spacer" />
-            <div className="action-summary"><div><span>{t("当前选中", "Selected")}</span><strong>{selected?.outputBytes ? formatBytes(selected.outputBytes) : "—"}</strong></div><div><span>{t("输出参数", "Output settings")}</span><strong>{vectorOutput ? `${t("SVG 矢量", "SVG vector")} · ${selectedTarget?.width || selected?.width} × ${selectedTarget?.height || selected?.height}` : <>{settings.quality}% · {formatScale(settings.scale)}{settings.targetSizeKb > 0 ? ` · ≤ ${settings.targetSizeKb} KB` : ""}</>}</strong></div></div>
-            <button className="compress-button" type="button" disabled={!items.length || processingAll} onClick={processAll}><span>{processingAll ? "···" : "✦"}</span>{processingAll ? t("正在应用到全部", "Applying to all…") : t(`按此参数应用到全部${items.length ? ` · ${items.length} 张` : ""}`, `Apply these settings to all${items.length ? ` · ${items.length}` : ""}`)}</button>
+            </div>
+
+            <div className="settings-footer">
+              {selected && <div className="live-size-card" aria-live="polite">
+                <div><span>{t("实时试压结果", "Live result")}</span><strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong></div>
+                {selected.status === "done" && selected.outputBytes != null && <>
+                  <small>{selected.outputWidth && selected.outputHeight ? `${selected.outputWidth} × ${selected.outputHeight} px` : null}{apngOutput ? ` · APNG` : selected.keptOriginal ? ` · ${t("已保留原图", "Original kept")}` : ""}{!vectorOutput && settings.targetSizeKb > 0 ? ` · ${selected.outputBytes <= settings.targetSizeKb * 1000 ? "≤" : ">"} ${settings.targetSizeKb} KB` : ""}</small>
+                  {apngOutput && settings.targetSizeKb > 0 && selected.outputBytes > settings.targetSizeKb * 1000 && <small className="live-size-warning">{t("保留全部帧，未达到目标体积", "All frames kept; size target not met")}</small>}
+                </>}
+              </div>}
+              <button className="compress-button" type="button" disabled={!items.length || processingAll} aria-busy={processingAll} onClick={processAll}>
+                <HeaderIcon name="spark" width={15} height={15} />
+                <span>{processingAll ? t("正在应用…", "Applying…") : t("按此参数应用到全部", "Apply to all")} <span className="apply-all-count">· {t(`${items.length} 张`, `${items.length} ${items.length === 1 ? "image" : "images"}`)}</span></span>
+              </button>
+            </div>
           </aside>
         </section>
       ) : view === "banner" ? (
@@ -4562,7 +4620,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
             </>
           ) : (
-            <div className="gallery-empty"><span>◫</span><strong>{t("图库还是空的", "The library is empty")}</strong><p>{t("工作台、导出或悬浮结果生成的图片会出现在这里。", "Images created by the workbench, exports or floating results will appear here.")}</p><button type="button" onClick={() => setView("workspace")}>{t("去压缩图片", "Optimise images")}</button></div>
+            <div className="gallery-empty"><span>◫</span><strong>{t("图库还是空的", "The library is empty")}</strong><p>{nativeBridge ? t("工作台、导出或悬浮结果生成的图片会出现在这里。", "Images created by the workbench, exports or floating results will appear here.") : t("工作台压缩或导出的图片会出现在这里。", "Images optimised or exported from the workbench will appear here.")}</p><button type="button" onClick={() => setView("workspace")}>{t("去压缩图片", "Optimise images")}</button></div>
           )}
         </section>
       ) : view.startsWith("plugin:") ? (
@@ -4585,7 +4643,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 ["plugins", "◇", t("插件", "Plugins")],
                 ["shortcuts", "⌘", t("快捷键", "Keyboard Shortcuts")],
                 ["about", "ⓘ", t("关于", "About")],
-              ] as const).filter(([value]) => nativeBridge || !["clipboard", "files", "dropzone", "hosting", "shortcuts"].includes(value)).map(([value, icon, label]) => <button type="button" key={value} className={preferenceSection === value ? "active" : ""} onClick={() => setPreferenceSection(value)}><span>{icon}</span>{label}</button>)}
+              ] as const).filter(([value]) => nativeBridge || !["clipboard", "files", "dropzone", "floating", "hosting", "shortcuts"].includes(value)).map(([value, icon, label]) => <button type="button" key={value} className={preferenceSection === value ? "active" : ""} onClick={() => setPreferenceSection(value)}><span>{icon}</span>{label}</button>)}
             </nav>
             <small>PicLite {APP_VERSION}<br />{nativeBridge ? "Tauri 2 · Rust" : t("浏览器 · 本地处理", "Browser · local processing")}</small>
           </aside>
@@ -4630,7 +4688,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               {nativeBridge && preferenceSection === "clipboard" && <label className="preference-row clickable"><div><strong>{t("自动复制压缩结果到剪贴板", "Automatically copy compressed results")}</strong><small>{t("悬浮窗压缩后自动复制最终图片；批量复制最后一张成功结果", "Copy the final floating result; batches copy the last successful image")}</small></div><button className={`switch ${desktopPreferences.autoCopyDropResults ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.autoCopyDropResults} onClick={() => setDesktopPreferences(current => ({ ...current, autoCopyDropResults: !current.autoCopyDropResults }))}><i /></button></label>}
             </section>}
 
-            {(preferenceSection === "general" || preferenceSection === "floating") && <section className="preference-card">
+            {(preferenceSection === "general" || (nativeBridge && preferenceSection === "floating")) && <section className="preference-card">
               <div className="preference-card-heading"><span>{preferenceSection === "floating" ? t("悬浮结果", "Floating Results") : t("外观与通用", "Appearance and general")}</span><small>{preferenceSection === "floating" ? t("外观与交互", "Appearance and behaviour") : t("窗口、系统与界面偏好", "Window, system and appearance preferences")}</small></div>
               {preferenceSection === "general" && <>
                 <InterfaceTypographyControls language={desktopPreferences.language} bridge={nativeBridge}/>
@@ -4677,8 +4735,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 </div>
               </div>
               {preferenceSection === "floating" && <label className="preference-row clickable"><div><strong>{t("允许截图 / 录屏捕获", "Allow screenshot / recording capture")}</strong><small>{desktopPreferences.allowFloatingCapture ? t("悬浮窗会出现在系统截图和录屏中", "The floating window can appear in screenshots and recordings") : t("系统截图和录屏会隐藏悬浮窗；部分第三方工具可能不遵守", "OS screenshots and recordings hide the floating window; some third-party tools may ignore this")}</small></div><button className={`switch ${desktopPreferences.allowFloatingCapture ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.allowFloatingCapture} onClick={() => setDesktopPreferences((current) => ({ ...current, allowFloatingCapture: !current.allowFloatingCapture }))}><i /></button></label>}
-</>}
               <label className="preference-row"><div><strong>{t("结果自动收起", "Dismiss result after")}</strong><small>{t("设为 0 秒则不自动收起", "Set to 0 to keep results visible")}</small></div><span className="preference-number"><input type="number" min="0" max="120" step="1" value={desktopPreferences.floatingResultSeconds} onChange={(event) => setDesktopPreferences((current) => ({ ...current, floatingResultSeconds: Math.max(0, Math.min(120, Number(event.target.value) || 0)) }))} /> {t("秒", "sec")}</span></label>
+              </>}
             </section>}
 
             {nativeBridge && preferenceSection === "hosting" && <section className="preference-card upload-preference-card">

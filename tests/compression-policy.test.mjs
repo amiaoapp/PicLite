@@ -2,11 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  cachedOutputMatchesFormat,
   isRequestedMimeType,
   isSmartCompressionWorthwhile,
   minimumSmartSavingsBytes,
   smartCandidateOutputFormats,
 } from "../app/compression-policy.ts";
+
+test("cached previews are regenerated when their format differs from the export setting", () => {
+  assert.equal(cachedOutputMatchesFormat("image/webp", "image/png"), false);
+  assert.equal(cachedOutputMatchesFormat("image/webp", "image/jpeg"), false);
+  assert.equal(cachedOutputMatchesFormat("image/png", "image/png"), true);
+  assert.equal(cachedOutputMatchesFormat("image/jpg", "image/jpeg"), true);
+  assert.equal(cachedOutputMatchesFormat("image/webp", "keep"), true);
+});
 
 test("rejects a WebView encoder fallback that labels PNG bytes as requested WebP", () => {
   assert.equal(isRequestedMimeType("image/webp", "image/webp"), true);

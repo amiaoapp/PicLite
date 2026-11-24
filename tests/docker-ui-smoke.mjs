@@ -1,5 +1,5 @@
 import {coverFixture,inspectCoverExport} from "./helpers/cover-export.mjs";
-import { apngFixture, verifyCompressedApng } from './apng-fixture.mjs';
+import { apngFixture, verifyCompressedApng, verifyResizedApng } from './apng-fixture.mjs';
 import { animatedWebpFixture, verifyWebpToGif } from './animated-webp-fixture.mjs';
 // Runs against the real published container, never a fixture renderer or native IPC mock.
 // Node 24 + installed Chrome; ORIGIN defaults to Docker's published localhost port.
@@ -167,7 +167,7 @@ async function welcomeLayout() {
       const welcome=document.querySelector('.studio-welcome'),stage=document.querySelector('.preview-stage').getBoundingClientRect();
       return {overflow:getComputedStyle(welcome).overflowY,scroll:welcome.scrollHeight,client:welcome.clientHeight,
         actions:[...welcome.querySelectorAll('.studio-import button')].map(button=>{const r=button.getBoundingClientRect();return {inside:r.width>0&&r.height>0&&r.x>=stage.x-1&&r.right<=stage.right+1&&r.y>=stage.y-1&&r.bottom<=stage.bottom+1,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===button}}),
-        settingsOverflow:getComputedStyle(document.querySelector('.settings-panel')).overflowY};
+        settingsOverflow:getComputedStyle(document.querySelector('.settings-scroll-content')).overflowY};
     })()`);
     const label=JSON.stringify({width,height,...geometry});
     assert.equal(geometry.overflow,'visible',label);
@@ -203,8 +203,12 @@ async function importImage(name) {
   })()`);
 }
 
-async function output() {
-  await wait(`!!document.querySelector('.item-status.done') && !!document.querySelector('.browser-floating-result') && document.querySelector('.compare-after')?.complete && document.querySelector('.compare-after')?.naturalWidth > 0`);
+async function output(previousUrl = null, expectedDimensions = [640, 400]) {
+  await wait(`(() => {
+    const preview = document.querySelector('.compare-after');
+    return !!document.querySelector('.item-status.done') && preview?.complete && preview.naturalWidth > 0 && preview.src !== ${JSON.stringify(previousUrl)};
+  })()`);
+  assert.equal(await evaluate(`!!document.querySelector('.browser-floating-result')`), false, 'Results stay in the workbench');
   const value = await evaluate(`(async () => {
     const preview = document.querySelector('.compare-after');
     const blob = await fetch(preview.src).then(response => response.blob());
@@ -214,40 +218,8 @@ async function output() {
     bitmap.close(); return result;
   })()`);
   assert.match(value.type, /^image\//); assert.ok(value.bytes > 0);
-  assert.deepEqual([value.width, value.height], [640, 400]);
+  if (expectedDimensions) assert.deepEqual([value.width, value.height], expectedDimensions);
   return value;
-}
-
-async function floating(style) {
-  await evaluate(`(() => {
-    for (const key of ['piclite.desktopPreferences.v1','piclite.desktop.clop-settings.v1']) localStorage.setItem(key, JSON.stringify({...JSON.parse(localStorage.getItem(key)||'{}'),floatingStyle:${JSON.stringify(style)}}));
-    window.dispatchEvent(new StorageEvent('storage', {key:'piclite.desktopPreferences.v1'}));
-  })()`);
-  await wait(`!!document.querySelector('.browser-floating-result.style-immersive')`);
-  assert.equal(await evaluate(`!!document.querySelector('.browser-floating-result.style-classic')`), false, 'Retired classic preference must use the current floating window');
-  const selector = '.browser-floating-result';
-  const point = await evaluate(`(() => { const r=document.querySelector('${selector}').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
-  await move(point.x, point.y);
-  await wait(`getComputedStyle(document.querySelector('.browser-floating-actions')).opacity === '1'`);
-  const result = await evaluate(`(() => {
-    const panel=document.querySelector('${selector}'),actions=panel.querySelector('.browser-floating-actions');
-    return {count:document.querySelectorAll('${selector}').length,filename:!!panel.querySelector('.browser-floating-filename'),columns:getComputedStyle(actions).gridTemplateColumns.split(' ').length,buttons:[...actions.querySelectorAll('button')].map(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return {x:r.x,y:r.y,w:r.width,h:r.height,disabled:button.disabled,hit:button===hit||button.contains(hit)};})};
-  })()`);
-  assert.equal(result.count, 1); assert.equal(result.filename, false, 'Browser floating result must not render filename');
-  assert.equal(result.columns, 3); assert.equal(result.buttons.length, 6, 'Six actions in a 3-by-2 grid');
-  result.buttons.forEach((button, index) => {
-    assert.ok(button.w >= 26 && button.h >= 26 && button.w <= 54 && button.h <= 54, `${style}: moderate action targets`);
-    assert.equal(button.hit, true, `${style}: action centre is not occluded`);
-    if (index % 3) assert.ok(button.x > result.buttons[index - 1].x + result.buttons[index - 1].w, 'No overlapping columns');
-    if (index >= 3) assert.ok(button.y >= result.buttons[index - 3].y + result.buttons[index - 3].h, 'Exactly two separated action rows');
-  });
-  const footer = await evaluate(`(() => {
-    const panel=document.querySelector('.browser-floating-result').getBoundingClientRect();
-    return [...document.querySelectorAll('.browser-floating-footer button')].map(button=>{const r=button.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return{label:button.getAttribute('aria-label'),x:r.x,y:r.y,right:r.right,bottom:r.bottom,w:r.width,h:r.height,hit:button===hit||button.contains(hit),inside:r.x>=panel.x&&r.right<=panel.right&&r.y>=panel.y&&r.bottom<=panel.bottom};});
-  })()`);
-  assert.equal(footer.length,6,'Browser bottom action bar remains present');
-  footer.forEach((button,index)=>{assert.ok(button.inside && button.w>=24 && button.h>=24 && button.hit, `${style}: usable bottom action ${button.label}`);if(index)assert.ok(button.x>=footer[index-1].right,'Bottom buttons do not overlap');});
-  console.log(`PASS browser floating preference ${style} → immersive: no filename, six hit-tested 3-by-2 actions and six usable bottom actions`);
 }
 
 async function responsivePreferences() {
@@ -259,6 +231,8 @@ async function responsivePreferences() {
     await page.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:false});
     await click('.settings-entry-button');
     await wait(`!!document.querySelector('.clop-preferences')`);
+    const preferenceLabels = await evaluate(`[...document.querySelectorAll('.clop-preferences nav button, .clop-preferences-content .preference-row strong')].map(element => element.textContent)`);
+    assert.ok(!preferenceLabels.some(label => /Floating Results|Dismiss result after/.test(label)), 'Floating settings are desktop only');
     await settle();
     const geometry = await evaluate(`(() => {
       const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,w:r.width,h:r.height}};
@@ -338,21 +312,26 @@ try {
   const encoded = await output();
   assert.ok(encoded.bytes < source.bytes, 'Real default smart compression must reduce this deterministic PNG fixture');
   report.outputs.push({source,...encoded});
-  await floating('immersive');
-  await floating('classic');
-  await click('.browser-floating-header [aria-label="Dismiss floating result"]');
-  await wait(`!document.querySelector('.browser-floating-result')`);
+  const queueCount = await evaluate(`document.querySelectorAll('.queue-item').length`);
+  await importImage('docker-smoke-renamed.png');
+  await wait(`document.querySelector('.toast')?.textContent.includes('duplicate images')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.queue-item').length`), queueCount, 'Importing identical bytes twice keeps one queue item');
   await typography('image');
   await presentation('classic',150,1120);
-  const previousUrl = await evaluate(`document.querySelector('.compare-after').src`);
+  await evaluate(`(() => {
+    const quality = document.querySelector('#quality-range');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(quality, '60');
+    quality.dispatchEvent(new Event('input', {bubbles:true}));
+  })()`);
+  const liveResult = await output(encoded.url);
   await click('button.compress-button');
-  await wait(`!!document.querySelector('.browser-floating-result') && document.querySelector('.compare-after').src !== ${JSON.stringify(previousUrl)}`);
-  const reprocessed = await output(); report.outputs.push(reprocessed);
+  const reprocessed = await output(liveResult.url);
+  report.outputs.push(liveResult, reprocessed);
   const downloads = new Map();
   browser.on('Browser.downloadWillBegin', event => downloads.set(event.guid, {...event}));
   browser.on('Browser.downloadProgress', event => { const current=downloads.get(event.guid); if(current)Object.assign(current,event); });
   await browser.send('Browser.setDownloadBehavior', {behavior:'allowAndName',downloadPath,browserContextId,eventsEnabled:true});
-  await click('.browser-floating-footer [aria-label="Save image"]');
+  await click('.result-strip [aria-label="Export selected image"]');
   const download = await poll('actual browser download completion', () => [...downloads.values()].find(item=>item.state==='completed'));
   assert.match(download.suggestedFilename, /^docker-smoke-source.*\.(?:png|jpe?g|webp)$/i);
   const filePath = join(downloadPath, download.guid);
@@ -363,6 +342,31 @@ try {
   const decoded = await evaluate(`(async()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(saved.toString('base64'))}),c=>c.charCodeAt(0));const bitmap=await createImageBitmap(new Blob([bytes],{type:${JSON.stringify(reprocessed.type)}}));const result=[bitmap.width,bitmap.height];bitmap.close();return result;})()`);
   assert.deepEqual(decoded,[640,400], 'Downloaded bytes decode as a real image');
   report.download={filename:download.suggestedFilename,bytes:saved.length,decoded};
+  await wait(`!document.querySelector('.toast')`);
+  await click('.reset-button');
+  const setNumeric = (selector, value) => evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(String(value))});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  const targetKb = process.env.PICLITE_TEST_APNG ? 200 : 10;
+  await setNumeric('#target-size-input', targetKb);
+  await setNumeric('#scale-range', 73.4);
+  const targetAnimation = process.env.PICLITE_TEST_APNG ? readFileSync(process.env.PICLITE_TEST_APNG) : apngFixture({ noisy: true });
+  await evaluate(`(()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(targetAnimation.toString('base64'))}),c=>c.charCodeAt(0));const dt=new DataTransfer();dt.items.add(new File([bytes],'target-limit.apng',{type:'image/apng'}));const input=document.querySelector('input[type=file][multiple]:not([webkitdirectory])');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait(`document.querySelector('.queue-item:last-child strong')?.textContent.includes('target-limit.apng')`);
+  await click('.queue-item:last-child');
+  const targetResult = await output(null, null);
+  assert.ok(targetResult.width < 188 && targetResult.height < 188, `Target continues shrinking below the requested 188 px: ${targetResult.width} × ${targetResult.height}`);
+  assert.ok(targetResult.bytes <= targetKb * 1000, `APNG target size is honoured after an explicit scale: ${targetResult.bytes} bytes`);
+  const targetBytes = Buffer.from(await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.compare-after').src).then(r=>r.arrayBuffer()))))()`));
+  const frames = verifyResizedApng(targetAnimation, targetBytes, targetResult.width, targetResult.height).frames.length;
+  assert.match(await evaluate(`document.querySelector('.settings-footer .live-size-card').textContent`), new RegExp(`≤ ${targetKb} KB`));
+  assert.match(await evaluate(`document.querySelector('.settings-footer .compress-button').textContent`), /Apply to all · 2 images/);
+  await evaluate(`document.querySelector('.settings-scroll-content').scrollTop = 0`);
+  const footerTop = await evaluate(`document.querySelector('.settings-footer').getBoundingClientRect().top`);
+  await evaluate(`document.querySelector('.settings-scroll-content').scrollTop = 1000`);
+  assert.equal(await evaluate(`document.querySelector('.settings-footer').getBoundingClientRect().top`), footerTop);
+  report.apngTarget={bytes:targetResult.bytes,width:targetResult.width,height:targetResult.height,frames};
+  console.log('PASS APNG target with explicit resize, queue deduplication, and fixed footer', report.apngTarget);
+  const footerScreenshot = await page.send('Page.captureScreenshot', {format:'png'});
+  writeFileSync(join(artifacts,'apng-target-footer.png'), Buffer.from(footerScreenshot.data, 'base64'));
   for (const [id, selector] of [['convert','.browser-image-tool[data-tool="convert"]'],['resize','.browser-image-tool[data-tool="resize"]'],['gallery','.gallery-page']]) {
     await click('[data-tool-id='+id+']');
     await wait(`!!document.querySelector('${selector}')`);
@@ -383,15 +387,24 @@ try {
   const resizedTool=await evaluate(`(async()=>{const blob=await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.blob());const bitmap=await createImageBitmap(blob);return{type:blob.type,width:bitmap.width,height:bitmap.height,bytes:blob.size}})()`);
   assert.deepEqual([resizedTool.width,resizedTool.height],[80,50]);
   await click('[data-tool-id=convert]');
-  const animation = apngFixture();
+  const animation = apngFixture({ partial: true, indexed: true });
   await evaluate(`(()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(animation.toString('base64'))}),c=>c.charCodeAt(0));const dt=new DataTransfer();dt.items.add(new File([bytes],'container-animation.apng',{type:'image/apng'}));const input=document.querySelector('.browser-image-tool input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await wait(`document.querySelector('.browser-image-tool .web-tool-item:last-child strong')?.textContent==='container-animation.apng'`);
   await evaluate(`(()=>{const select=document.getElementById('web-tool-format');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'image/png');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await evaluate(`(()=>{const input=document.getElementById('web-tool-quality');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'100');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await click('.web-tool-run');
   await wait(`document.querySelectorAll('.browser-image-tool .web-tool-item.done').length===2`);
   await click('.browser-image-tool .web-tool-item:last-child .web-tool-select');
   const animationOutput = await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.arrayBuffer()))))()`);
   verifyCompressedApng(animation, Buffer.from(animationOutput));
+  await click('[data-tool-id=resize]');
+  await click('.browser-image-tool .web-tool-item:last-child .web-tool-select');
+  await evaluate(`(()=>{const input=document.getElementById('web-tool-quality');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'45');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('.web-tool-run');
+  await wait(`document.querySelector('.browser-image-tool .web-tool-result img')?.naturalWidth===16`);
+  const scaledAnimation = await evaluate(`(async()=>Array.from(new Uint8Array(await fetch(document.querySelector('.web-tool-result img').src).then(r=>r.arrayBuffer()))))()`);
+  assert.equal(verifyResizedApng(animation, Buffer.from(scaledAnimation), 16, 12).header[9], 3, 'lossy resize keeps indexed pixels');
+  await click('[data-tool-id=convert]');
   const webp = animatedWebpFixture().toString('base64');
   await evaluate(`(()=>{const dt=new DataTransfer();dt.items.add(new File([Uint8Array.from(atob(${JSON.stringify(webp)}),c=>c.charCodeAt(0))],'animated.webp',{type:'image/webp'}));const input=document.querySelector('.browser-image-tool input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await wait(`document.querySelector('.browser-image-tool .web-tool-item:last-child strong')?.textContent==='animated.webp'`);

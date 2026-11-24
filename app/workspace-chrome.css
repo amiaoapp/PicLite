@@ -49,7 +49,7 @@ html[data-palette="white"][data-theme][data-material="standard"] .app-shell.desk
 .app-shell.desktop-app .workspace{grid-template-columns:210px minmax(260px,1fr) 278px;gap:12px;padding:12px;min-height:calc(100dvh - 64px);height:calc(100dvh - 64px);width:100%;max-width:none}
 .app-shell.desktop-app .workspace>.queue-panel,.app-shell.desktop-app .workspace>.settings-panel,.app-shell.desktop-app .workspace>.preview-panel{min-width:0;border:1px solid var(--line);border-radius:16px;box-shadow:0 2px 8px #1a2d4010;overflow:hidden}
 .app-shell.desktop-app .workspace>.queue-panel{height:100%;background:var(--surface)}
-.app-shell.desktop-app .workspace>.settings-panel{position:relative;top:auto;height:100%;align-self:stretch;background:var(--surface);overflow-y:auto;padding-bottom:12px}
+.app-shell.desktop-app .workspace>.settings-panel{position:relative;top:auto;height:100%;align-self:stretch;background:var(--surface);overflow:hidden;display:flex;flex-direction:column;padding-bottom:0}
 .app-shell.desktop-app .workspace>.preview-panel{height:100%;background:color-mix(in srgb,var(--paper) 75%,var(--surface));grid-template-rows:58px minmax(0,1fr) auto}
 .app-shell.desktop-app .workspace .panel-heading{min-height:58px;padding:12px 14px;border-color:var(--line)}
 .app-shell.desktop-app .workspace .panel-heading strong{font-size:13px}
@@ -97,10 +97,6 @@ html[data-density] .app-shell:is(.desktop-app,.web-app) .workspace .preview-stag
 html[data-density] .app-shell.desktop-app .workspace .hero-dropzone{min-height:0;max-height:100%}
 
 .app-shell .toast{top:76px;right:18px;left:auto;bottom:auto;transform:none;max-width:min(360px,calc(100vw - 36px));white-space:normal;animation:none}
-.app-shell.desktop-app .workspace .live-size-card{height:auto;min-height:88px;max-height:none;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px}
-.app-shell.desktop-app .workspace .live-size-card>strong{font-size:16px;align-self:stretch;line-height:1.4}
-.app-shell.desktop-app .workspace .live-size-card>span{color:#e3edf7;font-size:10px}
-.app-shell.desktop-app .workspace .live-size-card>small{font-size:10px;color:#cfdfef;line-height:1.5;height:auto;display:block;white-space:normal}
 .app-shell.desktop-app .workspace .setting-hint{font-size:10px;line-height:1.65;color:var(--muted)}
 .app-shell.web-app .plugin-import-panel{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:12px;padding:16px;min-width:0}
 .app-shell.web-app .plugin-import-panel>button:first-child{justify-self:start;max-width:100%;height:auto;padding:9px 14px;white-space:normal;line-height:1.5}
@@ -133,7 +129,6 @@ html .app-shell.web-app.studio-shell .studio-photo-button figcaption{flex:0 0 36
 @container studio-welcome-stage (max-height:180px){
   html .app-shell.web-app.studio-shell .studio-welcome-heading{display:none}
 }
-.app-shell.desktop-app .workspace .settings-panel{padding-bottom:24px}
 
 /* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */
 html[data-density] .app-shell .topbar.topbar{grid-template-columns:max-content minmax(0,1fr) 168px;column-gap:12px}

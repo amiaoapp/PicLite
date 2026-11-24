@@ -16,6 +16,7 @@ SVG optimization preserves vectors. The converter supports JPEG/JFIF, PNG, WebP,
 
 - Compare real JPEG, WebP and PNG encodes and export the smallest valid candidate. Transparent images skip JPEG.
 - Batch compress, resize, set a target file size, and watermark images and GIFs while preserving animation.
+- Resize animated PNGs or set their quality and target file size while keeping their frames, loop and transparency.
 - Use dedicated format conversion, resize/enlarge, parent-folder naming and local gallery tools.
 - On desktop, automate clipboard and folder workflows, use global shortcuts and keep results in a floating window.
 - Extend the workbench with trusted HTML/JavaScript plugins or call local image tools through MCP.

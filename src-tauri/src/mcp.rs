@@ -9,10 +9,10 @@ fn tools() -> Value {
     json!([
         tool("piclite_compress", "Compress or resize local images and animations. Writes a new file and never overwrites the source.", json!({
             "paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100},
-            "quality":{"type":"integer","minimum":1,"maximum":100,"description":"Bitmap encoding quality; ignored when preserving SVG vectors"},
+            "quality":{"type":"integer","minimum":1,"maximum":100,"description":"Bitmap encoding quality. For animated PNG, 100 keeps original colors; lower values reduce color precision. Ignored when preserving SVG vectors."},
             "scale":{"type":"number","minimum":0.1,"maximum":100,"description":"Output dimension percentage; SVG resizing changes canvas dimensions and may barely change file bytes"},
             "format":{"type":"string","enum":["keep","image/webp","image/png","image/jpeg","image/avif","image/jfif","image/gif","image/bmp","image/tiff","image/x-icon","image/qoi","image/x-tga","image/x-portable-pixmap","image/x-portable-arbitrarymap","image/svg+xml"]},
-            "outputDirectory":{"type":"string"},"targetSizeKb":{"type":"integer","minimum":0,"maximum":102400,"description":"Bitmap size target; SVG remains vector and does not use this target"}
+            "outputDirectory":{"type":"string"},"targetSizeKb":{"type":"integer","minimum":0,"maximum":102400,"description":"Best-effort bitmap size target. APNG keeps all frames and honors an explicit scale. SVG remains vector and does not use this target."}
         }), json!(["paths"])),
         tool("piclite_convert", "Convert local images to an explicit output format, even if larger. SVG input remains vector only for SVG output; raster-to-vector tracing is not supported. Animation conversion supports GIF/WebP without discarding frames.", json!({
             "paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":100},

@@ -34,9 +34,8 @@ html .app-shell.studio-shell.studio-shell .queue-panel,
 html .app-shell.studio-shell.studio-shell .settings-panel,
 html .app-shell.studio-shell.studio-shell .preview-panel { min-width: 0; min-height: 0; border: 0; border-radius: 0; background: var(--studio-surface); box-shadow: none; backdrop-filter: none; }
 html .app-shell.studio-shell.studio-shell .queue-panel { border-right: 1px solid var(--studio-line); display: flex; flex-direction: column; }
-html .app-shell.studio-shell.studio-shell .settings-panel { border-left: 1px solid var(--studio-line); position: static; height: 100%; padding: 0 0 16px; overflow-y: auto; display: flex; flex-direction: column; grid-column: auto; }
-html .app-shell.studio-shell .settings-panel > * { flex-shrink: 0; }
-html .app-shell.studio-shell .settings-panel > .panel-heading { margin-inline: 0; }
+html .app-shell.studio-shell.studio-shell .settings-panel { border-left: 1px solid var(--studio-line); position: static; height: 100%; padding: 0; overflow: hidden; display: flex; flex-direction: column; grid-column: auto; }
+html .app-shell.studio-shell .settings-panel > :is(.panel-heading, .settings-footer) { flex-shrink: 0; margin-inline: 0; }
 @media (min-width: 801px) {
   html .app-shell.studio-shell.studio-shell .workspace { grid-template-rows: minmax(0,1fr); }
 }
@@ -97,9 +96,7 @@ html .app-shell.studio-shell .mode-grid button.active { border-color: var(--stud
 .studio-shell .mode-grid button > span { font-size: 15px; }
 html .app-shell.studio-shell .select-wrap select, html .app-shell.studio-shell .suffix-input input, html .app-shell.studio-shell .dimension-grid input, html .app-shell.studio-shell .watermark-text-input { min-height: 34px; border: 1px solid var(--studio-line); border-radius: 5px; background: transparent; color: var(--studio-ink); box-shadow: none; font-size: 11px; }
 .studio-shell input[type="range"] { accent-color: var(--accent); }
-html .app-shell.studio-shell .live-size-card { padding: 10px 0; background: none; border: 0; border-radius: 0; box-shadow: none; }
-.studio-shell .live-size-card > strong { color: var(--studio-ink); font: 17px ui-monospace, monospace; }
-.studio-shell .range-labels, .studio-shell .live-size-card > small, .studio-shell .check-row small { color: var(--studio-muted); font-size: 9px; }
+.studio-shell .range-labels, .studio-shell .check-row small { color: var(--studio-muted); font-size: 9px; }
 .studio-shell .preset-toolbar > button, .studio-shell .scale-presets button, .studio-shell .target-size-presets button { border-radius: 4px; background: transparent; box-shadow: none; font-size: 10px; }
 .studio-shell .studio-status { height: var(--studio-footer); padding: 0 20px; display: flex; align-items: center; gap: 24px; border-top: 1px solid var(--studio-line); background: var(--studio-surface); color: var(--studio-muted); font-size: 9px; }
 .studio-status > span { display: flex; align-items: center; gap: 6px; }
@@ -297,12 +294,6 @@ html[data-palette][data-theme] .app-shell.classic-shell .mode-grid button > span
 html[data-palette][data-theme] .app-shell.classic-shell .panel-heading,
 html[data-palette][data-theme] .app-shell.classic-shell .setting-section,
 html[data-palette][data-theme] .app-shell.classic-shell .queue-footer { border-color: var(--line); }
-html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card {
-  background: color-mix(in srgb, var(--palette-bg-b) 84%, var(--deep));
-}
-html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > span,
-html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > small { color: var(--muted); }
-html[data-palette][data-theme="dark"] .app-shell.classic-shell .live-size-card > strong { color: var(--deep); }
 @media (max-width: 980px) and (min-width: 801px) {
   html .app-shell.studio-shell .preview-toolbar > div:first-child { display: none; }
   html .app-shell.studio-shell .preview-toolbar { grid-template-columns: minmax(0,1fr) auto; padding-inline: 12px; }

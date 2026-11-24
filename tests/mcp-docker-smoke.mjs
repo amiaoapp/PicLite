@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { apngFixture, verifyCompressedApng } from './apng-fixture.mjs';
+import { apngFixture, verifyCompressedApng, verifyResizedApng } from './apng-fixture.mjs';
 import { animatedWebpFixture, verifyWebpToGif } from './animated-webp-fixture.mjs';
 
 const localBinary = process.env.PICLITE_MCP_BINARY;
@@ -72,13 +72,24 @@ try {
     assert.equal(tools.find(tool => tool.name === 'piclite_compress').inputSchema.properties.outputDirectory, undefined);
     assert.match(tools.find(tool => tool.name === 'piclite_compress').inputSchema.properties.paths.items.description, /relative/);
 
-    const animation = apngFixture();
+    const animation = apngFixture({ indexed: true, partial: true });
     await writeFile(join(workspace, 'input', 'animation.apng'), animation);
-    const apng = await client.callTool({ name: 'piclite_compress', arguments: { paths: ['input/animation.apng'] } });
+    const apng = await client.callTool({ name: 'piclite_compress', arguments: { paths: ['input/animation.apng'], quality: 100 } });
     assert.notEqual(apng.isError, true, JSON.stringify(apng));
     const [apngOutput] = apng.structuredContent.result;
     assert.match(apngOutput.output, /^output\/job-[^/]+\/animation-piclite\.png$/);
     verifyCompressedApng(animation, await readFile(join(workspace, apngOutput.output)));
+    const resized = await client.callTool({ name: 'piclite_compress', arguments: { paths: ['input/animation.apng'], quality: 40, scale: 50, targetSizeKb: 1 } });
+    const [resizedApng] = resized.structuredContent.result;
+    const scaledAnimation = await readFile(join(workspace, resizedApng.output));
+    assert.equal(verifyResizedApng(animation, scaledAnimation, 16, 12).header[9], 3, 'lossy resize keeps indexed pixels');
+    const targetPng = apngFixture({ noisy: true });
+    await writeFile(join(workspace, 'input', 'apng-target.png'), targetPng);
+    const target = await client.callTool({ name: 'piclite_compress', arguments: { paths: ['input/apng-target.png'], quality: 82, scale: 73.4, targetSizeKb: 10 } });
+    const targetBytes = await readFile(join(workspace, target.structuredContent.result[0].output));
+    const width = targetBytes.readUInt32BE(16), height = targetBytes.readUInt32BE(20);
+    assert.ok(width < 188 && height < 188 && targetBytes.length <= 10_000, `${width}×${height}, ${targetBytes.length} bytes`);
+    verifyResizedApng(targetPng, targetBytes, width, height);
     await writeFile(join(workspace, 'input', 'animated.webp'), animatedWebpFixture());
     const conversion = await client.callTool({ name: 'piclite_convert', arguments: { paths: ['input/animated.webp'], format: 'image/gif' } });
     const [gifOutput] = conversion.structuredContent.result;

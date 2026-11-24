@@ -15,26 +15,37 @@ function chunk(type, payload) {
   return bytes;
 }
 
-export function apngFixture() {
-  const width = 32, height = 24;
+export function apngFixture({ partial = false, indexed = false, noisy = false } = {}) {
+  const width = noisy ? 256 : 32, height = noisy ? 256 : 24;
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width); header.writeUInt32BE(height, 4);
   header[8] = 8; header[9] = 6;
+  if (indexed) header[9] = 3;
   const animation = Buffer.alloc(8);
   animation.writeUInt32BE(2); animation.writeUInt32BE(3, 4);
   const chunks = [Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('acTL', animation)];
+  if (indexed) chunks.push(chunk('PLTE', Buffer.from([16, 40, 12, 200, 40, 6, 9, 40, 200])), chunk('tRNS', Buffer.from([0, 128, 128])));
   let sequence = 0;
   for (let frame = 0; frame < 2; frame++) {
+    const cropped = frame && partial;
+    const w = cropped ? width / 2 : width, h = cropped ? height / 2 : height;
     const control = Buffer.alloc(26);
-    control.writeUInt32BE(sequence++); control.writeUInt32BE(width, 4); control.writeUInt32BE(height, 8);
+    control.writeUInt32BE(sequence++); control.writeUInt32BE(w, 4); control.writeUInt32BE(h, 8);
+    if (cropped) { control.writeUInt32BE(4, 12); control.writeUInt32BE(6, 16); }
     control.writeUInt16BE(frame ? 13 : 7, 20); control.writeUInt16BE(100, 22);
     control[24] = frame; control[25] = frame;
     chunks.push(chunk('fcTL', control));
-    const pixels = Buffer.alloc(height * (1 + 4 * width));
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const offset = y * (1 + 4 * width) + 1 + 4 * x;
-        pixels.set([frame ? 0 : 200, 40, frame ? 200 : 0, x < 8 ? 0 : 128], offset);
+    const channels = indexed ? 1 : 4;
+    const pixels = Buffer.alloc(h * (1 + channels * w));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const offset = y * (1 + channels * w) + 1 + channels * x;
+        if (indexed) pixels[offset] = x < 8 ? 0 : frame + 1;
+        else if (noisy) {
+          let seed = (Math.imul(x + 1, 0x45d9f3b) ^ Math.imul(y + 7, 0x119de1f3) ^ Math.imul(frame + 3, 0x3449f)) >>> 0;
+          seed ^= seed >>> 16; seed = Math.imul(seed, 0x45d9f3b) >>> 0; seed ^= seed >>> 16;
+          pixels.set([seed & 255, (seed >>> 8) & 255, (seed >>> 16) & 255, 255], offset);
+        } else pixels.set([frame ? 0 : 200, 40, frame ? 200 : 0, x < 8 ? 0 : 128], offset);
       }
     }
     const data = deflateSync(pixels, { level: 0 });
@@ -78,4 +89,16 @@ export function verifyCompressedApng(original, result, stripMetadata = true) {
   const before = animationData(original), after = animationData(result);
   assert.deepEqual(after.animation, before.animation, 'frames, alpha, blend, disposal, duration and loop must be unchanged');
   assert.equal(after.types.includes('tEXt'), !stripMetadata);
+}
+
+export function verifyResizedApng(original, result, width, height) {
+  const before = animationData(original).animation;
+  const after = animationData(result).animation;
+  assert.deepEqual([after.header.readUInt32BE(0), after.header.readUInt32BE(4)], [width, height]);
+  assert.deepEqual(after.control, before.control, 'animation frame count and loop');
+  assert.equal(after.frames.length, before.frames.length);
+  for (let i = 0; i < before.frames.length; i++) {
+    assert.deepEqual(after.frames[i].control.subarray(16), before.frames[i].control.subarray(16), 'frame duration, blend and disposal');
+  }
+  return after;
 }

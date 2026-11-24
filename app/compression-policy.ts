@@ -15,6 +15,10 @@ export function isRequestedMimeType(actualType: string, requestedType: string) {
   return normalize(actualType) === normalize(requestedType);
 }
 
+export function cachedOutputMatchesFormat(actualType: string, requestedType: string) {
+  return requestedType === "keep" || isRequestedMimeType(actualType, requestedType);
+}
+
 /**
  * Lossy smart compression should save enough bytes to justify changing the
  * decoded image. Tiny, already-optimised assets otherwise lose visible detail
