@@ -123,8 +123,8 @@ html .app-shell.web-app.studio-shell .studio-photo-button figcaption{flex:0 0 36
   html .app-shell.web-app.studio-shell .studio-welcome{gap:16px}
 }
 @container studio-welcome-stage (max-height:260px){
-  html .app-shell.web-app.studio-shell .studio-welcome{gap:8px}
-  html .app-shell.web-app.studio-shell .studio-welcome-heading h1{font-size:24px}
+  html .app-shell.web-app.studio-shell .studio-welcome{gap:6px}
+  html .app-shell.web-app.studio-shell .studio-welcome-heading h1{font-size:22px}
   html .app-shell.web-app.studio-shell .studio-welcome-heading p{display:none}
   html .app-shell.web-app.studio-shell .studio-import{gap:6px}
 }
