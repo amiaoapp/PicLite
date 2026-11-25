@@ -235,6 +235,7 @@ export type WindowMaterialState = {
 };
 
 export type PicLiteBridge = DesktopUpdateBridge & {
+  getSystemMemory?: () => Promise<import("../app/batch-compression").SystemMemory | null>;
   platform: string;
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;

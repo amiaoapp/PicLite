@@ -3944,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "piclite"
-version = "2.2.3"
+version = "2.2.4"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -3957,6 +3957,7 @@ dependencies = [
  "heic-rs",
  "hmac",
  "image",
+ "libc",
  "notify",
  "objc2",
  "objc2-app-kit",

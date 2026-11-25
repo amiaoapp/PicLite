@@ -1,5 +1,7 @@
 "use client";
 
+import { BatchPerformanceSettings } from "./batch-performance-settings";
+import { BATCH_MEMORY_QUEUE_KEY, readBatchConcurrency, runCompressionBatch, summarizeBatchMemory, type SystemMemory } from "./batch-compression";
 import { UpdateButton } from "../desktop/update-button";
 import type { DesktopUpdateBridge, UpdateInfo } from "../desktop/update-types";
 
@@ -94,6 +96,7 @@ type NativeImageEntry = {
   originalBytes: number;
   width: number;
   height: number;
+  animated?: boolean;
   thumbnailType: string;
   thumbnailData: Uint8Array;
 };
@@ -206,6 +209,7 @@ type BatchRenameResult = {
 };
 
 type NativeBridge = DesktopUpdateBridge & {
+  getSystemMemory?: () => Promise<SystemMemory | null>;
   platform: string;
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;
@@ -319,6 +323,7 @@ type ImageItem = {
   sourceIsThumbnail?: boolean;
   thumbnailUrl?: string;
   sourceFingerprint?: string;
+  animated?: boolean;
 };
 
 type WatermarkSettings = {
@@ -1043,6 +1048,13 @@ async function isAnimatedWebPFile(file: File) {
     offset = next;
   }
   return false;
+}
+
+async function isBatchAnimation(file: File) {
+  const type = file.type || mimeFromName(file.name);
+  if (type === "image/gif" || /\.gif$/i.test(file.name)) return true;
+  if (/^image\/(?:a?png)$/.test(type) || /\.a?png$/i.test(file.name)) return isAnimatedPng(file);
+  return isAnimatedWebPFile(file);
 }
 
 function outputName(item: ImageItem, suffix = "-piclite", template = "{name}{suffix}") {
@@ -2440,6 +2452,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const [items, setItems] = useState<ImageItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settings, setSettings] = useState<CompressionSettings>(loadStoredSettings);
+  const settingsRef = useRef(settings);
+  const batchMemoryQueue = useMemo(() => summarizeBatchMemory(items), [items]);
   const [presets, setPresets] = useState<SavedPreset[]>(loadStoredPresets);
   const [activePresetId, setActivePresetId] = useState(() => typeof window === "undefined" ? "current" : window.localStorage.getItem("piclite.activePreset.v1") || "current");
   const [presetDialogOpen, setPresetDialogOpen] = useState(false);
@@ -2530,7 +2544,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   const settingsReadyRef = useRef(false);
   const desktopPreferencesReadyRef = useRef(false);
   const livePreviewGenerationRef = useRef(0);
-  const livePreviewRunningRef = useRef(false);
+  const livePreviewRunningRef = useRef<Promise<void> | null>(null);
+  const batchRunningRef = useRef(false);
   const livePreviewPendingRef = useRef<{ id: string; generation: number; settings: CompressionSettings } | null>(null);
   const galleryUrlsRef = useRef<string[]>([]);
   const savedUploadProfileRef = useRef<string | null>(null);
@@ -2848,7 +2863,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
           const dimensions = preview;
           const previewFile = preview.blob;
           const sourceFingerprint = sourcePath ? pathFingerprint(sourcePath) : await imageFingerprint(file);
-          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(previewFile), status: "ready", fileHandle, sourcePath, sourceFingerprint };
+          const animated = await isBatchAnimation(file).catch(() => true);
+          nextItems[index] = { id: uid(), file, name: file.name || `clipboard-${Date.now()}.png`, type: file.type || mimeFromName(file.name), width: dimensions.width, height: dimensions.height, originalBytes: file.size, sourceUrl: URL.createObjectURL(previewFile), status: "ready", fileHandle, sourcePath, sourceFingerprint, animated };
         } catch {
           nextItems[index] = null;
         } finally {
@@ -2885,6 +2901,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         width: entry.width,
         height: entry.height,
         originalBytes: entry.originalBytes,
+        animated: entry.animated ?? /\.(?:gif|a?png|webp)$/i.test(entry.name),
         sourceUrl: URL.createObjectURL(previewFile),
         sourcePath: entry.path,
         sourceFingerprint: pathFingerprint(entry.path),
@@ -2914,6 +2931,11 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (nativeBridge?.windowLabel !== "main") return;
+    window.localStorage.setItem(BATCH_MEMORY_QUEUE_KEY, JSON.stringify(batchMemoryQueue));
+  }, [batchMemoryQueue, nativeBridge]);
 
   useEffect(() => {
     if (!nativeBridge) return;
@@ -3028,6 +3050,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, []);
 
   useEffect(() => {
+    settingsRef.current = settings;
     if (!settingsReadyRef.current) {
       settingsReadyRef.current = true;
       window.localStorage.setItem("piclite.compressionSettings.v2", JSON.stringify(settings));
@@ -3057,18 +3080,18 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
   useEffect(() => {
     const id = selectedId || itemsRef.current[0]?.id;
-    if (!id) return;
+    if (!id || processingAll || exporting) return;
     const generation = ++livePreviewGenerationRef.current;
-    const timer = window.setTimeout(async () => {
+    const timer = window.setTimeout(() => {
+      if (batchRunningRef.current) return;
       livePreviewPendingRef.current = { id, generation, settings };
       if (livePreviewRunningRef.current) return;
-      livePreviewRunningRef.current = true;
-      try {
+      const run = async () => {
         while (livePreviewPendingRef.current) {
           const job = livePreviewPendingRef.current;
           livePreviewPendingRef.current = null;
           const item = itemsRef.current.find((candidate) => candidate.id === job.id);
-          if (!item || job.generation !== livePreviewGenerationRef.current) continue;
+          if (!item || item.outputBlob || job.generation !== livePreviewGenerationRef.current) continue;
           setItems((current) => current.map((candidate) => candidate.id === job.id ? { ...candidate, status: "processing", error: undefined } : candidate));
           try {
             const result = await compressImage(item, job.settings, nativeBridge);
@@ -3108,9 +3131,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             } : candidate));
           }
         }
-      } finally {
-        livePreviewRunningRef.current = false;
-      }
+      };
+      livePreviewRunningRef.current = run().finally(() => { livePreviewRunningRef.current = null; });
     }, itemsRef.current.find((item) => item.id === id)?.type === "image/gif" ? 500 : 300);
 
     return () => {
@@ -3118,7 +3140,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (livePreviewPendingRef.current?.generation === generation) livePreviewPendingRef.current = null;
       if (livePreviewGenerationRef.current === generation) livePreviewGenerationRef.current += 1;
     };
-  }, [nativeBridge, selectedId, settings, t]);
+  }, [exporting, nativeBridge, processingAll, selectedId, settings, t]);
 
   const addBrowserToolFiles = useCallback(async (files: File[]) => {
     const next: ImageItem[] = [];
@@ -3180,12 +3202,13 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     });
   }, [nativeBridge]);
 
-  const processOne = useCallback(async (id: string) => {
-    const item = itemsRef.current.find((candidate) => candidate.id === id);
-    if (!item) return;
+  const processOne = useCallback(async (item: ImageItem) => {
+    if (settingsRef.current !== settings || !itemsRef.current.some(candidate => candidate.id === item.id)) return;
+    const { id } = item;
     setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "processing", error: undefined } : candidate));
     try {
       const result = await compressImage(item, settings, nativeBridge);
+      if (settingsRef.current !== settings || !itemsRef.current.some(candidate => candidate.id === id)) return;
       const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
       const completed: ImageItem = { ...item, outputBlob: result.blob, outputUrl, outputBytes: result.blob.size, outputType: result.blob.type || item.type, outputWidth: result.width, outputHeight: result.height, keptOriginal: result.keptOriginal, sizeGuardQuality: result.sizeGuardQuality, strategy: result.strategy, status: "done" };
       setItems((current) => current.map((candidate) => {
@@ -3195,18 +3218,25 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       }));
       await saveItemToGallery(completed, result.blob);
     } catch (error) {
-      setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("压缩失败", "Optimisation failed") } : candidate));
+      if (settingsRef.current === settings) setItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, status: "error", error: error instanceof Error ? error.message : t("压缩失败", "Optimisation failed") } : candidate));
     }
   }, [nativeBridge, saveItemToGallery, settings, t]);
 
   const processAll = useCallback(async () => {
-    if (!items.length) return;
+    if (!itemsRef.current.length || batchRunningRef.current) return;
+    const sourceItems = itemsRef.current.slice();
+    batchRunningRef.current = true;
     livePreviewGenerationRef.current += 1;
     setProcessingAll(true);
-    for (const item of items) await processOne(item.id);
-    setProcessingAll(false);
-    showToast(t("全部图片已处理完成", "All images have been processed"));
-  }, [items, processOne, showToast, t]);
+    try {
+      await livePreviewRunningRef.current;
+      await runCompressionBatch(sourceItems, readBatchConcurrency(), processOne);
+      if (settingsRef.current === settings) showToast(t("全部图片已处理完成", "All images have been processed"));
+    } finally {
+      batchRunningRef.current = false;
+      setProcessingAll(false);
+    }
+  }, [processOne, settings, showToast, t]);
 
   const processBrowserTool = useCallback(async (options: BrowserToolOptions) => {
     if (browserToolBusy) return;
@@ -3396,8 +3426,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [galleryCheckedIds, galleryDeleteScope, galleryItems, showToast, t]);
 
   const prepareItemsForExport = useCallback(async (sourceItems: ImageItem[], preserveSourceFormat = false) => {
-    const prepared: Array<{ item: ImageItem; blob: Blob }> = [];
-    for (const item of sourceItems) {
+    return runCompressionBatch(sourceItems, readBatchConcurrency(), async (item) => {
       // Never export a stale live preview after the requested output format
       // changed. Windows can otherwise retain a WebP preview while the
       // selected setting requests PNG/JPEG.
@@ -3405,10 +3434,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       const cachedFormatMatches = preserveSourceFormat
         ? isRequestedMimeType(cachedType, item.type)
         : cachedOutputMatchesFormat(cachedType, settings.format);
-      if (item.outputBlob && cachedFormatMatches) {
-        prepared.push({ item, blob: item.outputBlob });
-        continue;
-      }
+      if (item.outputBlob && cachedFormatMatches) return { item, blob: item.outputBlob };
       setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, status: "processing", error: undefined } : candidate));
       const sourceType = item.type === "image/jpg" || item.type === "image/jfif" ? "image/jpeg" : item.type;
       const sourceFormat = (["image/jpeg", "image/png", "image/webp"] as string[]).includes(sourceType)
@@ -3418,16 +3444,16 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
         ? { ...settings, mode: "manual" as const, format: sourceFormat }
         : settings;
       const result = await compressImage(item, exportSettings, nativeBridge);
-      const outputUrl = result.keptOriginal ? undefined : URL.createObjectURL(result.blob);
+      const canPublish = settingsRef.current === settings && itemsRef.current.some(candidate => candidate.id === item.id);
+      const outputUrl = canPublish && !result.keptOriginal ? URL.createObjectURL(result.blob) : undefined;
       const completed = { ...item, outputBlob: result.blob, outputUrl, outputBytes: result.blob.size, outputType: result.blob.type || item.type, outputWidth: result.width, outputHeight: result.height, keptOriginal: result.keptOriginal, sizeGuardQuality: result.sizeGuardQuality, strategy: result.strategy, status: "done" as const };
-      setItems((current) => current.map((candidate) => {
+      if (canPublish) setItems((current) => current.map((candidate) => {
         if (candidate.id !== item.id) return candidate;
         if (candidate.outputUrl) URL.revokeObjectURL(candidate.outputUrl);
         return completed;
       }));
-      prepared.push({ item: completed, blob: result.blob });
-    }
-    return prepared;
+      return { item: completed, blob: result.blob };
+    });
   }, [nativeBridge, settings]);
 
   const chooseExportFolder = useCallback(async () => {
@@ -3455,7 +3481,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
   }, [nativeBridge, showToast, t]);
 
   const exportItems = useCallback(async (requestedItems: ImageItem[]) => {
-    if (!requestedItems.length || exporting) return;
+    if (!requestedItems.length || batchRunningRef.current) return;
     let effectiveExportMode = exportMode;
     if (effectiveExportMode === "overwrite" && settings.format !== "keep") {
       showToast(t("覆盖源文件时请将输出格式设为“保持原格式”", "Select Keep original format before replacing source files"));
@@ -3463,6 +3489,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     }
     if (effectiveExportMode === "overwrite" && (!nativeBridge || desktopPreferences.confirmOverwrite) && !window.confirm(t("确认覆盖源图片？该操作无法在 PicLite 中撤销。", "Replace the source images? PicLite cannot undo this action."))) return;
 
+    batchRunningRef.current = true;
+    livePreviewGenerationRef.current += 1;
     setExporting(true);
     try {
       if (!nativeBridge && effectiveExportMode === "overwrite") {
@@ -3482,6 +3510,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
       if (!nativeBridge && (effectiveExportMode === "same-folder" || effectiveExportMode === "fixed-folder") && !exportDirectoryRef.current && !(await chooseExportFolder())) return;
       if (nativeBridge && effectiveExportMode === "fixed-folder" && !exportFolderName && !(await chooseExportFolder())) return;
 
+      await livePreviewRunningRef.current;
       const prepared = await prepareItemsForExport(requestedItems, effectiveExportMode === "overwrite");
       const suffix = cleanSuffix(exportSuffix);
       if (effectiveExportMode === "download") {
@@ -3529,9 +3558,10 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
     } catch (error) {
       showToast(error instanceof Error ? error.message : t("导出失败", "Export failed"));
     } finally {
+      batchRunningRef.current = false;
       setExporting(false);
     }
-  }, [chooseExportFolder, desktopPreferences.confirmOverwrite, desktopPreferences.renameTemplate, downloadItem, exportFolderName, exportMode, exportSuffix, exporting, nativeBridge, prepareItemsForExport, saveItemToGallery, settings.format, showToast, t]);
+  }, [chooseExportFolder, desktopPreferences.confirmOverwrite, desktopPreferences.renameTemplate, downloadItem, exportFolderName, exportMode, exportSuffix, nativeBridge, prepareItemsForExport, saveItemToGallery, settings.format, showToast, t]);
 
   const exportAll = useCallback(() => void exportItems(itemsRef.current), [exportItems]);
   const exportSelected = useCallback(() => {
@@ -4292,8 +4322,8 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 </div>}
               </div>
               <div className="result-actions">
-                <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting} onClick={exportSelected} />
-                <button className="export-button" type="button" disabled={!items.length || exporting} onClick={exportAll}><span aria-hidden="true">↓</span> {exporting ? t("正在导出", "Exporting") : t("导出全部", "Export all")}</button>
+                <IconButton label={t("仅导出当前图片", "Export selected image")} symbol="↓" disabled={!selected || exporting || processingAll} onClick={exportSelected} />
+                <button className="export-button" type="button" disabled={!items.length || exporting || processingAll} onClick={exportAll}><span aria-hidden="true">↓</span> {exporting ? t("正在导出", "Exporting") : t("导出全部", "Export all")}</button>
               </div>
             </div>
           </section>
@@ -4473,7 +4503,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <span>{t("实时试压结果", "Live result")}</span>
                 <strong>{selected.status === "processing" ? t("计算中…", "Calculating…") : selected.outputBytes != null ? formatBytes(selected.outputBytes) : "—"}</strong>
               </div>}
-              <button className="compress-button" type="button" disabled={!items.length || processingAll} aria-busy={processingAll} onClick={processAll}>
+              <button className="compress-button" type="button" disabled={!items.length || processingAll || exporting} aria-busy={processingAll} onClick={processAll}>
                 <HeaderIcon name="spark" width={15} height={15} />
                 <span>{processingAll ? t("正在应用…", "Applying…") : t("按此参数应用到全部", "Apply to all")} <span className="apply-all-count">· {t(`${items.length} 张`, `${items.length} ${items.length === 1 ? "image" : "images"}`)}</span></span>
               </button>
@@ -4687,6 +4717,11 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
                 <button className="preference-action" type="button" onClick={chooseExportFolder}>{t("选择文件夹", "Choose folder")}</button>
               </div>}
               {desktopPreferences.exportMode === "overwrite" && <label className="preference-row clickable"><div><strong>{t("覆盖前再次确认", "Confirm before replacing")}</strong><small>{t("覆盖操作无法撤销", "Replacing a file cannot be undone")}</small></div><button className={`switch ${desktopPreferences.confirmOverwrite ? "on" : ""}`} type="button" role="switch" aria-checked={desktopPreferences.confirmOverwrite} onClick={() => setDesktopPreferences((current) => ({ ...current, confirmOverwrite: !current.confirmOverwrite }))}><i /></button></label>}
+            </section>}
+
+            {preferenceSection === "images" && <section className="preference-card">
+              <div className="preference-card-heading"><span>{t("工作台性能", "Workbench performance")}</span></div>
+              <BatchPerformanceSettings language={desktopPreferences.language} queue={batchMemoryQueue} readMemory={nativeBridge?.getSystemMemory} />
             </section>}
 
             {(preferenceSection === "clipboard" || preferenceSection === "images") && <section className="preference-card">

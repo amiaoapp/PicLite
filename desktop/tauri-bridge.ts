@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import packageManifest from "../package.json";
+import type { SystemMemory } from "../app/batch-compression";
 import type { UpdateProgress } from "./update-types";
 
 type EncodedImage = { name: string; type: string; path: string; data: string; previewData?: string; previewType?: string; width?: number; height?: number };
@@ -13,6 +14,7 @@ type EncodedImageEntry = {
   originalBytes: number;
   width: number;
   height: number;
+  animated: boolean;
   thumbnailType: string;
   thumbnailData: string;
 };
@@ -116,6 +118,7 @@ if ("__TAURI_INTERNALS__" in window) {
     },
     selectFolder: (kind) => invoke<string | null>("select_folder", { kind }),
     suggestScreenshotFolder: () => invoke<string | null>("suggest_screenshot_folder"),
+    getSystemMemory: () => invoke<SystemMemory | null>("get_system_memory"),
     exportImages: async (payload) => invoke("export_images", {
       payload: {
         ...payload,
@@ -357,6 +360,7 @@ if ("__TAURI_INTERNALS__" in window) {
     readImagesFromPaths: async () => [],
     selectFolder: async () => null,
     suggestScreenshotFolder: async () => null,
+    getSystemMemory: async () => null,
     exportImages: async () => ({ ok: true, paths: [] }),
     validateWatcher: async () => ({ ok: true }),
     startWatcher: async () => ({ ok: true }),

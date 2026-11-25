@@ -1,0 +1,45 @@
+.batch-performance {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.batch-performance-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  font-weight: 600;
+}
+
+.batch-performance-control input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+}
+
+.batch-performance-memory {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85em;
+}
+
+.batch-performance-memory > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.batch-performance-memory small {
+  font-size: inherit;
+  opacity: 0.78;
+}
+
+.batch-performance-memory .batch-performance-warning {
+  padding-block: 4px;
+  color: inherit;
+  font-weight: 700;
+  opacity: 1;
+}

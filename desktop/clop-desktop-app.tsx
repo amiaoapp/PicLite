@@ -1,3 +1,4 @@
+import { BatchPerformanceSettings } from "../app/batch-performance-settings";
 import { UpdateButton } from "./update-button";
 import type { UpdateInfo } from "./update-types";
 import { ClipboardSourceControls } from "./clipboard-source-controls";
@@ -1351,6 +1352,9 @@ function Preferences({ api }: { api: PicLiteBridge }) {
         {settings.autoCleanupEnabled && <SettingsRow title={<T language={language} zh="保留时长" en="Keep results for" />} note={cleanupText}><span className="number-field"><input type="number" min="1" max="999" value={settings.autoCleanupAmount} onChange={(event) => patch("autoCleanupAmount", Math.max(1, Number(event.target.value)))} /><Select label="cleanup unit" value={settings.autoCleanupUnit} onChange={(value) => patch("autoCleanupUnit", value)}><option value="hours">{tr(language, "小时", "hours")}</option><option value="days">{tr(language, "天", "days")}</option><option value="months">{tr(language, "月", "months")}</option></Select><button className="settings-button" disabled={settings.filePlacement !== "fixed-folder" || !settings.outputFolder} onClick={() => void cleanNow()}>{tr(language, "立即清理", "Clean now")}</button></span></SettingsRow>}
       </SettingsCard></>}
       {section === "images" && <>
+        <SettingsCard title={<T language={language} zh="工作台性能" en="Workbench performance" />}>
+          <BatchPerformanceSettings language={language} readMemory={api.getSystemMemory} />
+        </SettingsCard>
         <SettingsCard title={<T language={language} zh="图片优化规则" en="Image optimisation rules" />}>
           <SettingsRow title={<T language={language} zh="智能压缩" en="Smart compression" />} note={<T language={language} zh="静态图实测 JPEG、WebP、PNG 并选择收益最好的格式。动图默认争取压到 500 KB，可降低画质、等比缩小和抽帧，保持播放时长；下方体积上限优先生效" en="Static images measure JPEG, WebP and PNG. Animations aim for 500 KB using lower quality, proportional resizing and frame thinning while preserving duration; the size limit below takes priority" />}><Switch label="smart compression" checked={settings.preset.mode === "auto"} onChange={(value) => patchPreset({ mode: value ? "auto" : "manual" })} /></SettingsRow>
           <SettingsRow title={<T language={language} zh="压缩质量" en="Compression quality" />} note={settings.preset.mode === "auto" ? tr(language, "自动", "Automatic") : `${settings.preset.quality}%`}><input disabled={settings.preset.mode === "auto"} type="range" min="5" max="100" value={settings.preset.quality} onChange={(event) => patchPreset({ mode: "manual", quality: Number(event.target.value) })} /></SettingsRow>

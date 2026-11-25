@@ -17,6 +17,7 @@ mod image_clipboard;
 mod apng;
 mod png_candidate;
 mod native_material;
+mod system_memory;
 
 use std::{
     borrow::Cow,
@@ -446,6 +447,7 @@ struct NativeImageEntry {
     original_bytes: u64,
     width: u32,
     height: u32,
+    animated: bool,
     thumbnail_type: String,
     thumbnail_data: String,
 }
@@ -2827,6 +2829,25 @@ fn native_image_entries_from_paths_with_progress(
             (String::new(), String::new())
         };
 
+        let mime = mime_for(&canonical);
+        let animated = match mime {
+            "image/gif" => true,
+            "image/png" | "image/webp" => {
+                let image_file = fs::File::open(&canonical).map(BufReader::new);
+                image_file.map_or(true, |reader| {
+                    if mime == "image/png" {
+                        image::codecs::png::PngDecoder::new(reader)
+                            .and_then(|decoder| decoder.is_apng())
+                            .unwrap_or(true)
+                    } else {
+                        image::codecs::webp::WebPDecoder::new(reader)
+                            .map(|decoder| decoder.has_animation())
+                            .unwrap_or(true)
+                    }
+                })
+            }
+            _ => false,
+        };
         authorized.insert(canonical.clone());
         entries.push(NativeImageEntry {
             name: canonical
@@ -2834,11 +2855,12 @@ fn native_image_entries_from_paths_with_progress(
                 .and_then(|value| value.to_str())
                 .unwrap_or("image")
                 .to_string(),
-            mime_type: mime_for(&canonical).to_string(),
+            mime_type: mime.to_string(),
             path: canonical.to_string_lossy().to_string(),
             original_bytes: metadata.len(),
             width,
             height,
+            animated,
             thumbnail_type,
             thumbnail_data,
         });
@@ -6957,6 +6979,7 @@ pub fn run() {
             load_upload_profile,
             save_upload_profile,
             export_images,
+            system_memory::get_system_memory,
             quick_compress_paths,
             floating_editor::edit_floating_image,
             crop_editor::open_crop_editor,
