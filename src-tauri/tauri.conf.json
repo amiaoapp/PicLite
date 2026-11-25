@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PicLite",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "identifier": "com.piclite.desktop",
   "build": {
     "beforeDevCommand": "npm run desktop:renderer:dev",
@@ -28,6 +28,13 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": ["https://github.com/amiaoapp/PicLite/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
     }
   },
   "bundle": {

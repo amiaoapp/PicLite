@@ -1,3 +1,4 @@
+import type { DesktopUpdateBridge } from "./update-types";
 import type { ClipboardImageMetadata, ClipboardImagePayload } from "../app/clipboard-image";
 export type Language = "zh" | "en";
 export type Appearance = "system" | "light" | "dark";
@@ -233,7 +234,7 @@ export type WindowMaterialState = {
   radius: number;
 };
 
-export type PicLiteBridge = {
+export type PicLiteBridge = DesktopUpdateBridge & {
   platform: string;
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;
@@ -305,6 +306,4 @@ export type PicLiteBridge = {
   onClipboardPaths: (callback: (paths: string[]) => void) => () => void;
   onWatcherEvent: (callback: (event: { type: string; message?: string; file?: string; output?: string; originalBytes?: number; outputBytes?: number; time: number }) => void) => () => void;
   onWindowResized: (callback: (size: { width: number; height: number }) => void) => () => void;
-  checkForUpdates: () => Promise<{ currentVersion: string; latestVersion: string; available: boolean; releaseUrl: string }>;
-  openExternal: (url: string) => Promise<void>;
 };

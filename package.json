@@ -1,7 +1,7 @@
 {
   "name": "piclite",
-  "version": "2.2.2",
-  "releaseDate": "2026-11-23",
+  "version": "2.2.3",
+  "releaseDate": "2026-11-25",
   "description": "本地优先、可自托管的跨平台图片与 GIF 压缩工作台",
   "author": {
     "name": "PicLite contributors",

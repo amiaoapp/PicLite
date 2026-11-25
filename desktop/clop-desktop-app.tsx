@@ -1,3 +1,5 @@
+import { UpdateButton } from "./update-button";
+import type { UpdateInfo } from "./update-types";
 import { ClipboardSourceControls } from "./clipboard-source-controls";
 import { clipboardImageFile, type ClipboardImageMetadata } from "../app/clipboard-image";
 import { shortcutFromEvent, shortcutLabel } from "./shortcuts";
@@ -474,7 +476,7 @@ function ResultActions({ item, api, settings, notify, onDownscale, onWatermark, 
     await runWithNotice(() => api.revealPath(output), tr(language, "已在文件夹中定位", "Shown in folder"));
   };
   const actions: Record<FloatingAction, { title: string; icon: string; disabled?: boolean; independent?: boolean; run: () => void }> = {
-    "clipboard-monitor": { title: clipboardMonitor.paused ? tr(language, "恢复剪贴板检测", "Resume clipboard monitoring") : tr(language, "临时关闭剪贴板检测", "Temporarily disable clipboard monitoring"), icon: "clipboard", independent: true, run: clipboardMonitor.toggle },
+    "clipboard-monitor": { title: clipboardMonitor.paused ? tr(language, "恢复剪贴板检测", "Resume clipboard monitoring") : tr(language, "临时关闭剪贴板检测", "Temporarily disable clipboard monitoring"), icon: clipboardMonitor.paused ? "clipboard-paused" : "clipboard", independent: true, run: clipboardMonitor.toggle },
     cover: { title: tr(language,"按封面预设生成并压缩","Make and compress cover with saved preset"), icon: "image", disabled: !onCover, run: () => onCover?.() },
     quality: { title: tr(language,"调整压缩质量","Compression quality"), icon: "sliders", disabled:!onQuality, run:()=>onQuality?.() },
     save: { title: tr(language,"保存副本","Save copy"), icon: "save", disabled:!onSave, run:()=>onSave?.() },
@@ -612,7 +614,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
     return () => observer.disconnect();
   }, [collapsed, api.platform, settings.floatingCornerRadius]);
 
-  const [updateNotice, setUpdateNotice] = useState<{ text: string; url?: string } | null>(null);
+  const [updateNotice, setUpdateNotice] = useState<{ text: string; updateAvailable?: boolean } | null>(null);
   const [operationNotice, setOperationNotice] = useState<{ text: string; tone: OperationFeedbackTone } | null>(null);
   const timer = useRef<number | null>(null);
   const operationNoticeTimer = useRef<number | null>(null);
@@ -739,7 +741,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
       const info = await api.checkForUpdates();
       localStorage.setItem(LAST_UPDATE_CHECK_KEY, String(Date.now()));
       setUpdateNotice(info.available
-        ? { text: tr(settings.language, `发现 PicLite ${info.latestVersion}`, `PicLite ${info.latestVersion} available`), url: info.releaseUrl }
+        ? { text: tr(settings.language, `发现 PicLite ${info.latestVersion}`, `PicLite ${info.latestVersion} available`), updateAvailable: true }
         : showResult ? { text: tr(settings.language, `PicLite ${info.currentVersion} 已是最新版`, `PicLite ${info.currentVersion} is up to date`) } : null);
     } catch {
       if (showResult) {
@@ -897,8 +899,13 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
   };
   const imageTone = useFloatingTone(currentResult?.preview);
   const compressionNotice = operationNotice?.text || updateNotice?.text;
+  const updateNoticeActive = !operationNotice && !!updateNotice?.updateAvailable;
   const smartCompressionEnabled = settings.preset.mode === "auto";
   const toggleCompressionMode = () => {
+    if (updateNoticeActive) {
+      void api.showPreferencesWindow("about").catch(error => showOperationNotice(String(error), "error"));
+      return;
+    }
     if (compressionNotice) return;
     setSettings((current) => ({
       ...current,
@@ -953,7 +960,7 @@ export function FloatingResults({ api }: { api: PicLiteBridge }) {
         return <div className="floating-result-slot" key={item.id} data-result-id={item.id}><ResultCard item={item} api={api} settings={settings} active={active} allowWindowDrag notify={showOperationNotice} select={() => setSelectedId(item.id)} remove={() => remove(item.id)} downscale={() => void reoptimise(item, { mode: "manual", scale: 50, preventLarger: false }, item.output || item.source)} watermark={() => void applySavedWatermark(item)} upload={() => void uploadResult(item)} cover={() => void applyCover(item)} pageControl={<button className="floating-result-next" title={tr(settings.language,"下一张结果","Next result")} aria-label={tr(settings.language,"下一张结果","Next result")} disabled={results.length < 2} onClick={event => { event.stopPropagation(); rotateResults(item.id); }}>{results.findIndex(result=>result.id===item.id)+1}/{results.length}</button>} undo={() => { undo(item); showOperationNotice(tr(settings.language, "已撤销上一次处理", "Last operation undone")); }} updateFormat={(format) => void updateFormat(item, format)} process={async (overrides, source) => { await reoptimise(item, overrides, source || item.reencodeSource || item.output); }} /></div>;
       })}</div>
       <footer className="floating-footer" onPointerDown={startEmptyWindowDrag}>
-        <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice)} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
+        <button className={`automatic-badge mode-${smartCompressionEnabled ? "auto" : "custom"} ${operationNotice ? `operation-${operationNotice.tone}` : updateNotice ? "has-notice" : ""}`} title={compressionNotice || tr(settings.language, smartCompressionEnabled ? "点击切换为自定义压缩" : "点击切换为智能压缩", smartCompressionEnabled ? "Switch to custom compression" : "Switch to smart compression")} aria-live="polite" aria-pressed={smartCompressionEnabled} aria-disabled={Boolean(compressionNotice) && !updateNoticeActive} onClick={toggleCompressionMode}><Icon name={operationNotice ? operationNotice.tone === "success" ? "check" : "info" : updateNotice ? "info" : smartCompressionEnabled ? "spark" : "sliders"} /><span>{compressionNotice || (smartCompressionEnabled ? <T language={settings.language} zh="智能压缩" en="Smart compression" /> : <T language={settings.language} zh="自定义压缩" en="Custom compression" />)}</span></button>
         <div>{clickThroughToggle}<FloatingCollapseButton api={api} language={settings.language} busy={collapseBusy} collapse={() => void changeCollapsed(true)} />{addLocalImages}<button title={tr(settings.language, "打开完整工作台", "Open full workbench")} onClick={() => void api.showMainWindow()}><Icon name="workbench" /></button>{settings.showCopyClearButtons && <button title={tr(settings.language, "清空", "Clear all")} onClick={clear}><Icon name="trash" /></button>}<button title={tr(settings.language, "关闭悬浮窗", "Close floating window")} onClick={() => void api.hideCurrentWindow()}><Icon name="close" /></button></div>
       </footer>
     </>}
@@ -1069,6 +1076,8 @@ function Preferences({ api }: { api: PicLiteBridge }) {
   const [workbenchFiles, setWorkbenchFiles] = useState<WorkbenchFileSettings>(loadWorkbenchFileSettings);
   const [section, setSection] = useState<SettingsSection>(requestedSettingsSection);
   const [updateText, setUpdateText] = useState("");
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [autostartStatus, setAutostartStatus] = useState("");
   const clipboardMonitor = useClipboardMonitor(api);
   const [recordingShortcut, setRecordingShortcut] = useState<"shortcutToggleDropzone" | "shortcutOptimiseClipboard" | "shortcutShowMain" | "shortcutShowGallery" | "shortcutUploadCurrent" | null>(null);
@@ -1207,13 +1216,18 @@ function Preferences({ api }: { api: PicLiteBridge }) {
     }
   };
   const checkUpdates = useCallback(async () => {
+    setCheckingUpdate(true);
     setUpdateText(tr(language, "正在检查…", "Checking…"));
+    setAvailableUpdate(null);
     try {
       const info = await api.checkForUpdates();
+      setAvailableUpdate(info.available ? info : null);
       localStorage.setItem(LAST_UPDATE_CHECK_KEY, String(Date.now()));
       setUpdateText(info.available ? tr(language, `发现新版本 ${info.latestVersion}`, `Version ${info.latestVersion} is available`) : tr(language, `已经是最新版 ${info.currentVersion}`, `PicLite ${info.currentVersion} is up to date`));
     } catch (error) {
-      setUpdateText(String(error));
+      setUpdateText(tr(language, `检查更新失败：${error}`, `Update check failed: ${error}`));
+    } finally {
+      setCheckingUpdate(false);
     }
   }, [api, language]);
   useEffect(() => {
@@ -1429,8 +1443,8 @@ function Preferences({ api }: { api: PicLiteBridge }) {
       {section === "about" && <>
         <section className="update-about-hero"><Brand /><div><span><T language={language} zh="当前版本" en="Current version" /></span><strong>PicLite v{APP_VERSION}</strong><small><T language={language} zh={`更新时间 ${APP_RELEASE_DATE}`} en={`Updated ${APP_RELEASE_DATE}`} /> · Tauri 2 + Rust</small></div></section>
         <SettingsCard title={<T language={language} zh="更新" en="Updates" />}>
-          <SettingsRow title={<T language={language} zh="自动检查更新" en="Automatic update checks" />} note={<T language={language} zh="按设定频率检查 GitHub Releases" en="Check GitHub Releases at the selected interval" />}><Select label={tr(language, "自动检查更新", "Automatic update checks")} value={settings.updateCheckFrequency} onChange={(value) => patch("updateCheckFrequency", value)}><option value="startup">{tr(language, "打开软件时", "When PicLite opens")}</option><option value="daily">{tr(language, "每天", "Daily")}</option><option value="weekly">{tr(language, "每周", "Weekly")}</option><option value="never">{tr(language, "不自动检查", "Never")}</option></Select></SettingsRow>
-          <SettingsRow title={<T language={language} zh="检查 GitHub Releases" en="Check GitHub Releases" />} note={updateText}><button className="settings-button" onClick={() => void checkUpdates()}><T language={language} zh="立即检查" en="Check now" /></button></SettingsRow>
+          <SettingsRow title={<T language={language} zh="自动检查更新" en="Automatic update checks" />} note={<T language={language} zh="按设定频率检查 GitHub Releases" en="Check for app updates at the selected interval" />}><Select label={tr(language, "自动检查更新", "Automatic update checks")} value={settings.updateCheckFrequency} onChange={(value) => patch("updateCheckFrequency", value)}><option value="startup">{tr(language, "打开软件时", "When PicLite opens")}</option><option value="daily">{tr(language, "每天", "Daily")}</option><option value="weekly">{tr(language, "每周", "Weekly")}</option><option value="never">{tr(language, "不自动检查", "Never")}</option></Select></SettingsRow>
+          <SettingsRow title={<T language={language} zh="软件更新" en="Software update" />} note={<span aria-live="polite">{updateText}</span>}>{availableUpdate && <UpdateButton key={availableUpdate.latestVersion} className="settings-button" api={api} info={availableUpdate} t={(zh, en) => tr(language, zh, en)} onError={setUpdateText} />}{!availableUpdate && <button className="settings-button" disabled={checkingUpdate} onClick={() => void checkUpdates()}><T language={language} zh="立即检查" en="Check now" /></button>}</SettingsRow>
         </SettingsCard>
         <SettingsCard title={<T language={language} zh="关于 PicLite" en="About PicLite" />}><div className="about-pane"><p><T language={language} zh="面向自媒体工作人员和开发人员的本地优先跨平台媒体优化工具。" en="A local-first, cross-platform media optimiser for content creators and developers." /></p><small>GPL-3.0-or-later · Tauri 2 + Rust</small><p><T language={language} zh="工作流与部分实现基于 GPL 项目 Clop；PicLite 使用独立名称、图标和跨平台实现。" en="Workflow and parts of the implementation are based on the GPL-licensed Clop project. PicLite uses its own name, icons and cross-platform implementation." /></p><button className="settings-button" onClick={() => void api.openExternal("https://github.com/amiaoapp/PicLite")}><T language={language} zh="打开 GitHub" en="Open GitHub" /></button></div></SettingsCard>
       </>}

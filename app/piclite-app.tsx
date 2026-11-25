@@ -1,5 +1,8 @@
 "use client";
 
+import { UpdateButton } from "../desktop/update-button";
+import type { DesktopUpdateBridge, UpdateInfo } from "../desktop/update-types";
+
 import { ClipboardSourceControls } from "../desktop/clipboard-source-controls";
 import { DEFAULT_CLIPBOARD_SOURCE_SETTINGS, normalizeClipboardExcludedApps } from "../desktop/clipboard-source-settings";
 import { clipboardImageFile, type ClipboardImageMetadata, type ClipboardImagePayload } from "./clipboard-image";
@@ -65,14 +68,6 @@ const APP_VERSION = packageManifest.version;
 const APP_RELEASE_DATE = packageManifest.releaseDate;
 const LAST_UPDATE_CHECK_KEY = "piclite.update.last-checked.v1";
 const GITHUB_RELEASES_URL = "https://github.com/amiaoapp/PicLite/releases/latest";
-
-type UpdateInfo = {
-  currentVersion: string;
-  latestVersion: string;
-  available: boolean;
-  releaseUrl: string;
-  publishedAt?: string;
-};
 
 type WritableFileLike = {
   write: (data: Blob) => Promise<void>;
@@ -210,7 +205,7 @@ type BatchRenameResult = {
   failed: number;
 };
 
-type NativeBridge = {
+type NativeBridge = DesktopUpdateBridge & {
   platform: string;
   windowLabel: string;
   readClipboardImage: () => Promise<ClipboardImagePayload | null>;
@@ -287,9 +282,7 @@ type NativeBridge = {
   onClipboardImage: (callback: (data: Uint8Array, metadata?: ClipboardImageMetadata) => void) => () => void;
   onClipboardPaths: (callback: (paths: string[]) => void) => () => void;
   onWindowResized: (callback: (size: { width: number; height: number }) => void) => () => void;
-  checkForUpdates: () => Promise<UpdateInfo>;
   fetchPluginSource: (url: string) => Promise<string>;
-  openExternal: (url: string) => Promise<void>;
 };
 
 declare global {
@@ -4161,7 +4154,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
 
       {nativeBridge && updateInfo?.available && <aside className="update-notice" role="status">
         <span>↑</span><p><strong>{t(`PicLite ${updateInfo.latestVersion} 已发布`, `PicLite ${updateInfo.latestVersion} is available`)}</strong><small>{t(`当前版本 ${APP_VERSION}，建议更新后继续使用。`, `You are using ${APP_VERSION}. Update to get the latest fixes.`)}</small></p>
-        <button type="button" onClick={() => openReleasePage(updateInfo.releaseUrl)}>{t("查看更新", "View update")}</button>
+        <UpdateButton key={updateInfo.latestVersion} api={nativeBridge} info={updateInfo} t={t} onError={showToast} />
         <button className="update-notice-close" type="button" aria-label={t("暂时关闭更新提醒", "Dismiss update notice")} onClick={() => setUpdateInfo(null)}>×</button>
       </aside>}
 
@@ -4816,7 +4809,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
               <div className="about-product"><span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><div><strong>PicLite 图轻 · v{APP_VERSION}</strong><small>{t(`更新日期 ${APP_RELEASE_DATE}`, `Updated ${APP_RELEASE_DATE}`)} · Tauri 2 + Rust</small></div><em>OPEN SOURCE</em></div>
               <p>{t("图片在本机处理，不上传到 PicLite 服务器。桌面端使用系统 WebView，因此安装包不携带完整浏览器内核。", "Images are processed locally and are never uploaded to PicLite. The desktop app uses the system WebView instead of bundling a browser engine.")}</p>
               <p className="license-note">{t("PicLite 以 GPL-3.0-or-later 开源；自动化工作流参考 FuzzyIdeas 的 Clop，PicLite 保留独立品牌和跨平台实现。", "PicLite is open source under GPL-3.0-or-later. Its automation workflow is inspired by FuzzyIdeas' Clop while retaining independent branding and a cross-platform implementation.")}</p>
-              <div className="about-links"><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite")}>{t("GitHub 项目", "GitHub project")}</button><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite/blob/main/LICENSE")}>{t("GPLv3 许可", "GPLv3 license")}</button><button type="button" onClick={() => showToast(`PicLite ${APP_VERSION} · Tauri 2 + Rust`)}>{t("版本信息", "Version information")}</button>{nativeBridge && <button type="button" disabled={checkingUpdate} onClick={() => void checkForUpdates(true)}>{checkingUpdate ? t("检查中…", "Checking…") : updateInfo?.available ? t(`更新到 ${updateInfo.latestVersion}`, `Update to ${updateInfo.latestVersion}`) : t("检查更新", "Check for updates")}</button>}</div>
+              <div className="about-links"><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite")}>{t("GitHub 项目", "GitHub project")}</button><button type="button" onClick={() => openReleasePage("https://github.com/amiaoapp/PicLite/blob/main/LICENSE")}>{t("GPLv3 许可", "GPLv3 license")}</button><button type="button" onClick={() => showToast(`PicLite ${APP_VERSION} · Tauri 2 + Rust`)}>{t("版本信息", "Version information")}</button>{nativeBridge && (updateInfo?.available ? <UpdateButton key={updateInfo.latestVersion} api={nativeBridge} info={updateInfo} t={t} onError={showToast} /> : <button type="button" disabled={checkingUpdate} onClick={() => void checkForUpdates(true)}>{checkingUpdate ? t("检查中…", "Checking…") : t("检查更新", "Check for updates")}</button>)}</div>
             </section>}
           </div>
         </section>

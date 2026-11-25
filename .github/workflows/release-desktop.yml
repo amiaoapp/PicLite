@@ -7,7 +7,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -30,12 +30,12 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-15
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
             artifact: PicLite-macOS-arm64
           - name: macOS Intel
             os: macos-15-intel
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
             artifact: PicLite-macOS-x64
           - name: Linux x64
             os: ubuntu-24.04
@@ -78,12 +78,55 @@ jobs:
         # Windows Server 2025 currently fails to load Cargo's generated Rust test executable
         # with STATUS_ENTRYPOINT_NOT_FOUND. The installed app is exercised below by WebView2 smoke tests.
         run: cargo check --tests --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
-      - name: Build Tauri bundle
-        uses: tauri-apps/tauri-action@v1
+      - name: Configure the updater trust key
+        env:
+          PICLITE_UPDATER_PUBLIC_KEY: ${{ vars.PICLITE_UPDATER_PUBLIC_KEY }}
+        run: >-
+          node -e "const pubkey = process.env.PICLITE_UPDATER_PUBLIC_KEY.trim();
+          if (!pubkey) throw Error('Missing PICLITE_UPDATER_PUBLIC_KEY');
+          require('fs').writeFileSync('updater-release.conf.json', JSON.stringify({bundle:{createUpdaterArtifacts:true},plugins:{updater:{pubkey}}}));"
+      - name: Build signed Tauri update bundles
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run desktop:build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config updater-release.conf.json
+      - name: Stage installers and updater assets
+        shell: bash
+        env:
+          BUNDLE: src-tauri/target/${{ matrix.target }}/release/bundle
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir desktop-artifacts
+          case "$RUNNER_OS" in
+            Windows)
+              cp "$BUNDLE"/msi/*.msi "$BUNDLE"/msi/*.msi.sig "$BUNDLE"/nsis/*.exe.sig desktop-artifacts/
+              ;;
+            macOS)
+              arch=x64
+              if [[ "$TARGET" == aarch64-* ]]; then arch=aarch64; fi
+              version=$(node -p 'require("./package.json").version')
+              archive="desktop-artifacts/PicLite_${version}_${arch}.app.tar.gz"
+              cp "$BUNDLE"/dmg/*.dmg desktop-artifacts/
+              cp "$BUNDLE/macos/PicLite.app.tar.gz" "$archive"
+              cp "$BUNDLE/macos/PicLite.app.tar.gz.sig" "$archive.sig"
+              ;;
+            Linux)
+              cp "$BUNDLE"/appimage/*.AppImage "$BUNDLE"/appimage/*.AppImage.sig "$BUNDLE"/deb/*.deb desktop-artifacts/
+              ;;
+          esac
+      - uses: actions/upload-artifact@v4
         with:
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: ${{ matrix.artifact }}-[bundle]
+          name: ${{ matrix.artifact }}-packages
+          path: desktop-artifacts/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: ${{ matrix.artifact }}-nsis
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
 
       - name: Cover renderer pixel regression
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
@@ -99,6 +142,7 @@ jobs:
           node tests/floating-completion-ui.mjs
           node tests/floating-session-controls-ui.mjs
           node tests/clipboard-source-settings-ui.mjs
+          node tests/desktop-update-ui.mjs
       - name: MCP protocol integration tests
         shell: bash
         env:
@@ -148,6 +192,8 @@ jobs:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -156,30 +202,30 @@ jobs:
           path: artifacts
           merge-multiple: true
           pattern: PicLite-*
-      - name: Create or update release
+      - name: Verify updater signatures and generate the update feed
+        env:
+          PICLITE_UPDATER_PUBLIC_KEY: ${{ vars.PICLITE_UPDATER_PUBLIC_KEY }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y minisign
+          python3 scripts/desktop-update-manifest.py artifacts "${GITHUB_REF_NAME#v}"
+      - name: Publish installers and the update feed together
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          test "$(node -p 'require("./package.json").version')" = "$version"
           mapfile -d '' files < <(find artifacts -type f -print0)
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber --repo "${GITHUB_REPOSITORY}"
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft); then
+            if [[ "$draft" == false ]]; then
+              gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' > existing-assets.txt
+              for file in "${files[@]}"; do grep -Fx -- "${file##*/}" existing-assets.txt; done
+              exit 0
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" "${files[@]}" --title "PicLite 图轻 ${GITHUB_REF_NAME}" --notes-file "docs/RELEASE-${GITHUB_REF_NAME#v}.md" --repo "${GITHUB_REPOSITORY}"
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag --draft \
+              --title "PicLite 图轻 $GITHUB_REF_NAME" --notes-file "docs/RELEASE-$version.md"
           fi
-      - name: Remove stale versioned installers after successful upload
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json, os, re, subprocess
-          repo, tag = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REF_NAME']
-          version = tag.removeprefix('v')
-          release = json.loads(subprocess.check_output([
-              'gh', 'release', 'view', tag, '--repo', repo, '--json', 'assets'
-          ]))
-          for asset in release['assets']:
-              match = re.match(r'^PicLite_(\d+\.\d+\.\d+)_', asset['name'])
-              if match and match.group(1) != version:
-                  subprocess.run(['gh', 'release', 'delete-asset', tag, asset['name'],
-                                  '--repo', repo, '--yes'], check=True)
-          PY
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

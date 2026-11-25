@@ -67,6 +67,17 @@ jobs:
           path: artifacts
           merge-multiple: true
           pattern: PicLite-*
+      - name: Verify updater signatures and generate the update feed
+        env:
+          PICLITE_UPDATER_PUBLIC_KEY: ${{ vars.PICLITE_UPDATER_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f scripts/desktop-update-manifest.py ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y minisign
+            python3 scripts/desktop-update-manifest.py artifacts "$VERSION"
+          fi
       - name: Verify complete packages, portable architectures and checksums
         shell: bash
         run: |
@@ -85,10 +96,18 @@ jobs:
               expected.update([f'PicLite_{version}_{arch}-setup.exe',
                                f'PicLite_{version}_{arch}_en-US.msi',
                                f'PicLite-Windows-{arch}-portable.zip'])
+          if (root/'latest.json').is_file():
+              import json
+              feed = json.loads((root/'latest.json').read_text())
+              signed = {entry['url'].split('/')[-1] for entry in feed['platforms'].values()}
+              expected |= signed | {f'{name}.sig' for name in signed} | {'latest.json'}
           files = [p for p in root.rglob('*') if p.is_file()]
           assert len(files) == len(expected), [p.name for p in files]
           assert {p.name for p in files} == expected, [p.name for p in files]
           for path in files:
+              if path.name.endswith('.sig') or path.name == 'latest.json':
+                  assert path.stat().st_size > 0, path.name
+                  continue
               assert path.stat().st_size > 1_000_000, path.name
               if path.name.endswith('-portable.zip'):
                   with zipfile.ZipFile(path) as archive:
@@ -116,5 +135,5 @@ jobs:
           gh release create "v$VERSION" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" \
             --title "PicLite 图轻 v$VERSION" --notes-file "docs/RELEASE-$VERSION.md" --draft
-          test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" = 13
+          test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" = "${#files[@]}"
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest

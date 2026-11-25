@@ -67,7 +67,8 @@ use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, Theme, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
 };
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use url::Url;
@@ -214,14 +215,13 @@ struct UpdateInfo {
     latest_version: String,
     available: bool,
     release_url: String,
-    published_at: Option<String>,
+    in_app: bool,
 }
 
 #[derive(Deserialize)]
 struct GithubRelease {
     tag_name: String,
     html_url: String,
-    published_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -6358,46 +6358,7 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
             "about" => {
                 let _ = open_url("https://github.com/amiaoapp/PicLite");
             }
-            "check_updates" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    match check_for_updates().await {
-                        Ok(info) if info.available => {
-                            let release_url = info.release_url.clone();
-                            app.dialog()
-                                .message(format!(
-                                    "发现 PicLite {}。\n\n当前版本：{}",
-                                    info.latest_version, info.current_version
-                                ))
-                                .title("PicLite 更新检查")
-                                .kind(MessageDialogKind::Info)
-                                .buttons(MessageDialogButtons::OkCancelCustom(
-                                    "打开下载页面".into(),
-                                    "稍后".into(),
-                                ))
-                                .show(move |open_release| {
-                                    if open_release {
-                                        let _ = open_url(&release_url);
-                                    }
-                                });
-                        }
-                        Ok(info) => {
-                            app.dialog()
-                                .message(format!("PicLite {} 已是最新版。", info.current_version))
-                                .title("PicLite 更新检查")
-                                .kind(MessageDialogKind::Info)
-                                .show(|_| {});
-                        }
-                        Err(error) => {
-                            app.dialog()
-                                .message(format!("检查更新失败。\n\n{error}"))
-                                .title("PicLite 更新检查")
-                                .kind(MessageDialogKind::Error)
-                                .show(|_| {});
-                        }
-                    }
-                });
-            }
+            "check_updates" => open_preferences_from_menu(app, Some("preferences_section:about")),
             "quit" => {
                 app.state::<DesktopState>()
                     .quitting
@@ -6503,8 +6464,87 @@ fn version_is_newer(latest: &str, current: &str) -> bool {
         .is_some_and(|(left, right)| left > right)
 }
 
+fn desktop_updater(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Updater>, String> {
+    use tauri::utils::{config::BundleType, platform::bundle_type};
+
+    let signed_build = app.config().plugins.0.get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|key| !key.is_empty());
+    let supported_bundle = matches!(
+        bundle_type(),
+        Some(BundleType::App | BundleType::AppImage | BundleType::Msi | BundleType::Nsis)
+    );
+    if !signed_build || !supported_bundle || portable_directory().is_some() {
+        return Ok(None);
+    }
+    let builder = app.updater_builder();
+    // The updater exits Windows after the installer launches. Leave the app
+    // visible until then so an installer launch error can be retried.
+    #[cfg(target_os = "windows")]
+    let builder = builder.on_before_exit(|| {});
+    builder
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "stage", rename_all = "camelCase")]
+enum UpdateProgress {
+    Downloading { percent: Option<u64> },
+    Installing,
+}
+
 #[tauri::command]
-async fn check_for_updates() -> Result<UpdateInfo, String> {
+async fn install_update(
+    app: AppHandle,
+    update_lock: State<'_, tauri::async_runtime::Mutex<()>>,
+    progress: tauri::ipc::Channel<UpdateProgress>,
+) -> Result<(), String> {
+    let _installing = update_lock.try_lock().map_err(|_| "An update is already in progress.")?;
+    let updater = desktop_updater(&app)?.ok_or("In-app updates are unavailable for this package.")?;
+    let mut update = updater.check().await.map_err(|error| error.to_string())?
+        .ok_or("No update is available.")?;
+    if update.download_url.scheme() != "https" {
+        return Err("The update download requires HTTPS.".into());
+    }
+    update.timeout = Some(Duration::from_secs(900));
+    let mut downloaded = 0_u64;
+    let mut last_percent = None;
+    let bytes = update.download(|chunk, total| {
+        downloaded += chunk as u64;
+        let percent = total.filter(|size| *size > 0).map(|size| (downloaded * 100 / size).min(100));
+        if percent != last_percent {
+            last_percent = percent;
+            let _ = progress.send(UpdateProgress::Downloading { percent });
+        }
+    }, || {}).await.map_err(|error| error.to_string())?;
+    let _ = progress.send(UpdateProgress::Installing);
+    tauri::async_runtime::spawn_blocking(move || update.install(bytes))
+        .await.map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    // Windows exits through the installer, which relaunches PicLite itself.
+    app.state::<DesktopState>().quitting.store(true, Ordering::Relaxed);
+    app.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
+    if let Some(updater) = desktop_updater(&app)? {
+        let current_version = app.package_info().version.to_string();
+        let update = updater.check().await.map_err(|error| error.to_string())?;
+        return Ok(UpdateInfo {
+            available: update.is_some(),
+            latest_version: update.map_or_else(|| current_version.clone(), |update| update.version),
+            current_version,
+            release_url: "https://github.com/amiaoapp/PicLite/releases/latest".into(),
+            in_app: true,
+        });
+    }
+
     tauri::async_runtime::spawn_blocking(|| {
         let current_version = env!("CARGO_PKG_VERSION").to_string();
         let release = Client::builder()
@@ -6526,7 +6566,7 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
             current_version,
             latest_version,
             release_url: release.html_url,
-            published_at: release.published_at,
+            in_app: false,
         })
     })
     .await
@@ -6800,9 +6840,11 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(DesktopState::default())
+        .manage(tauri::async_runtime::Mutex::new(()))
         .manage(crop_editor::CropRequests::default())
         .setup(|app| {
             match create_tray(app) {
@@ -6938,6 +6980,7 @@ pub fn run() {
             autostart::set_launch_at_login,
             set_tray_theme,
             check_for_updates,
+            install_update,
             fetch_plugin_source,
             open_external_url,
             show_main_window,

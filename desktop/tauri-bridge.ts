@@ -1,8 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import packageManifest from "../package.json";
+import type { UpdateProgress } from "./update-types";
 
 type EncodedImage = { name: string; type: string; path: string; data: string; previewData?: string; previewType?: string; width?: number; height?: number };
 type EncodedImageEntry = {
@@ -199,6 +200,11 @@ if ("__TAURI_INTERNALS__" in window) {
     hideCurrentWindow: () => invoke("hide_current_window"),
     quitApplication: () => invoke("quit_application"),
     checkForUpdates: () => invoke("check_for_updates"),
+    installUpdate: (onProgress) => {
+      const progress = new Channel<UpdateProgress>();
+      progress.onmessage = onProgress;
+      return invoke("install_update", { progress });
+    },
     fetchPluginSource: (url) => invoke("fetch_plugin_source", { url }),
     openExternal: (url) => invoke("open_external_url", { url }),
     onFileDrop: (callback) => {
@@ -395,7 +401,8 @@ if ("__TAURI_INTERNALS__" in window) {
     setContentProtected: noop,
     hideCurrentWindow: noop,
     quitApplication: noop,
-    checkForUpdates: async () => ({ currentVersion: packageManifest.version, latestVersion: packageManifest.version, available: false, releaseUrl: "" }),
+    checkForUpdates: async () => ({ currentVersion: packageManifest.version, latestVersion: packageManifest.version, available: false, releaseUrl: "", inApp: false }),
+    installUpdate: noop,
     fetchPluginSource: async (url) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

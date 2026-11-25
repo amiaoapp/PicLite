@@ -153,4 +153,4 @@ html .floating-results.floating-results[data-floating-alpha-clip="true"]:not(.is
 }
 
 /* Session pause is visible across every result card. */
-.result-actions button[data-action="clipboard-monitor"][aria-pressed="true"] { color: #ffd48a; background: #5a421dcc; }
+html .floating-results[data-floating-style="immersive"] :is(.result-actions, .floating-menu-actions) button[data-action="clipboard-monitor"][aria-pressed="true"] { color: #722432; background: #fff0ee; }

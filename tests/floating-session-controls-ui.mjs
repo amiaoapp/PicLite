@@ -42,11 +42,13 @@ await floatingBrowser(async ({ send, evaluate, wait, click }) => {
   await click('.result-actions [data-action="clipboard-monitor"]');
   await wait(`document.querySelector('[data-action="clipboard-monitor"]').getAttribute('aria-pressed')==='true'`);
   assert.equal(await evaluate('picLite.getClipboardMonitorPaused()'),true);
+  assert.equal(await evaluate(`document.querySelectorAll('.result-actions [data-clipboard-paused-icon]').length`),3);
   const saved = await evaluate('JSON.parse(localStorage.getItem("piclite.desktop.clop-settings.v1"))');
   assert.equal(saved.clipboardOptimiser,true,'session pause must not disable the persisted preference');
   assert.equal(saved.pauseAutomaticOptimisations,false,'legacy global pause cannot strand folder watchers');
   await evaluate('picLite.setClipboardMonitorPaused(false)');
   await wait(`document.querySelector('[data-action="clipboard-monitor"]').getAttribute('aria-pressed')==='false'`);
+  assert.equal(await evaluate(`document.querySelectorAll('.result-actions [data-clipboard-paused-icon]').length`),0);
   assert.equal(await evaluate(`document.querySelector('[data-action="clipboard-monitor"]').title`),'Temporarily disable clipboard monitoring');
   await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,x:15,y:25});
   await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,x:15,y:25});
