@@ -57,9 +57,8 @@ html .app-shell.studio-shell .queue-item.selected { border-color: var(--studio-l
 .studio-shell .queue-item > img { width: 40px; height: 48px; border-radius: 4px; object-fit: cover; }
 .studio-shell .queue-copy > strong { font-size: 10px; font-weight: 600; }
 .studio-shell .queue-copy small, .studio-shell .item-status { font-size: 9px; }
-html .app-shell.studio-shell .queue-footer { padding: 10px 16px; border-top-color: var(--studio-line); background: none; }
+html .app-shell.studio-shell .queue-footer { padding-inline: 16px; border-top-color: var(--studio-line); background: none; }
 .studio-shell .queue-footer .paste-button { min-height: 32px; background: none; border: 1px solid var(--studio-line); border-radius: 6px; box-shadow: none; font-size: 10px; color: var(--studio-ink); }
-.studio-shell .queue-footer small { font-size: 9px; color: var(--studio-muted); }
 html .app-shell.studio-shell .preview-toolbar { padding: 13px 24px; grid-template-columns: minmax(0,1fr) auto auto; border: 0; border-bottom: 1px solid var(--studio-line); background: transparent; gap: 8px; }
 .studio-shell .preview-toolbar strong { max-width: 230px; font-size: 12px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 html .app-shell.studio-shell.studio-shell .preview-stage { min-height: 0; padding: 20px 28px; overflow: hidden; background: var(--studio-canvas); }
@@ -283,7 +282,7 @@ html[data-palette][data-theme] .app-shell.classic-shell .queue-footer { border-c
   .studio-shell .studio-welcome-heading h1 { font-size: 28px; }
   html .app-shell.studio-shell.studio-shell .preview-panel { grid-template-rows: 56px minmax(0,1fr) 64px; }
   html .app-shell.studio-shell .preview-stage { padding: 12px 20px; }
-  html .app-shell.studio-shell .result-strip { padding-block: 8px; }
+  html .app-shell.studio-shell .result-strip { padding-block: 5px; }
 }
 
 /* Native document scrolling is disabled. Every plugin gets a bounded viewport,

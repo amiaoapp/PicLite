@@ -4207,8 +4207,7 @@ function PicLiteWorkbench({ nativeBridge, initialView = "workspace", standaloneP
             </div>
 
             <div className="queue-footer">
-              <button className="paste-button" type="button" onClick={importFromClipboard}><span>⌘</span> {t("从剪贴板粘贴", "Paste from clipboard")}</button>
-              <small>{t("也可随时按 Ctrl + V", "You can also press Ctrl + V")}</small>
+              <button className="paste-button" type="button" title={t("也可通过粘贴快捷键导入", "You can also use your paste shortcut")} onClick={importFromClipboard}><span aria-hidden="true">⌘</span> {t("从剪贴板粘贴", "Paste from clipboard")}</button>
             </div>
           </aside>
 

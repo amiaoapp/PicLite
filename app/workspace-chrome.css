@@ -80,14 +80,14 @@ html[data-density] .app-shell.desktop-app .workspace>:is(.queue-panel,.preview-p
 /* Typography can grow independently of the image canvas. Reserve the actual
    toolbar content height instead of painting it into a fixed 50px grid row. */
 html[data-density] .app-shell:is(.desktop-app,.web-app) .workspace>.preview-panel{grid-template-rows:minmax(50px,max-content) minmax(0,1fr) auto}
-/* The tallest footer sets the row height, including when trial results wrap. */
+/* The tallest footer sets the row height, including when controls wrap. */
 @supports(grid-template-rows:subgrid){
   @media(min-width:801px){
-    html[data-density] .app-shell:is(.studio-shell.studio-shell,.desktop-app.classic-shell) .workspace{grid-template-rows:auto minmax(0,1fr) minmax(72px,max-content)}
+    html[data-density] .app-shell:is(.studio-shell.studio-shell,.desktop-app.classic-shell) .workspace{grid-template-rows:auto minmax(0,1fr) minmax(56px,max-content)}
     html[data-density] .app-shell:is(.studio-shell.studio-shell,.desktop-app.classic-shell) .workspace>:is(.queue-panel,.preview-panel,.settings-panel){display:grid;grid-row:1 / -1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid;row-gap:0}
   }
   @media(min-width:901px){
-    html[data-density] .app-shell.web-app.classic-shell .workspace{grid-template-rows:auto minmax(0,1fr) minmax(72px,max-content)}
+    html[data-density] .app-shell.web-app.classic-shell .workspace{grid-template-rows:auto minmax(0,1fr) minmax(56px,max-content)}
     html[data-density] .app-shell.web-app.classic-shell .workspace>:is(.queue-panel,.preview-panel,.settings-panel){display:grid;grid-column:auto;grid-row:1 / -1;grid-template-columns:minmax(0,1fr);grid-template-rows:subgrid;row-gap:0}
   }
 }
@@ -111,25 +111,25 @@ html[data-density] .app-shell .workspace .hero-dropzone{min-height:0;max-height:
 @media(min-width:1100px){.app-shell.web-app .plugin-import-panel{grid-template-columns:minmax(180px,.8fr) minmax(240px,1.2fr)}.app-shell.web-app .plugin-import-panel>button:first-child,.app-shell.web-app .plugin-import-panel>button:last-child{grid-column:1/-1}}
 /* Fit the decorative photo to the available preview height. Enlarged text must
    keep import actions visible without creating a nested welcome scrollbar. */
-html .app-shell.web-app.studio-shell .preview-stage:has(>.studio-welcome){container:studio-welcome-stage / size}
-html .app-shell.web-app.studio-shell .studio-welcome{height:100%;max-height:100%;min-height:0;flex-shrink:0;justify-content:center;overflow:visible}
-html .app-shell.web-app.studio-shell .studio-welcome>*{flex-shrink:0}
-html .app-shell.web-app.studio-shell .studio-welcome>.studio-photo-button{display:flex;min-height:0;flex-shrink:1}
-html .app-shell.web-app.studio-shell .studio-photo-button figure{display:flex;flex-direction:column;min-height:0;width:100%}
-html .app-shell.web-app.studio-shell .studio-photo-button img{min-height:0;flex:1 1 auto;object-fit:cover}
-html .app-shell.web-app.studio-shell .studio-photo-button figcaption{flex:0 0 36px}
+html .app-shell.studio-shell .preview-stage:has(>.studio-welcome){container:studio-welcome-stage / size}
+html .app-shell.studio-shell .studio-welcome{height:100%;max-height:100%;min-height:0;flex-shrink:0;justify-content:center;overflow:visible}
+html .app-shell.studio-shell .studio-welcome>*{flex-shrink:0}
+html .app-shell.studio-shell .studio-welcome>.studio-photo-button{display:flex;min-height:0;flex-shrink:1}
+html .app-shell.studio-shell .studio-photo-button figure{display:flex;flex-direction:column;min-height:0;width:100%}
+html .app-shell.studio-shell .studio-photo-button img{min-height:0;flex:1 1 auto;object-fit:cover}
+html .app-shell.studio-shell .studio-photo-button figcaption{flex:0 0 36px}
 @container studio-welcome-stage (max-height:360px){
-  html .app-shell.web-app.studio-shell .studio-welcome>.studio-photo-button{display:none}
-  html .app-shell.web-app.studio-shell .studio-welcome{gap:16px}
+  html .app-shell.studio-shell .studio-welcome>.studio-photo-button{display:none}
+  html .app-shell.studio-shell .studio-welcome{gap:16px}
 }
 @container studio-welcome-stage (max-height:260px){
-  html .app-shell.web-app.studio-shell .studio-welcome{gap:6px}
-  html .app-shell.web-app.studio-shell .studio-welcome-heading h1{font-size:22px}
-  html .app-shell.web-app.studio-shell .studio-welcome-heading p{display:none}
-  html .app-shell.web-app.studio-shell .studio-import{gap:6px}
+  html .app-shell.studio-shell .studio-welcome{gap:6px}
+  html .app-shell.studio-shell .studio-welcome-heading h1{font-size:22px}
+  html .app-shell.studio-shell .studio-welcome-heading p{display:none}
+  html .app-shell.studio-shell .studio-import{gap:6px}
 }
 @container studio-welcome-stage (max-height:180px){
-  html .app-shell.web-app.studio-shell .studio-welcome-heading{display:none}
+  html .app-shell.studio-shell .studio-welcome-heading{display:none}
 }
 
 /* Keep action slots reserved; the tool rail, never the actions, absorbs overflow. */

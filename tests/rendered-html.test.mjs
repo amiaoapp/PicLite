@@ -26,8 +26,8 @@ test("renders the PicLite product shell", async () => {
   assert.match(html, /导入文件夹/);
   assert.match(html, /目标文件大小/);
   assert.match(html, /本地处理，图片不上传/);
-  assert.match(html, /画质 \/ 编码质量/);
+  assert.match(html, /for="quality-range">画质<\/label>/);
   assert.match(html, /等比例尺寸/);
-  assert.match(html, /继续减半/);
+  assert.match(html, /title="将当前比例减半"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
